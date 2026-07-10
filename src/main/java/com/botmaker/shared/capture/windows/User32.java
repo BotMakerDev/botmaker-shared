@@ -27,6 +27,17 @@ public interface User32 extends StdCallLibrary {
     boolean GetWindowRect(Pointer hWnd, RECT rect);
     boolean GetClientRect(HWND hWnd, RECT rect);
 
+    /* ---------  enumeration filtering (alt-tab heuristic)  --------- */
+
+    boolean IsWindowVisible(Pointer hWnd);
+    int     GetWindowLongA(Pointer hWnd, int nIndex);   // GWL_EXSTYLE fits in 32 bits, valid on Win64
+    Pointer GetWindow(Pointer hWnd, int uCmd);          // GW_OWNER → owning window, null if top-level
+
+    int GWL_EXSTYLE      = -20;
+    int WS_EX_TOOLWINDOW = 0x00000080;
+    int WS_EX_APPWINDOW  = 0x00040000;
+    int GW_OWNER         = 4;
+
     /* ---------  DC / painting  --------- */
 
     HDC GetDC(HWND hWnd);

@@ -18,32 +18,53 @@ public final class WindowCapture {
 	private WindowCapture() {}
 
 	public static BufferedImage capture(HWND hWnd) {
-		// Get screen dimensions for fullscreen check
-		Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-		RECT screenRect = new RECT();
-		screenRect.left = 0;
-		screenRect.top = 0;
-		screenRect.right = (int) screenSize.getWidth();
-		screenRect.bottom = (int) screenSize.getHeight();
-
-		// Get window dimensions
 		RECT windowRect = new RECT();
-		User32.INSTANCE.GetWindowRect(hWnd.getPointer(), windowRect);
+		if (!User32.INSTANCE.GetWindowRect(hWnd.getPointer(), windowRect)
+				|| windowRect.right - windowRect.left <= 0 || windowRect.bottom - windowRect.top <= 0) {
+			return null;
+		}
 
-		BufferedImage image;
+		boolean foreground = User32.INSTANCE.GetForegroundWindow().equals(hWnd);
 
-		// Check if the window is fullscreen. If so, Robot is more reliable.
-		if (windowRect.toString().equals(screenRect.toString()) && User32.INSTANCE.GetForegroundWindow().equals(hWnd)) {
-			image = captureWithRobot(windowRect);
-		} else {
-			// For windowed mode, GDI is faster, with a fallback to Robot.
-			image = captureWithGDI(hWnd);
-			// Fallback for black, invalid, or frozen (stale) images.
-			if (image == null || image.getWidth() == 0 || image.getHeight() == 0 || isBlack(image)) {
-				image = captureWithRobot(windowRect);
+		// A foreground window that fills a whole monitor is (borderless-)fullscreen. GDI PrintWindow
+		// frequently returns black for such D3D/OpenGL game surfaces, so the on-screen framebuffer (Robot)
+		// is the reliable source. (True *exclusive*-fullscreen bypasses the DWM and can't be captured by
+		// either GDI or Robot — the borderless-windowed workaround is required; see ROADMAP.)
+		if (foreground && coversAnyMonitor(windowRect)) {
+			BufferedImage robot = captureWithRobot(windowRect);
+			if (robot != null && !isBlack(robot)) {
+				return robot;
+			}
+		}
+
+		// Windowed mode: GDI is fast and captures occluded/background windows without raising them.
+		BufferedImage image = captureWithGDI(hWnd);
+		if (image == null || image.getWidth() == 0 || image.getHeight() == 0 || isBlack(image)) {
+			// PrintWindow came back black/invalid — fall back to the on-screen framebuffer at the window's rect.
+			BufferedImage robot = captureWithRobot(windowRect);
+			if (robot != null && !isBlack(robot)) {
+				return robot;
 			}
 		}
 		return image;
+	}
+
+	/** Whether {@code windowRect} covers (to a small tolerance) the full bounds of any connected monitor. */
+	private static boolean coversAnyMonitor(RECT windowRect) {
+		int w = windowRect.right - windowRect.left;
+		int h = windowRect.bottom - windowRect.top;
+		try {
+			GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+			for (GraphicsDevice device : devices) {
+				Rectangle b = device.getDefaultConfiguration().getBounds();
+				if (Math.abs(w - b.width) <= 2 && Math.abs(h - b.height) <= 2) {
+					return true;
+				}
+			}
+		} catch (HeadlessException ignored) {
+			// No displays (headless) — treat as non-fullscreen.
+		}
+		return false;
 	}
 
 	private static BufferedImage captureWithGDI(HWND hWnd) {

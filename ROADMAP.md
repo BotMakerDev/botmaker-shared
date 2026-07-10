@@ -8,6 +8,28 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-11 — Windows enum filter, fullscreen fallback, Linux "same content" regression fix
+
+**Done**
+- **Windows enumeration filter.** `WindowFinder.getAllWindows` returned 100–200+ handles (any window with a
+  title). It now applies the alt-tab heuristic (`isRealAppWindow`): visible, unowned (or `WS_EX_APPWINDOW`),
+  not `WS_EX_TOOLWINDOW`, not DWM-**cloaked** (new `Dwmapi` binding, `DWMWA_CLOAKED`), non-zero size, non-empty
+  title — collapsing the list to the ~handful of real app windows. New `User32` bindings: `IsWindowVisible`,
+  `GetWindowLongA`, `GetWindow` (+ `GWL_EXSTYLE`/`WS_EX_*`/`GW_OWNER` constants).
+- **Windows fullscreen capture (`WindowCapture`).** Multi-monitor aware: a foreground window that fills *any*
+  monitor (not just the primary, matched exactly before) is treated as borderless-fullscreen and captured via
+  `Robot` (GDI `PrintWindow` returns black for D3D/OpenGL surfaces). GDI still leads for windowed/background
+  windows, with a Robot-at-window-rect fallback on a black/invalid frame.
+- **Linux "all windows show the same content" regression fix (`LinuxController.captureWindow`).** The
+  root-window crop reads whatever is *visually* at the window's rect, so running it for background/occluded
+  windows returned the window in front — making every capture identical. Root-crop is now gated on the
+  **foreground** window (`isForeground` via `_NET_ACTIVE_WINDOW`); background windows fall back to the
+  on-window `XGetImage` (their own un-occluded pixels), never another window's content.
+
+**Deferred / next**
+- True *exclusive*-fullscreen games on Windows still can't be captured by GDI/Robot (needs DXGI Desktop
+  Duplication). Workaround stays: run the game borderless-windowed. Same borderless note as the Linux path.
+
 `## 2026-07-10 — Fullscreen-game capture: keep KWin compositing + root-crop fallback
 `
 **Done**

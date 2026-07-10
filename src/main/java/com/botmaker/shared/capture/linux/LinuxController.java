@@ -358,10 +358,15 @@ public class LinuxController implements NativeController, AutoCloseable {
 			BufferedImage result = decode(image);
 			if (image != null) { image.destroyImage(); image = null; }
 
-			// If the composite read is unavailable or came back all-black (compositor unredirected /
-			// mid-transition), fall back to reading the on-screen framebuffer at the window's absolute
-			// rect. This loses occluded pixels but recovers real content for a fullscreen game.
-			if (result == null || isAllBlack(result)) {
+			if (result != null && !isAllBlack(result)) {
+				return result;
+			}
+
+			// Composite read unavailable or all-black (compositor unredirected / mid-transition). The
+			// root-window crop reads whatever is *visually* at the window's rect — which is correct only
+			// for the foreground window. For a background/occluded window it returns the window sitting in
+			// front, which is exactly what made every window look identical. So gate root-crop on foreground.
+			if (isForeground(x11Window)) {
 				image = X11.INSTANCE.XGetImage(display, X11.INSTANCE.XDefaultRootWindow(display),
 						rect.x, rect.y, rect.width, rect.height,
 						new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
@@ -370,21 +375,37 @@ public class LinuxController implements NativeController, AutoCloseable {
 				if (rootCrop != null && !isAllBlack(rootCrop)) {
 					return rootCrop;
 				}
-				if (result != null) {
-					return result; // both black — return the composite frame rather than nothing
-				}
-				// Last resort: the on-window drawable (occluded regions read black, but un-occluded pixels work).
-				image = X11.INSTANCE.XGetImage(display, x11Window, 0, 0, rect.width, rect.height,
-						new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
-				return decode(image);
 			}
-			return result;
+
+			// On-window drawable: this window's own un-occluded pixels. Occluded regions read black, but it
+			// is never *another* window's content — so background windows keep their own (partial) frame.
+			image = X11.INSTANCE.XGetImage(display, x11Window, 0, 0, rect.width, rect.height,
+					new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
+			BufferedImage onWindow = decode(image);
+			if (image != null) { image.destroyImage(); image = null; }
+			if (onWindow != null && !isAllBlack(onWindow)) {
+				return onWindow;
+			}
+
+			// Nothing usable — return the composite frame (even if black) over null so the caller still
+			// gets correct geometry rather than falling all the way back to a full-desktop capture.
+			return result != null ? result : onWindow;
 
 		} catch (Throwable e) {
 			System.err.println("[Linux] Error capturing window: " + e.getMessage());
 			return null;
 		} finally {
 			if (image != null) image.destroyImage();
+		}
+	}
+
+	/** Whether {@code x11Window} is the EWMH active (foreground) window — the only one root-crop is valid for. */
+	private boolean isForeground(Pointer x11Window) {
+		try {
+			Pointer active = X11Utils.getActiveWindow(display);
+			return active != null && Pointer.nativeValue(active) == Pointer.nativeValue(x11Window);
+		} catch (Throwable t) {
+			return false;
 		}
 	}
 
