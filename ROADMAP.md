@@ -8,6 +8,23 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-12 — Reliable key recording + EWMH window activation
+
+**Done**
+- **X11InputListener: keysym lookups on a dedicated connection.** `XKeycodeToKeysym` was being called on the
+  `dataDisplay` while it was blocked inside `XRecordEnableContext`; the first call's lazy keyboard-mapping
+  fetch is a server round-trip on that busy connection, which returned `NoSymbol(0)` and silently dropped
+  **every** recorded keystroke (mouse events still worked — they never resolve a keysym). Added a third,
+  dedicated `keysymDisplay` connection, used only on the record/callback thread, for all keycode→keysym
+  lookups. This is the fix for "macro recorder registers clicks/scroll but not keyboard" on X11.
+- **`LinuxController.focusWindow`/`restoreWindow` now also EWMH-activate.** Added an `_NET_ACTIVE_WINDOW`
+  client-message path (`activateWindow`) sent to the root with `SubstructureRedirect|SubstructureNotify`, so
+  reparenting/EWMH window managers that ignore a bare `XRaiseWindow`/`XSetInputFocus` still bring the target
+  to the foreground. New `X11.XClientMessageEvent` struct + `ClientMessage`/substructure-mask constants + a
+  second `XSendEvent` binding. Best-effort (no-op when the WM doesn't advertise the atom).
+
+---
+
 ## 2026-07-11 — Global input listener (X11 XRecord) for the Studio macro recorder
 
 **Done**

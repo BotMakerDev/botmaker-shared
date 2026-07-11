@@ -51,6 +51,7 @@ public interface X11 extends Library {
 	int ButtonPress = 4;
 	int ButtonRelease = 5;
 	int MotionNotify = 6;
+	int ClientMessage = 33;
 
 	// Event mask bits (X.h) — used as the XSendEvent event_mask so the event is delivered
 	// to the window's owning client even when we target a specific window.
@@ -59,6 +60,10 @@ public interface X11 extends Library {
 	long ButtonPressMask = 1L << 2;
 	long ButtonReleaseMask = 1L << 3;
 	long PointerMotionMask = 1L << 6;
+	// Root-window event masks for EWMH client messages (X.h) — a _NET_ACTIVE_WINDOW request is sent to the
+	// root with SubstructureRedirect|SubstructureNotify so the window manager receives and honours it.
+	long SubstructureNotifyMask = 1L << 19;
+	long SubstructureRedirectMask = 1L << 20;
 
 	long CurrentTime = 0L;
 
@@ -118,6 +123,11 @@ public interface X11 extends Library {
 	// event to the client even if it hasn't selected for it. Returns 0 on failure (BadWindow/BadValue).
 	int XSendEvent(Pointer display, Pointer window, boolean propagate, com.sun.jna.NativeLong eventMask,
 				   XButtonEvent event);
+
+	// Same C function, bound again with the ClientMessage layout — used to send an EWMH _NET_ACTIVE_WINDOW
+	// request to the root window (activate/raise a window on WMs that ignore a bare XRaiseWindow).
+	int XSendEvent(Pointer display, Pointer window, boolean propagate, com.sun.jna.NativeLong eventMask,
+				   XClientMessageEvent event);
 
 	// Window geometry mutation (move / resize)
 	int XMoveWindow(Pointer display, Pointer window, int x, int y);
@@ -211,6 +221,32 @@ public interface X11 extends Library {
 		protected List<String> getFieldOrder() {
 			return Arrays.asList("type", "serial", "send_event", "display", "window", "root", "subwindow",
 				"time", "x", "y", "x_root", "y_root", "state", "button", "same_screen", "pad");
+		}
+	}
+
+	/**
+	 * XClientMessageEvent (Xlib.h) — a client message delivered via {@link #XSendEvent}. Used to send an EWMH
+	 * {@code _NET_ACTIVE_WINDOW} request to the root window so the window manager activates/raises a target
+	 * (bare {@code XRaiseWindow} is ignored by many reparenting/EWMH WMs). For format 32 the {@code data} union
+	 * is five C {@code long}s (8 bytes each on 64-bit); {@code l[0]} is the source indication (2 = pager, which
+	 * WMs honour past focus-stealing prevention). Padded past {@code sizeof(XEvent)} (192B) like {@link XButtonEvent}.
+	 */
+	class XClientMessageEvent extends Structure {
+		public int type;                       // ClientMessage
+		public com.sun.jna.NativeLong serial;
+		public int send_event;                 // Bool
+		public Pointer display;
+		public com.sun.jna.NativeLong window;  // target window (XID)
+		public com.sun.jna.NativeLong message_type; // the message atom (e.g. _NET_ACTIVE_WINDOW)
+		public int format;                     // 8/16/32 — 32 for _NET_ACTIVE_WINDOW
+		public long[] data = new long[5];      // data.l[0..4] (64-bit long matches C long on our targets)
+		// Pad past sizeof(XEvent) (192B on 64-bit) so XSendEvent never reads past our buffer.
+		public byte[] pad = new byte[128];
+
+		@Override
+		protected List<String> getFieldOrder() {
+			return Arrays.asList("type", "serial", "send_event", "display", "window", "message_type",
+				"format", "data", "pad");
 		}
 	}
 

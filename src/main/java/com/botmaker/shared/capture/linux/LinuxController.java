@@ -262,6 +262,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			X11.INSTANCE.XMapWindow(display, x11Window);
 			X11.INSTANCE.XRaiseWindow(display, x11Window);
 			X11.INSTANCE.XSetInputFocus(display, x11Window, X11.RevertToParent, 0);
+			activateWindow(x11Window);
 			X11.INSTANCE.XFlush(display);
 		} catch (Exception e) {
 			System.err.println("[Linux] Error restoring window: " + e.getMessage());
@@ -564,9 +565,42 @@ public class LinuxController implements NativeController, AutoCloseable {
 			Pointer x11Window = (Pointer) window.getNativeHandle();
 			X11.INSTANCE.XRaiseWindow(display, x11Window);
 			X11.INSTANCE.XSetInputFocus(display, x11Window, X11.RevertToParent, 0);
+			activateWindow(x11Window);
 			X11.INSTANCE.XFlush(display);
 		} catch (Exception e) {
 			System.err.println("[Linux] Error focusing window: " + e.getMessage());
+		}
+	}
+
+	/**
+	 * Best-effort EWMH activation: send a {@code _NET_ACTIVE_WINDOW} client message to the root window so the
+	 * window manager brings {@code x11Window} to the foreground. Many reparenting/EWMH WMs ignore a bare
+	 * {@code XRaiseWindow}/{@code XSetInputFocus} on a background window and only honour this request. No-op
+	 * (silently) when the WM doesn't advertise the atom.
+	 */
+	private void activateWindow(Pointer x11Window) {
+		try {
+			Pointer atom = X11.INSTANCE.XInternAtom(display, "_NET_ACTIVE_WINDOW", true);
+			if (atom == null || Pointer.nativeValue(atom) == 0) {
+				return; // non-EWMH WM
+			}
+			Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
+			X11.XClientMessageEvent ev = new X11.XClientMessageEvent();
+			ev.type = X11.ClientMessage;
+			ev.send_event = 1;
+			ev.display = display;
+			ev.window = new com.sun.jna.NativeLong(Pointer.nativeValue(x11Window));
+			ev.message_type = new com.sun.jna.NativeLong(Pointer.nativeValue(atom));
+			ev.format = 32;
+			ev.data[0] = 2;                 // source indication: pager (honoured past focus-stealing prevention)
+			ev.data[1] = X11.CurrentTime;   // timestamp
+			ev.data[2] = 0;                 // requestor's currently-active window (none)
+			ev.data[3] = 0;
+			ev.data[4] = 0;
+			long mask = X11.SubstructureRedirectMask | X11.SubstructureNotifyMask;
+			X11.INSTANCE.XSendEvent(display, root, false, new com.sun.jna.NativeLong(mask), ev);
+		} catch (Exception e) {
+			// best-effort — leave the plain XRaiseWindow/XSetInputFocus result in place
 		}
 	}
 

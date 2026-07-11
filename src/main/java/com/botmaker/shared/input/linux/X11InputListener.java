@@ -36,6 +36,13 @@ public final class X11InputListener implements InputListener {
 
 	private Pointer controlDisplay;
 	private Pointer dataDisplay;
+	// A third, dedicated connection used ONLY for keycode→keysym lookups from the record callback. It must not
+	// be the dataDisplay: that one is blocked inside XRecordEnableContext, and XKeycodeToKeysym's first call
+	// lazily fetches the keyboard mapping (a server round-trip) — issuing that on the busy record connection
+	// corrupts the protocol stream / returns NoSymbol(0), which silently dropped every recorded keystroke while
+	// mouse events (which never resolve a keysym) kept working. This connection is touched only on the record
+	// (callback) thread, so it needs no cross-thread locking.
+	private Pointer keysymDisplay;
 	private NativeLong context;
 	private Thread thread;
 	// Strong reference so the JNA callback isn't garbage-collected while native code holds it.
@@ -49,7 +56,8 @@ public final class X11InputListener implements InputListener {
 
 		controlDisplay = x11.XOpenDisplay(null);
 		dataDisplay = x11.XOpenDisplay(null);
-		if (controlDisplay == null || dataDisplay == null) {
+		keysymDisplay = x11.XOpenDisplay(null);
+		if (controlDisplay == null || dataDisplay == null || keysymDisplay == null) {
 			cleanupDisplays();
 			throw new IllegalStateException("Couldn't open X display for input recording (is DISPLAY set?).");
 		}
@@ -142,12 +150,12 @@ public final class X11InputListener implements InputListener {
 	}
 
 	/**
-	 * keycode → keysym at the given shift level. Uses the <b>data</b> display because this runs on the
-	 * XRecord callback (data) thread; the control display is touched by {@link #close()} on another thread and
-	 * Xlib isn't safe to share a display across threads.
+	 * keycode → keysym at the given shift level. Uses the dedicated {@link #keysymDisplay} — never the
+	 * dataDisplay (blocked inside XRecordEnableContext) nor the controlDisplay (touched by {@link #close()} on
+	 * another thread). Runs only on the XRecord callback thread, which is the sole user of keysymDisplay.
 	 */
 	private long keysym(int keycode, int index) {
-		NativeLong ks = x11.XKeycodeToKeysym(dataDisplay, (byte) keycode, index);
+		NativeLong ks = x11.XKeycodeToKeysym(keysymDisplay, (byte) keycode, index);
 		return ks == null ? 0 : ks.longValue();
 	}
 
@@ -165,8 +173,10 @@ public final class X11InputListener implements InputListener {
 	}
 
 	private void cleanupDisplays() {
+		try { if (keysymDisplay != null) x11.XCloseDisplay(keysymDisplay); } catch (Throwable ignored) {}
 		try { if (dataDisplay != null) x11.XCloseDisplay(dataDisplay); } catch (Throwable ignored) {}
 		try { if (controlDisplay != null) x11.XCloseDisplay(controlDisplay); } catch (Throwable ignored) {}
+		keysymDisplay = null;
 		dataDisplay = null;
 		controlDisplay = null;
 	}
