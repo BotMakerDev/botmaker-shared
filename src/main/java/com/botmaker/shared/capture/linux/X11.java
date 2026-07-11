@@ -141,6 +141,12 @@ public interface X11 extends Library {
 	// Keyboard: map an X keysym to a physical keycode for XTest injection
 	byte XKeysymToKeycode(Pointer display, long keysym);
 
+	// Keyboard: the inverse — map a physical keycode back to a keysym for a given shift level
+	// ({@code index} 0 = unshifted, 1 = shifted). Deprecated in Xlib but still exported by libX11 and the
+	// simplest way to decode a recorded key event; used by the X11 input listener. Returns 0 (NoSymbol) when
+	// the keycode has no symbol at that level.
+	com.sun.jna.NativeLong XKeycodeToKeysym(Pointer display, byte keycode, int index);
+
 	// Atoms
 	Pointer XInternAtom(Pointer display, String atomName, boolean onlyIfExists);
 	int XGetAtomName(Pointer display, Pointer atom, PointerByReference nameReturn);

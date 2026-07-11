@@ -8,6 +8,30 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-11 — Global input listener (X11 XRecord) for the Studio macro recorder
+
+**Done**
+- **New `input/` package: passive global input observation.** `InputListener` (interface) +
+  `InputEvent` (sealed record family: `ButtonPress`/`ButtonRelease`/`Motion`/`KeyPress`/`KeyRelease`, absolute
+  screen coords + wall-clock timestamp; key events carry the shift-resolved keysym) + `InputListenerFactory`
+  (OS-gated; `isSupported()` = Linux). Mirrors the `ipc.TelemetryEvent` "one wire vocabulary both modules
+  share" pattern. This is the **observe** counterpart to the existing input **synthesis** on `NativeController`
+  — nothing here injects input, and XRecord cannot swallow events (passive only), so the app keeps receiving
+  its input normally.
+- **`capture/linux/XRecord.java`** — JNA bindings for the XRecord extension (same `libXtst` as `XTest`).
+  To avoid mapping the intricate `XRecordRange`/`XRecordInterceptData` structs, it uses `XRecordAllocRange`
+  and reads/writes the two `device_events` bytes + the intercept-data fields at documented byte offsets.
+  Added `X11.XKeycodeToKeysym` (the inverse of the existing `XKeysymToKeycode`) to decode recorded keys.
+- **`input/linux/X11InputListener.java`** — opens two X connections (control + a data connection for the
+  blocking `XRecordEnableContext` loop on a named daemon thread), decodes device events to `InputEvent`s,
+  tracks Shift for correct key casing, and `close()`s by `XRecordDisableContext` on the control connection —
+  the same daemon-thread + `volatile boolean` + unblock-on-close lifecycle shape as `ipc.TelemetryServer`.
+
+**Deferred / next**
+- **Windows listener** (`SetWindowsHookEx WH_MOUSE_LL/WH_KEYBOARD_LL`) to make the recorder cross-platform.
+- Modifier **combos** (Ctrl/Alt+key): currently standalone modifier keys are surfaced but the Studio
+  translator drops them; a real combo → `Keyboard.combo(...)` path is future work.
+
 ## 2026-07-11 — Windows enum filter, fullscreen fallback, Linux "same content" regression fix
 
 **Done**
