@@ -265,26 +265,40 @@ public class X11Utils {
 	 * best-effort nudges the WM stacks over fullscreen:
 	 * <ul>
 	 *   <li>set {@code _NET_WM_WINDOW_TYPE} = {@code _NET_WM_WINDOW_TYPE_NOTIFICATION} — notification
-	 *       surfaces are drawn over fullscreen by mutter/KWin/most EWMH WMs;</li>
+	 *       surfaces are drawn over fullscreen by mutter/KWin/most EWMH WMs. Crucially, most WMs read this
+	 *       type <em>only at map time</em>, so when the overlay is already mapped we must
+	 *       <em>unmap → set the property → remap</em> to force a re-read; a bare {@code XChangeProperty} on a
+	 *       live window is silently ignored (the bug this fixes). We only remap when the type isn't already
+	 *       notification, so the re-raise loop's repeat calls don't flicker;</li>
 	 *   <li>send a {@code _NET_WM_STATE} <em>ADD {@code _NET_WM_STATE_ABOVE}</em> client message to the
 	 *       root (same delivery path as {@code _NET_ACTIVE_WINDOW}), then {@code XRaiseWindow}.</li>
 	 * </ul>
-	 * Everything is swallowed on error (harmless on a WM that ignores the hints). Idempotent.
+	 * Everything is swallowed on error (harmless on a WM that ignores the hints, or a true exclusive-fullscreen
+	 * Wine/Proton game that bypasses the WM entirely). Idempotent.
 	 */
 	public static void promoteAboveFullscreen(Pointer display, Pointer window) {
 		if (window == null || Pointer.nativeValue(window) == 0) {
 			return;
 		}
 		try {
-			// 1. Window type NOTIFICATION — stacked above fullscreen by most WMs.
+			// 1. Window type NOTIFICATION — stacked above fullscreen by most WMs. Remap so the WM re-reads it.
 			Pointer typeProp = X11.INSTANCE.XInternAtom(display, "_NET_WM_WINDOW_TYPE", false);
 			Pointer notif = X11.INSTANCE.XInternAtom(display, "_NET_WM_WINDOW_TYPE_NOTIFICATION", false);
 			if (typeProp != null && Pointer.nativeValue(typeProp) != 0
-				&& notif != null && Pointer.nativeValue(notif) != 0) {
+				&& notif != null && Pointer.nativeValue(notif) != 0
+				&& !isWindowType(display, window, typeProp, notif)) {
+				boolean viewable = isWindowViewable(display, window);
+				if (viewable) {
+					X11.INSTANCE.XUnmapWindow(display, window);   // force the WM to re-read the type on remap
+				}
 				com.sun.jna.Memory data = new com.sun.jna.Memory(com.sun.jna.Native.LONG_SIZE);
 				data.setNativeLong(0, new com.sun.jna.NativeLong(Pointer.nativeValue(notif)));
 				X11.INSTANCE.XChangeProperty(display, window, typeProp, new Pointer(X11.XA_ATOM), 32,
 					X11.PropModeReplace, data, 1);
+				if (viewable) {
+					X11.INSTANCE.XMapWindow(display, window);
+				}
+				X11.INSTANCE.XFlush(display);
 			}
 
 			// 2. _NET_WM_STATE: ADD _NET_WM_STATE_ABOVE via a root client message.
@@ -313,6 +327,41 @@ public class X11Utils {
 			X11.INSTANCE.XFlush(display);
 		} catch (Throwable ignored) {
 			// Best-effort; the overlay still shows (just possibly under a fullscreen window).
+		}
+	}
+
+	/**
+	 * True when {@code window}'s {@code typeProp} ({@code _NET_WM_WINDOW_TYPE}, an ATOM array) already
+	 * contains {@code wanted}. Lets {@link #promoteAboveFullscreen} skip the unmap/remap on repeat calls.
+	 */
+	private static boolean isWindowType(Pointer display, Pointer window, Pointer typeProp, Pointer wanted) {
+		PointerByReference actualType = new PointerByReference();
+		IntByReference actualFormat = new IntByReference();
+		IntByReference nItems = new IntByReference();
+		IntByReference bytesAfter = new IntByReference();
+		PointerByReference prop = new PointerByReference();
+		int result = X11.INSTANCE.XGetWindowProperty(
+			display, window, typeProp,
+			0, 32, false,
+			new Pointer(X11.XA_ATOM),
+			actualType, actualFormat, nItems, bytesAfter, prop);
+		if (result != X11.Success || nItems.getValue() <= 0) {
+			return false;
+		}
+		Pointer p = prop.getValue();
+		if (p == null) {
+			return false;
+		}
+		try {
+			long wantedId = Pointer.nativeValue(wanted);
+			for (int i = 0; i < nItems.getValue(); i++) {
+				if (p.getLong(i * 8L) == wantedId) {
+					return true;
+				}
+			}
+			return false;
+		} finally {
+			X11.INSTANCE.XFree(p);
 		}
 	}
 }

@@ -141,6 +141,9 @@ public interface X11 extends Library {
 	// Map (show) a window. On a top-level window that is iconified/minimized this de-iconifies it per
 	// ICCCM 4.1.4 — the WM restores it to Normal state — so its pixels become readable by XGetImage again.
 	int XMapWindow(Pointer display, Pointer window);
+	// Unmap (hide) a window. Paired with XChangeProperty + XMapWindow to force a WM to re-read a property it
+	// only inspects at map time — notably _NET_WM_WINDOW_TYPE (see X11Utils.promoteAboveFullscreen).
+	int XUnmapWindow(Pointer display, Pointer window);
 
 	// Install a process-wide Xlib error handler; returns the previous one. The default Xlib handler prints
 	// non-fatal protocol errors (BadMatch/BadWindow/BadDrawable — e.g. XGetImage racing a window unmap) to

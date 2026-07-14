@@ -8,6 +8,19 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-14 — Overlay-above-fullscreen: remap so the WM re-reads the window type
+
+**Done**
+- **`X11Utils.promoteAboveFullscreen` now unmaps→sets `_NET_WM_WINDOW_TYPE=NOTIFICATION`→remaps** instead of a
+  bare `XChangeProperty`. Most WMs read the window type **only at map time**, so setting it on an already-mapped
+  overlay was silently ignored — that's why overlays still slipped behind a fullscreen app (e.g. Firestone).
+  The remap forces a re-read and the WM reclassifies the overlay as a notification (stacked over fullscreen).
+  Guarded by a new `isWindowType` check so repeat calls (Studio's re-raise timer) skip the remap — no flicker.
+- New **`X11.XUnmapWindow`** binding. Still best-effort (swallows errors; a true exclusive-fullscreen
+  Wine/Proton game that bypasses the WM remains uncoverable — documented limitation).
+
+---
+
 ## 2026-07-14 — Promote Studio overlays above fullscreen windows (X11)
 
 **Done**
