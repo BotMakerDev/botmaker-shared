@@ -8,6 +8,21 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-14 — Promote Studio overlays above fullscreen windows (X11)
+
+**Done**
+- **`NativeController.promoteOverlayAboveFullscreen(String windowTitle)`** (default no-op; implemented by
+  `LinuxController`, no-op on Windows). Studio's transparent always-on-top overlays (Overlay Editor, capture
+  toolbar/surfaces) were only `_NET_WM_STATE_ABOVE`, which the WM still ranks below a fullscreen
+  (`_NET_WM_STATE_FULLSCREEN`) game — so overlays vanished behind fullscreen apps. `LinuxController` resolves
+  the overlay's X11 window by title (`X11Utils.getClientList` + `getWindowTitle`) and promotes it.
+- **`X11Utils.promoteAboveFullscreen(display, window)`** (mirrors `setKeepComposited`): sets
+  `_NET_WM_WINDOW_TYPE = _NET_WM_WINDOW_TYPE_NOTIFICATION` (notification surfaces draw over fullscreen on
+  mutter/KWin) + sends a `_NET_WM_STATE` ADD `_NET_WM_STATE_ABOVE` root client message, then `XRaiseWindow`.
+  New `X11.XA_ATOM` / `_NET_WM_STATE_ADD` constants. Best-effort (swallows errors; degrades on Wayland).
+
+---
+
 ## 2026-07-12 — Reliable key recording + EWMH window activation
 
 **Done**

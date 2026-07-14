@@ -632,6 +632,27 @@ public class LinuxController implements NativeController, AutoCloseable {
 		}
 	}
 
+	@Override
+	public void promoteOverlayAboveFullscreen(String windowTitle) {
+		checkNotClosed();
+		if (!x11Available || windowTitle == null || windowTitle.isEmpty()) {
+			return;
+		}
+		try {
+			Pointer[] windows = X11Utils.getClientList(display);
+			if (windows == null) {
+				return;
+			}
+			for (Pointer w : windows) {
+				if (windowTitle.equals(X11Utils.getWindowTitle(display, w))) {
+					X11Utils.promoteAboveFullscreen(display, w);
+				}
+			}
+		} catch (Exception e) {
+			System.err.println("[Linux] promoteOverlayAboveFullscreen failed: " + e.getMessage());
+		}
+	}
+
 	// --- Input synthesis (delegated to the selected LinuxInputBackend) ---
 
 	private static final int KEYSYM_SHIFT_L = 0xFFE1;

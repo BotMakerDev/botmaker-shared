@@ -36,6 +36,16 @@ public interface NativeController {
 	/** Capture just this window's pixels, or {@code null} if a usable frame can't be produced. */
 	BufferedImage captureWindow(GenericWindow window);
 
+	/**
+	 * Force the window whose title equals {@code windowTitle} to stack <em>above fullscreen</em> windows.
+	 * Studio's transparent overlays are only {@code setAlwaysOnTop} (EWMH {@code _NET_WM_STATE_ABOVE}), which
+	 * a fullscreen game still covers; this promotes the overlay via notification window-type + raise so it
+	 * stays visible. Best-effort and additive: default no-op; only the X11 backend implements it (borderless
+	 * always-on-top already wins on Windows).
+	 */
+	default void promoteOverlayAboveFullscreen(String windowTitle) {
+	}
+
 	void postLeftClick(GenericWindow window, int relativeX, int relativeY);
 	void postLeftClickScreen(int xAbs, int yAbs);
 

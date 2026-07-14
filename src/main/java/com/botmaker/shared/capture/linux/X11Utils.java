@@ -257,4 +257,62 @@ public class X11Utils {
 			// Best-effort hint; capture still proceeds (and falls back) without it.
 		}
 	}
+
+	/**
+	 * Force {@code window} to stack <em>above fullscreen</em> windows. A plain always-on-top window
+	 * (EWMH {@code _NET_WM_STATE_ABOVE}) is still ranked <em>below</em> a window holding
+	 * {@code _NET_WM_STATE_FULLSCREEN}, so a Studio overlay disappears behind a fullscreen game. Two
+	 * best-effort nudges the WM stacks over fullscreen:
+	 * <ul>
+	 *   <li>set {@code _NET_WM_WINDOW_TYPE} = {@code _NET_WM_WINDOW_TYPE_NOTIFICATION} — notification
+	 *       surfaces are drawn over fullscreen by mutter/KWin/most EWMH WMs;</li>
+	 *   <li>send a {@code _NET_WM_STATE} <em>ADD {@code _NET_WM_STATE_ABOVE}</em> client message to the
+	 *       root (same delivery path as {@code _NET_ACTIVE_WINDOW}), then {@code XRaiseWindow}.</li>
+	 * </ul>
+	 * Everything is swallowed on error (harmless on a WM that ignores the hints). Idempotent.
+	 */
+	public static void promoteAboveFullscreen(Pointer display, Pointer window) {
+		if (window == null || Pointer.nativeValue(window) == 0) {
+			return;
+		}
+		try {
+			// 1. Window type NOTIFICATION — stacked above fullscreen by most WMs.
+			Pointer typeProp = X11.INSTANCE.XInternAtom(display, "_NET_WM_WINDOW_TYPE", false);
+			Pointer notif = X11.INSTANCE.XInternAtom(display, "_NET_WM_WINDOW_TYPE_NOTIFICATION", false);
+			if (typeProp != null && Pointer.nativeValue(typeProp) != 0
+				&& notif != null && Pointer.nativeValue(notif) != 0) {
+				com.sun.jna.Memory data = new com.sun.jna.Memory(com.sun.jna.Native.LONG_SIZE);
+				data.setNativeLong(0, new com.sun.jna.NativeLong(Pointer.nativeValue(notif)));
+				X11.INSTANCE.XChangeProperty(display, window, typeProp, new Pointer(X11.XA_ATOM), 32,
+					X11.PropModeReplace, data, 1);
+			}
+
+			// 2. _NET_WM_STATE: ADD _NET_WM_STATE_ABOVE via a root client message.
+			Pointer stateAtom = X11.INSTANCE.XInternAtom(display, "_NET_WM_STATE", true);
+			Pointer above = X11.INSTANCE.XInternAtom(display, "_NET_WM_STATE_ABOVE", true);
+			if (stateAtom != null && Pointer.nativeValue(stateAtom) != 0
+				&& above != null && Pointer.nativeValue(above) != 0) {
+				Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
+				X11.XClientMessageEvent ev = new X11.XClientMessageEvent();
+				ev.type = X11.ClientMessage;
+				ev.send_event = 1;
+				ev.display = display;
+				ev.window = new com.sun.jna.NativeLong(Pointer.nativeValue(window));
+				ev.message_type = new com.sun.jna.NativeLong(Pointer.nativeValue(stateAtom));
+				ev.format = 32;
+				ev.data[0] = X11._NET_WM_STATE_ADD;
+				ev.data[1] = Pointer.nativeValue(above);
+				ev.data[2] = 0;                 // no second state
+				ev.data[3] = 1;                 // source indication: application
+				ev.data[4] = 0;
+				long mask = X11.SubstructureRedirectMask | X11.SubstructureNotifyMask;
+				X11.INSTANCE.XSendEvent(display, root, false, new com.sun.jna.NativeLong(mask), ev);
+			}
+
+			X11.INSTANCE.XRaiseWindow(display, window);
+			X11.INSTANCE.XFlush(display);
+		} catch (Throwable ignored) {
+			// Best-effort; the overlay still shows (just possibly under a fullscreen window).
+		}
+	}
 }

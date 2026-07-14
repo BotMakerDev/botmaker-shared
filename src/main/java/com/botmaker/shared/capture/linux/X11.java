@@ -30,10 +30,14 @@ public interface X11 extends Library {
 	int InputFocus = 1;
 	int RevertToParent = 2;
 
-	// XChangeProperty mode + the predefined CARDINAL atom (X.h / Xatom.h). Predefined atoms are small fixed
-	// XIDs, so XA_CARDINAL is passed as {@code new Pointer(6)} rather than being interned.
+	// XChangeProperty mode + the predefined ATOM/CARDINAL atoms (X.h / Xatom.h). Predefined atoms are small
+	// fixed XIDs, so e.g. XA_CARDINAL is passed as {@code new Pointer(6)} rather than being interned.
 	int PropModeReplace = 0;
+	int XA_ATOM = 4;
 	int XA_CARDINAL = 6;
+
+	// EWMH _NET_WM_STATE client-message action (root message data.l[0]): add/remove/toggle a state atom.
+	int _NET_WM_STATE_ADD = 1;
 
 	// XGetImage: image formats (Xlib.h) and the "all planes" mask.
 	int XYBitmap = 0;
