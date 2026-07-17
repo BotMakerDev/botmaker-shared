@@ -2,10 +2,27 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**BotMaker-shared** is the cross-platform native window plumbing shared by **both** the BotMaker SDK
-(runtime, `../botmaker-sdk`) and the BotMaker Studio (editor, `../botmaker-studio`). It enumerates,
-captures, focuses, moves, resizes and drives input to native OS windows. It depends only on **JNA** —
-**no JavaFX, no OpenCV**. Full-desktop capture backends deliberately live in the *consumers*, not here.
+**BotMaker-shared** is the cross-platform capability layer shared by **both** the BotMaker SDK
+(runtime, `../botmaker-sdk`) and the BotMaker Studio (editor, `../botmaker-studio`) — so Studio never has to
+depend on the SDK. Its original charter is native window plumbing (enumerate, capture, focus, move, resize,
+drive input); it also now hosts **OCR** (`com.botmaker.shared.ocr`), the first capability both consumers
+share above the window layer. It depends on **JNA** (window/input), and — for OCR — **OpenCV**
+(`org.openpnp:opencv`, image preprocessing) and **Tess4J** (`net.sourceforge.tess4j`, Tesseract). No
+JavaFX. Full-desktop capture backends deliberately live in the *consumers*, not here.
+
+## OCR (`com.botmaker.shared.ocr`)
+
+On-screen text recognition, consumed today by the SDK's `api.vision.Text` bot facade (Studio editor
+features later). `OcrEngine` is the core: `text(img)` for a whole-image string and `recognize(img, opts)`
+for per-word/line `TextResult`s (source-local boxes + confidence). `OcrPreprocessor` runs the OpenCV pass
+(grayscale → upscale → binarize → optional invert) that makes game fonts viable; `OcrOptions` are the tuning
+knobs (languages, PSM, upscale, binarize mode, char whitelist, WORD/LINE). `OcrNative` is the idempotent
+loader (OpenCV native + extracting bundled `tessdata` to a temp dir) mirroring the SDK's `OpenCvNative`.
+Tess4J's `Tesseract` is **not** thread-safe, so `OcrEngine` holds it in a `ThreadLocal` (bots are
+multi-threaded). Traineddata (`tessdata_fast` eng/chi_sim/jpn/kor, ~10 MB) is bundled under
+`src/main/resources/tessdata/`; adding a language is data-only. Self-contained on Windows (Tess4J bundles
+the DLLs); Linux needs system `libtesseract`/`liblept` — a genuine native-load failure surfaces as an
+`UnsatisfiedLinkError` rather than being swallowed as "no text".
 
 ## Contract stability
 
@@ -60,6 +77,7 @@ Package map:
 - `capture/windows/` — JNA Windows backend: `User32`/`GDI32` bindings, `WindowsController`, `WindowFinder`,
   `WindowInfo`, `WindowCapture`, `Clicker`.
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.
+- `ocr/` — OCR core: `OcrEngine`, `OcrPreprocessor`, `OcrOptions`, `TextResult`, `OcrNative` (see OCR above).
 
 ## groupId note
 

@@ -39,6 +39,25 @@
             <version>5.14.0</version>
         </dependency>
 
+        <!--
+          OCR stack, shared by both consumers (SDK bot facade today, Studio editor features later).
+          Compile scope so Studio picks them up transitively without depending on the SDK.
+            - OpenCV: image preprocessing before Tesseract (grayscale / upscale / binarize). Pinned to the
+              exact version the SDK already uses so there's one native on any consumer's classpath.
+            - Tess4J: JNA wrapper over Tesseract; bundles the Windows native DLLs (self-contained on Windows,
+              needs system libtesseract/liblept on Linux). Pulls JNA, already present above.
+        -->
+        <dependency>
+            <groupId>org.openpnp</groupId>
+            <artifactId>opencv</artifactId>
+            <version>4.9.0-0</version>
+        </dependency>
+        <dependency>
+            <groupId>net.sourceforge.tess4j</groupId>
+            <artifactId>tess4j</artifactId>
+            <version>5.19.0</version>
+        </dependency>
+
         <!-- Tests: JUnit Jupiter (see CLAUDE.md). Used by the ipc telemetry round-trip/loopback tests. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

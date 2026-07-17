@@ -8,6 +8,44 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-18 — OCR core (`com.botmaker.shared.ocr`)
+
+**Done**
+- **New `ocr/` package — on-screen text recognition, shared by both consumers.** Put in shared (not the SDK)
+  so Studio can reuse it later without depending on the SDK — the first capability shared hosts above the
+  window layer. The SDK exposes it through a new `api.vision.Text` facade; Studio wiring is deferred.
+  - `OcrEngine` — core. `text(img[, opts])` → whole-image string; `recognize(img, opts)` → per-word/line
+    `TextResult`s with source-local boxes + confidence (boxes mapped back down through the upscale factor).
+    Tess4J's `Tesseract` is **not** thread-safe, so it's held in a `ThreadLocal` (bots are multi-threaded,
+    same reason the SDK's `VisionContext` is thread-local).
+  - `OcrPreprocessor` — OpenCV pass (grayscale → upscale (cubic) → binarize Otsu/adaptive → optional invert)
+    that makes game fonts viable. Re-implements a minimal `BufferedImage↔Mat` bridge so shared does **not**
+    depend on the SDK's `OpencvManager`.
+  - `OcrOptions` (immutable record + `with*` copy methods) — languages, PSM, OEM, upscale, binarize mode,
+    invert, char whitelist, WORD/LINE granularity. `OcrNative` — idempotent loader mirroring the SDK's
+    `OpenCvNative` (OpenCV native + extracting bundled `tessdata` to a temp dir; Tesseract needs a real
+    filesystem datapath, not a classpath resource). `TextResult` — immutable record (AWT `Rectangle`, since
+    shared has no SDK geometry types).
+- **Deps added to `pom.xml`:** `org.openpnp:opencv:4.9.0-0` (exact version the SDK already uses — one native
+  on any consumer classpath) and `net.sourceforge.tess4j:tess4j:5.19.0` (bundles Windows DLLs). Both compile
+  scope so Studio picks them up transitively without an SDK dependency. **This makes the old "shared depends
+  only on JNA, no OpenCV" note false** — CLAUDE.md updated.
+- **Bundled traineddata** — `tessdata_fast` eng/chi_sim/jpn/kor under `src/main/resources/tessdata/` (~10 MB
+  total; `_fast` keeps the jar lean vs. the ~80–100 MB standard models). Adding a language is data-only (drop
+  the file + add the code to `OcrNative.BUNDLED_LANGUAGES`).
+- **Tests** — `OcrEngineTest` renders known text via Java2D (no screen dependency) and asserts recognition,
+  plausible boxes, and char-whitelist behaviour. Exercises the full OpenCV-native + Tesseract path.
+
+**Deferred / next**
+- **Studio wiring** — Studio can call `OcrEngine` directly for editor features (text-region picker, live
+  text read on the capture overlay). Not started.
+- **Linux** — Tess4J bundles only Windows DLLs; Linux needs system `libtesseract`/`liblept`. A missing native
+  surfaces as an `UnsatisfiedLinkError` (not swallowed). Document the prerequisite / consider bundling.
+- **CJK jar size** — if the bundled CJK models bite, move them to lazy on-first-use extraction/download while
+  keeping `eng` bundled; `OcrNative` is already structured so language set is data-only.
+
+---
+
 ## 2026-07-14 — Overlay-above-fullscreen: remap so the WM re-reads the window type
 
 **Done**
