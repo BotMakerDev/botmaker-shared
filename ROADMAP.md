@@ -28,8 +28,26 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 **Deferred / next**
 - Native-window capture backend for BlueStacks (it renders a real window) behind the same transport — faster than
   per-frame `screencap` PNGs.
-- MEmu/MuMu/Gameloop discovery parsers (scaffolds return empty today).
 - Studio emulator-screen capture picker (the reason the transport lives here) — not built yet.
+
+---
+
+## 2026-07-18 — MEmu + MuMu discovery (emulator)
+
+**Done**
+- **`MemuPlatform`** — MEmu is VirtualBox-based: registry `InstallDir` → `<install>\MemuHyperv VMs\<vm>\<vm>.memu`
+  (a `.vbox` XML); the ADB port is the `hostport` of the NAT `<Forwarding>` rule whose `guestport="5555"`
+  (attribute-order-independent). Name from `<Machine name>`, else the folder. Pure `parseVm` + 4 unit tests.
+- **`MuMuPlatform`** — MuMu Player 12: registry `InstallDir` → `<install>\vms\MuMuPlayer(-Global)-12.0-<index>`;
+  ADB port = `16384 + 32*index`; name from `config\vm_config.json`'s `playerName`, else `MuMu-<index>`. Pure
+  `parseInstance` + 4 unit tests.
+- Both promoted out of `ScaffoldPlatforms` into their own classes; only **Gameloop** remains scaffolded.
+
+**Caveat:** the `.memu` forwarding format and the MuMu `16384+32·index` convention are the documented layouts
+but haven't been checked against a live install here — same live-smoke-test caveat as BlueStacks/LDPlayer.
+
+**Deferred / next**
+- Gameloop discovery (still a scaffold).
 
 ---
 

@@ -80,8 +80,8 @@ Package map:
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.
 - `ocr/` — OCR core: `OcrEngine`, `OcrPreprocessor`, `OcrOptions`, `TextResult`, `OcrNative` (see OCR above).
 - `emulator/` — Android-emulator capability (see below): `AdbDevice` (dadb transport), `Platforms` +
-  `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/scaffolds (discovery), `WindowsRegistry`,
-  `EmulatorInstance`.
+  `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/`MemuPlatform`/`MuMuPlatform` (+ scaffolded
+  `GameloopPlatform`), `WindowsRegistry`, `EmulatorInstance`.
 
 ## Android emulator (`com.botmaker.shared.emulator`)
 
@@ -91,9 +91,10 @@ emulator at edit time. `AdbDevice` is one dadb connection (`dev.mobile:dadb` —
 `screencap()` via binary-safe `exec:screencap -p`, plus `tap`/`swipe`/`key`/`text`/`startApp`/`shell`). Note the
 Kotlin package is `dadb.*`, not the `dev.mobile` groupId, and dadb self-manages the RSA key (`~/.android/adbkey`).
 Discovery (`Platforms.discoverAll()`) reads each product's local config/registry → `EmulatorInstance`s (name +
-ADB port): `BlueStacksPlatform` (`bluestacks.conf`) and `LdPlayerPlatform` (`leidian<i>.config`, port 5555+2·i,
-name via regex — no Jackson) work today; MEmu/MuMu/Gameloop are scaffolded. Windows-first, best-effort, never
-throws. dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
+ADB port): `BlueStacksPlatform` (`bluestacks.conf`), `LdPlayerPlatform` (`leidian<i>.config`, port 5555+2·i,
+name via regex — no Jackson), `MemuPlatform` (VirtualBox `.memu` NAT forwarding rule → host port of guest 5555)
+and `MuMuPlatform` (`vms\MuMuPlayer-12.0-<i>`, port 16384+32·i) all discover for real; only Gameloop is
+scaffolded. Windows-first, best-effort, never throws. dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
 shipping no adb binary.
 
 ## groupId note
