@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 (runtime, `../botmaker-sdk`) and the BotMaker Studio (editor, `../botmaker-studio`) — so Studio never has to
 depend on the SDK. Its original charter is native window plumbing (enumerate, capture, focus, move, resize,
 drive input); it also now hosts **OCR** (`com.botmaker.shared.ocr`), the first capability both consumers
-share above the window layer. It depends on **JNA** (window/input), and — for OCR — **OpenCV**
-(`org.openpnp:opencv`, image preprocessing) and **Tess4J** (`net.sourceforge.tess4j`, Tesseract). No
-JavaFX. Full-desktop capture backends deliberately live in the *consumers*, not here.
+share above the window layer, plus the **Android-emulator** capability (`com.botmaker.shared.emulator`). It
+depends on **JNA** (window/input), **OpenCV** (`org.openpnp:opencv`) + **Tess4J** (`net.sourceforge.tess4j`)
+for OCR, and **dadb** (`dev.mobile:dadb`, pure-JVM ADB) for the emulator transport. No JavaFX. Full-desktop
+capture backends deliberately live in the *consumers*, not here.
 
 ## OCR (`com.botmaker.shared.ocr`)
 
@@ -78,6 +79,22 @@ Package map:
   `WindowInfo`, `WindowCapture`, `Clicker`.
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.
 - `ocr/` — OCR core: `OcrEngine`, `OcrPreprocessor`, `OcrOptions`, `TextResult`, `OcrNative` (see OCR above).
+- `emulator/` — Android-emulator capability (see below): `AdbDevice` (dadb transport), `Platforms` +
+  `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/scaffolds (discovery), `WindowsRegistry`,
+  `EmulatorInstance`.
+
+## Android emulator (`com.botmaker.shared.emulator`)
+
+Discovery + ADB transport for Android emulators, hosted in shared so **both** consumers reach it: the SDK's
+`api.emulator.Emulator` wraps it as a `CaptureSource` at runtime, and a Studio capture picker can screen-grab an
+emulator at edit time. `AdbDevice` is one dadb connection (`dev.mobile:dadb` — pure-JVM ADB, no `adb.exe`;
+`screencap()` via binary-safe `exec:screencap -p`, plus `tap`/`swipe`/`key`/`text`/`startApp`/`shell`). Note the
+Kotlin package is `dadb.*`, not the `dev.mobile` groupId, and dadb self-manages the RSA key (`~/.android/adbkey`).
+Discovery (`Platforms.discoverAll()`) reads each product's local config/registry → `EmulatorInstance`s (name +
+ADB port): `BlueStacksPlatform` (`bluestacks.conf`) and `LdPlayerPlatform` (`leidian<i>.config`, port 5555+2·i,
+name via regex — no Jackson) work today; MEmu/MuMu/Gameloop are scaffolded. Windows-first, best-effort, never
+throws. dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
+shipping no adb binary.
 
 ## groupId note
 

@@ -8,6 +8,31 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-18 — Android emulator capability (`com.botmaker.shared.emulator`)
+
+**Done** (Phase 3 refactor — hoisted from the SDK so Studio can reuse it without depending on the SDK)
+- **New `emulator/` package: discovery + ADB transport, shared by both consumers.** The SDK's
+  `api.emulator.Emulator` wraps it as a `CaptureSource` at runtime; a Studio capture picker can screen-grab an
+  emulator at edit time. This removes a discovery-logic duplicate that had been copied into Studio.
+- **`AdbDevice`** — one dadb connection (`dev.mobile:dadb:1.2.9`, pure-JVM ADB, no `adb.exe`/server). `screencap()`
+  (binary-safe `exec:screencap -p` → ImageIO), `tap`/`swipe`/`key`/`text`/`startApp`/`getProp`/`shell`,
+  `isConnected`. dadb owns the RSA key (`~/.android/adbkey`). Kotlin package is `dadb.*`, not the groupId.
+- **Discovery** — `EmulatorPlatform` + `EmulatorInstance`; `Platforms.discoverAll()` aggregates. `BlueStacksPlatform`
+  (parses `bluestacks.conf`) and `LdPlayerPlatform` (`leidian<i>.config`; ADB port 5555+2·i; playerName read via
+  **regex**, so shared needs no Jackson) discover for real; MEmu/MuMu/Gameloop scaffolded. `WindowsRegistry`
+  (`reg query`) locates install dirs. Windows-first, best-effort, never throws. Parsers pure + unit-tested
+  (`BlueStacksPlatformTest`/`LdPlayerPlatformTest`, moved here from the SDK).
+- **Dependency:** `dev.mobile:dadb` added (compile) → pulls kotlin-stdlib, which now rides into **every** consumer
+  including Studio's app-image. Accepted so Studio can later preview an emulator screen in the capture picker.
+
+**Deferred / next**
+- Native-window capture backend for BlueStacks (it renders a real window) behind the same transport — faster than
+  per-frame `screencap` PNGs.
+- MEmu/MuMu/Gameloop discovery parsers (scaffolds return empty today).
+- Studio emulator-screen capture picker (the reason the transport lives here) — not built yet.
+
+---
+
 ## 2026-07-18 — OCR core (`com.botmaker.shared.ocr`)
 
 **Done**

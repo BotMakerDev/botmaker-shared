@@ -58,6 +58,18 @@
             <version>5.19.0</version>
         </dependency>
 
+        <!--
+          Android-emulator transport (com.botmaker.shared.emulator): dadb is a pure-JVM ADB client, so there
+          is no adb.exe / adb server to ship. Compile scope so both consumers get it transitively — the SDK
+          drives the emulator at runtime, and Studio can later preview an emulator screen in the capture picker.
+          Pulls org.jetbrains.kotlin:kotlin-stdlib (accepted cost of not shipping an adb binary).
+        -->
+        <dependency>
+            <groupId>dev.mobile</groupId>
+            <artifactId>dadb</artifactId>
+            <version>1.2.9</version>
+        </dependency>
+
         <!-- Tests: JUnit Jupiter (see CLAUDE.md). Used by the ipc telemetry round-trip/loopback tests. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
