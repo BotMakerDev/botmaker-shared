@@ -36,6 +36,11 @@ public final class GameloopPlatform implements EmulatorPlatform {
     }
 
     @Override
+    public boolean isInstalled() {
+        return installed();
+    }
+
+    @Override
     public List<EmulatorInstance> discover() {
         if (!installed()) {
             return List.of();

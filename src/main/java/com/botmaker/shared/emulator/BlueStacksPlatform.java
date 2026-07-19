@@ -40,6 +40,11 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
     }
 
     @Override
+    public boolean isInstalled() {
+        return confPath() != null || hdPlayerPath() != null;
+    }
+
+    @Override
     public List<EmulatorInstance> discover() {
         Path conf = confPath();
         if (conf == null || !Files.isReadable(conf)) {

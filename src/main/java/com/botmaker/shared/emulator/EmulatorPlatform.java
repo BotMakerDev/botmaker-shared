@@ -19,6 +19,13 @@ public interface EmulatorPlatform {
     /** Human-readable product name for UI/logs, e.g. {@code "BlueStacks"}. */
     String displayName();
 
+    /**
+     * Whether this product appears installed on the machine (registry/install-dir present), independent of how
+     * many instances are configured or running. Lets a picker distinguish "installed but no instance" from
+     * "not installed at all". Best-effort and Windows-first; {@code false} off-Windows or when detection fails.
+     */
+    boolean isInstalled();
+
     /** All locally-configured instances of this product, each with its ADB port. Never throws; empty if none. */
     List<EmulatorInstance> discover();
 }

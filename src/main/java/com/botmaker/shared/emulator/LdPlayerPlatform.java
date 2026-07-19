@@ -38,6 +38,11 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
     }
 
     @Override
+    public boolean isInstalled() {
+        return installDir() != null;
+    }
+
+    @Override
     public List<EmulatorInstance> discover() {
         Path install = installDir();
         Path configDir = (install == null) ? null : install.resolve("vms").resolve("config");

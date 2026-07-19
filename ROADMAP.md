@@ -8,6 +8,20 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-20 — Emulator discovery diagnostics (per-product status)
+
+**Done**
+- **`EmulatorPlatform.isInstalled()`** — a cheap "is this product installed at all" check (registry/install-dir
+  present), independent of how many instances are configured/running. Implemented across all five platforms by
+  reusing their existing install detection.
+- **`Platforms.discoverDetailed()` → `DiscoveryReport`** — discovery plus a per-product `PlatformStatus`
+  `(platformId, displayName, installed, instanceCount, error)`, so a consumer UI can tell the user what it
+  actually saw ("MuMu: installed · 2 instances", "BlueStacks: not installed", "LDPlayer: scan error") instead of
+  a bare empty list. `discoverAll()` now delegates to it (single code path); a per-product failure is recorded as
+  a status `error` rather than sinking the scan.
+
+---
+
 ## 2026-07-19 — Emulator launch/stop + app queries (Phase 2)
 
 **Done**

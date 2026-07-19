@@ -43,6 +43,11 @@ public final class MuMuPlatform implements EmulatorPlatform {
     }
 
     @Override
+    public boolean isInstalled() {
+        return installDir() != null;
+    }
+
+    @Override
     public List<EmulatorInstance> discover() {
         Path install = installDir();
         Path vmsDir = (install == null) ? null : install.resolve("vms");
