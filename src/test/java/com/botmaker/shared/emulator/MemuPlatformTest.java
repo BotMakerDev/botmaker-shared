@@ -2,6 +2,8 @@ package com.botmaker.shared.emulator;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -76,5 +78,16 @@ class MemuPlatformTest {
 
         assertTrue(MemuPlatform.parseVm("MEmu_3", xml).isEmpty());
         assertTrue(MemuPlatform.parseVm("MEmu_3", "<VirtualBox/>").isEmpty());
+    }
+
+    @Test
+    void attachesMemucStartStopCommandsKeyedByVmFolderName() {
+        String xml = memu("Display Name", ""
+                + "            <Forwarding name=\"ADB\" hostport=\"21563\" guestport=\"5555\"/>\n");
+        EmulatorInstance base = MemuPlatform.parseVm("MEmu_1", xml).orElseThrow();
+        Path console = Path.of("C:\\Program Files\\Microvirt\\MEmu\\memuc.exe");
+        EmulatorInstance withCmd = MemuPlatform.withLaunch(base, "MEmu_1", console);
+        assertEquals(List.of(console.toString(), "start", "-n", "MEmu_1"), withCmd.launchCommand());
+        assertEquals(List.of(console.toString(), "stop", "-n", "MEmu_1"), withCmd.stopCommand());
     }
 }

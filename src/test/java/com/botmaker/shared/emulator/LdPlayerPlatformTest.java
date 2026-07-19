@@ -2,6 +2,8 @@ package com.botmaker.shared.emulator;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -60,5 +62,21 @@ class LdPlayerPlatformTest {
         assertTrue(inst.isPresent());
         assertEquals("leidian0", inst.get().name());
         assertEquals(5555, inst.get().adbPort());
+    }
+
+    @Test
+    void attachesLdconsoleLaunchAndQuitCommands() {
+        EmulatorInstance base = LdPlayerPlatform.parseInstance("leidian2.config", "{}").orElseThrow();
+        EmulatorInstance withCmd = LdPlayerPlatform.withLaunch(base, 2, Path.of("C:\\LDPlayer\\ldconsole.exe"));
+        assertTrue(withCmd.canLaunch());
+        assertTrue(withCmd.canStop());
+        assertEquals(List.of("C:\\LDPlayer\\ldconsole.exe", "launch", "--index", "2"), withCmd.launchCommand());
+        assertEquals(List.of("C:\\LDPlayer\\ldconsole.exe", "quit", "--index", "2"), withCmd.stopCommand());
+    }
+
+    @Test
+    void withLaunchNoConsoleLeavesInstanceUnchanged() {
+        EmulatorInstance base = LdPlayerPlatform.parseInstance("leidian0.config", "{}").orElseThrow();
+        assertFalse(LdPlayerPlatform.withLaunch(base, 0, null).canLaunch());
     }
 }

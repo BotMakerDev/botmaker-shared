@@ -8,6 +8,11 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
 
@@ -108,6 +113,70 @@ public final class AdbDevice implements AutoCloseable {
     /** Reads a system property ({@code getprop <key>}), trimmed; empty string if unset. */
     public String getProp(String key) {
         return shell("getprop " + key).trim();
+    }
+
+    /**
+     * The third-party (user-installed) packages on the device — the games/apps a bot would target — via
+     * {@code pm list packages -3}. System apps are excluded. Never throws; empty list on any failure.
+     */
+    public List<String> installedApps() {
+        try {
+            return parsePackageList(shell("pm list packages -3"));
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /** Whether {@code packageName} is installed (system or user), via an exact {@code pm list packages} match. */
+    public boolean isInstalled(String packageName) {
+        if (packageName == null || packageName.isBlank()) {
+            return false;
+        }
+        try {
+            return parsePackageList(shell("pm list packages " + packageName)).contains(packageName.trim());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * The package name of the app currently in the foreground, or {@code ""} if none/unknown. Reads
+     * {@code dumpsys activity activities} and picks the resumed activity's package.
+     */
+    public String currentApp() {
+        try {
+            return parseForegroundPackage(shell("dumpsys activity activities"));
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    // `package:com.foo.bar` per line (pm may append `=<path>` with -f, which we don't use); order preserved.
+    private static final Pattern PACKAGE_LINE = Pattern.compile("^package:(\\S+?)(?:=.*)?$", Pattern.MULTILINE);
+    // The resumed/focused activity's `<pkg>/<activity>` component in a dumpsys line.
+    private static final Pattern RESUMED_ACTIVITY =
+            Pattern.compile("(?:mResumedActivity|mFocusedActivity|topResumedActivity)\\S*.*?\\s([\\w.]+)/[\\w.$]+");
+
+    /** Parses {@code pm list packages} output into package names, de-duped, in first-seen order. */
+    static List<String> parsePackageList(String output) {
+        if (output == null || output.isBlank()) {
+            return List.of();
+        }
+        LinkedHashSet<String> packages = new LinkedHashSet<>();
+        Matcher m = PACKAGE_LINE.matcher(output);
+        while (m.find()) {
+            packages.add(m.group(1).trim());
+        }
+        return new ArrayList<>(packages);
+    }
+
+    /** Extracts the foreground package from {@code dumpsys activity activities} output, or {@code ""}. */
+    static String parseForegroundPackage(String dumpsys) {
+        if (dumpsys == null || dumpsys.isBlank()) {
+            return "";
+        }
+        Matcher m = RESUMED_ACTIVITY.matcher(dumpsys);
+        return m.find() ? m.group(1) : "";
     }
 
     /**

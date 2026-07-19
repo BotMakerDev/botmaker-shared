@@ -44,10 +44,12 @@ public final class MuMuPlatform implements EmulatorPlatform {
 
     @Override
     public List<EmulatorInstance> discover() {
-        Path vmsDir = vmsDir();
+        Path install = installDir();
+        Path vmsDir = (install == null) ? null : install.resolve("vms");
         if (vmsDir == null || !Files.isDirectory(vmsDir)) {
             return List.of();
         }
+        Path console = install.resolve("shell").resolve("MuMuManager.exe");
         List<EmulatorInstance> instances = new ArrayList<>();
         try (Stream<Path> dirs = Files.list(vmsDir)) {
             for (Path dir : (Iterable<Path>) dirs.sorted()::iterator) {
@@ -55,15 +57,34 @@ public final class MuMuPlatform implements EmulatorPlatform {
                     continue;
                 }
                 String folder = dir.getFileName().toString();
-                if (!INSTANCE_DIR.matcher(folder).matches()) {
+                Matcher m = INSTANCE_DIR.matcher(folder);
+                if (!m.matches()) {
                     continue;
                 }
-                parseInstance(folder, readConfig(dir)).ifPresent(instances::add);
+                int index = Integer.parseInt(m.group(1));
+                parseInstance(folder, readConfig(dir))
+                        .map(base -> withLaunch(base, index, console))
+                        .ifPresent(instances::add);
             }
         } catch (Exception e) {
             return instances;
         }
         return instances;
+    }
+
+    /**
+     * Attaches MuMu's {@code MuMuManager.exe control -v <i> launch/shutdown} host commands to a parsed
+     * instance. Package-private + pure so it's unit-testable; returns {@code base} unchanged with no console.
+     */
+    static EmulatorInstance withLaunch(EmulatorInstance base, int index, Path console) {
+        if (console == null) {
+            return base;
+        }
+        String exe = console.toString();
+        String idx = String.valueOf(index);
+        return base.withCommands(
+                List.of(exe, "control", "-v", idx, "launch"),
+                List.of(exe, "control", "-v", idx, "shutdown"));
     }
 
     /** {@code <instanceDir>\config\vm_config.json} content, or {@code ""} if it can't be read. */
@@ -76,8 +97,8 @@ public final class MuMuPlatform implements EmulatorPlatform {
         }
     }
 
-    /** {@code <InstallDir>\vms}, or {@code null} if MuMu isn't installed / can't be found. */
-    private static Path vmsDir() {
+    /** {@code <InstallDir>}, or {@code null} if MuMu isn't installed / can't be found. */
+    private static Path installDir() {
         String installDir = firstNonNull(
                 WindowsRegistry.read("HKLM\\SOFTWARE\\WOW6432Node\\Netease\\MuMuPlayer-12.0", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\Netease\\MuMuPlayer-12.0", "InstallDir"),
@@ -86,7 +107,7 @@ public final class MuMuPlatform implements EmulatorPlatform {
         if (installDir == null || installDir.isBlank()) {
             return null;
         }
-        return Path.of(installDir.trim(), "vms");
+        return Path.of(installDir.trim());
     }
 
     /**

@@ -8,6 +8,45 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-19 — Emulator launch/stop + app queries (Phase 2)
+
+**Done**
+- **`EmulatorInstance` now carries host `launchCommand` / `stopCommand`** (both `List<String>`, empty when
+  the product ships no console tool or it couldn't be located) alongside the existing name/port. A 4-arg
+  convenience constructor keeps the parsers' pure form; `withCommands(...)`, `canLaunch()`, `canStop()`,
+  `endpoint()` round it out. This is what lets a consumer bring an instance *up* — the ADB transport can only
+  talk to an already-running one.
+- **New `EmulatorLauncher`** (best-effort, never-throws) spawns those commands via `ProcessBuilder`
+  (fire-and-forget: the console tools return while the emulator boots, so `true` = "dispatched", not "up").
+- **Each platform now resolves its console tool at discovery and attaches launch/stop** (grounded via the
+  vendors' CLI docs): LDPlayer `ldconsole.exe launch|quit --index <i>`; MuMu
+  `shell/MuMuManager.exe control -v <i> launch|shutdown`; MEmu `memuc.exe start|stop -n <vmFolder>`;
+  BlueStacks `HD-Player.exe --instance <token>` (launch only — no documented clean-stop CLI; selector is the
+  config *token*, not the display name); Gameloop = the engine exe (launch only). The command-builders
+  (`withLaunch(...)` / `parseConf(conf, hdPlayer)`) are package-private + pure and unit-tested.
+- **`AdbDevice` gained app-query helpers**: `installedApps()` (`pm list packages -3`), `isInstalled(pkg)`,
+  `currentApp()` (foreground package from `dumpsys activity activities`). Output parsers (`parsePackageList`,
+  `parseForegroundPackage`) are package-private + pure (`AdbDeviceTest`).
+
+**Deferred / next**
+- MEmu/MuMu launch selectors assume folder-name == VM name / index alignment — smoke-test on a live install.
+- A readiness helper (poll ADB after launch) lives SDK-side; shared stays fire-and-forget.
+
+## 2026-07-19 — Gameloop discovery (last scaffolded emulator platform)
+
+**Done**
+- **`GameloopPlatform` now discovers for real**, replacing the `ScaffoldPlatforms` stub (file deleted).
+  Gameloop (Tencent AndroidEmulator, `<install>/ui/AndroidEmulator(En).exe`) exposes no per-instance
+  ADB-port config, so — unlike the config-parsing platforms — discovery detects the install (registry
+  uninstall/Tencent keys, else the default `%ProgramFiles%/TxGameAssistant/ui/` engine path) and returns its
+  single primary instance on the documented fixed loopback port **5555** (ADB debugging must be enabled in
+  Gameloop settings). Multi-instance ports are undocumented and deliberately not fabricated.
+- `singleInstance()` / `defaultEnginePath()` are package-private + pure for unit testing without an install
+  (`GameloopPlatformTest`). All five platforms in `Platforms.ALL` now discover for real.
+
+**Deferred / next**
+- Gameloop Multi-Instance manager ports (undocumented) — add if a user needs more than the primary instance.
+
 ## 2026-07-18 — Android emulator capability (`com.botmaker.shared.emulator`)
 
 **Done** (Phase 3 refactor — hoisted from the SDK so Studio can reuse it without depending on the SDK)

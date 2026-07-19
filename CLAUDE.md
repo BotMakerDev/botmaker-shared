@@ -80,8 +80,8 @@ Package map:
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.
 - `ocr/` — OCR core: `OcrEngine`, `OcrPreprocessor`, `OcrOptions`, `TextResult`, `OcrNative` (see OCR above).
 - `emulator/` — Android-emulator capability (see below): `AdbDevice` (dadb transport), `Platforms` +
-  `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/`MemuPlatform`/`MuMuPlatform` (+ scaffolded
-  `GameloopPlatform`), `WindowsRegistry`, `EmulatorInstance`.
+  `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/`MemuPlatform`/`MuMuPlatform`/`GameloopPlatform`
+  (all discover for real), `EmulatorLauncher` (host launch/stop), `WindowsRegistry`, `EmulatorInstance`.
 
 ## Android emulator (`com.botmaker.shared.emulator`)
 
@@ -93,8 +93,13 @@ Kotlin package is `dadb.*`, not the `dev.mobile` groupId, and dadb self-manages 
 Discovery (`Platforms.discoverAll()`) reads each product's local config/registry → `EmulatorInstance`s (name +
 ADB port): `BlueStacksPlatform` (`bluestacks.conf`), `LdPlayerPlatform` (`leidian<i>.config`, port 5555+2·i,
 name via regex — no Jackson), `MemuPlatform` (VirtualBox `.memu` NAT forwarding rule → host port of guest 5555)
-and `MuMuPlatform` (`vms\MuMuPlayer-12.0-<i>`, port 16384+32·i) all discover for real; only Gameloop is
-scaffolded. Windows-first, best-effort, never throws. dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
+and `MuMuPlatform` (`vms\MuMuPlayer-12.0-<i>`, port 16384+32·i) all discover for real; `GameloopPlatform`
+detects the install and returns its single primary instance on the fixed port 5555. Beyond discovery, each
+`EmulatorInstance` also carries the host `launchCommand`/`stopCommand` its platform resolved (LDPlayer
+`ldconsole`, MuMu `MuMuManager`, MEmu `memuc`, BlueStacks `HD-Player --instance`, Gameloop engine exe), which
+`EmulatorLauncher` spawns to start/stop an instance the ADB transport can't reach until it's up. `AdbDevice`
+also does app queries (`installedApps`/`isInstalled`/`currentApp`). Windows-first, best-effort, never throws.
+dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
 shipping no adb binary.
 
 ## groupId note

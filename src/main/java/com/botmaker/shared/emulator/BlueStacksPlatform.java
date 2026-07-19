@@ -46,10 +46,21 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
             return List.of();
         }
         try {
-            return parseConf(Files.readString(conf));
+            return parseConf(Files.readString(conf), hdPlayerPath());
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    /** {@code <InstallDir>\HD-Player.exe} (the program dir, not the data dir), or {@code null} if unknown. */
+    private static Path hdPlayerPath() {
+        String installDir = firstNonNull(
+                WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_nxt", "InstallDir"),
+                WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_msi", "InstallDir"));
+        if (installDir == null || installDir.isBlank()) {
+            return null;
+        }
+        return Path.of(installDir.trim(), "HD-Player.exe");
     }
 
     /** Locates {@code bluestacks.conf}, or {@code null} if BlueStacks isn't installed / can't be found. */
@@ -71,6 +82,16 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
      * present) becomes the user-facing name, otherwise the token is used.
      */
     static List<EmulatorInstance> parseConf(String conf) {
+        return parseConf(conf, null);
+    }
+
+    /**
+     * As {@link #parseConf(String)}, but also attaches {@code HD-Player.exe --instance <token>} launch commands
+     * when {@code hdPlayer} is known. BlueStacks has no documented clean-stop CLI, so the stop command is left
+     * empty (the instance is stopped by closing its window / killing the process). The launch selector is the
+     * config <em>token</em> (e.g. {@code Rvc64}), not the display name.
+     */
+    static List<EmulatorInstance> parseConf(String conf, Path hdPlayer) {
         Map<String, String> names = new LinkedHashMap<>();
         Matcher nameMatcher = DISPLAY_NAME.matcher(conf);
         while (nameMatcher.find()) {
@@ -84,7 +105,13 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
             String token = portMatcher.group(1);
             int port = Integer.parseInt(portMatcher.group(2));
             String name = names.getOrDefault(token, token);
-            instances.add(new EmulatorInstance(PLATFORM_ID, name, "127.0.0.1", port));
+            EmulatorInstance instance = new EmulatorInstance(PLATFORM_ID, name, "127.0.0.1", port);
+            if (hdPlayer != null) {
+                instance = instance.withCommands(
+                        List.of(hdPlayer.toString(), "--instance", token),
+                        List.of());
+            }
+            instances.add(instance);
         }
         return instances;
     }

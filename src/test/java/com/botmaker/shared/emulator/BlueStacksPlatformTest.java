@@ -2,9 +2,11 @@ package com.botmaker.shared.emulator;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -48,5 +50,29 @@ class BlueStacksPlatformTest {
     void emptyConfYieldsNoInstances() {
         assertTrue(BlueStacksPlatform.parseConf("").isEmpty());
         assertTrue(BlueStacksPlatform.parseConf("bst.something.else=\"1\"").isEmpty());
+    }
+
+    @Test
+    void attachesHdPlayerLaunchKeyedByTokenNotDisplayName() {
+        String conf = String.join("\n",
+                "bst.instance.Rvc64.display_name=\"My Main\"",
+                "bst.instance.Rvc64.status.adb_port=\"5555\"");
+        Path hdPlayer = Path.of("C:\\Program Files\\BlueStacks_nxt\\HD-Player.exe");
+
+        List<EmulatorInstance> instances = BlueStacksPlatform.parseConf(conf, hdPlayer);
+
+        assertEquals(1, instances.size());
+        EmulatorInstance inst = instances.get(0);
+        assertEquals("My Main", inst.name());
+        // launch selector is the config token, not the display name
+        assertEquals(List.of(hdPlayer.toString(), "--instance", "Rvc64"), inst.launchCommand());
+        // BlueStacks has no documented clean-stop CLI
+        assertFalse(inst.canStop());
+    }
+
+    @Test
+    void parseConfWithoutHdPlayerHasNoLaunchCommand() {
+        String conf = "bst.instance.Pie64.status.adb_port=\"5575\"";
+        assertFalse(BlueStacksPlatform.parseConf(conf, null).get(0).canLaunch());
     }
 }

@@ -5,8 +5,8 @@ import java.util.List;
 
 /**
  * The registry of known {@link EmulatorPlatform}s and the one place to enumerate instances across all of
- * them. BlueStacks + LDPlayer discover for real today; MEmu/MuMu/Gameloop are scaffolded (discover nothing
- * yet). Add a product by adding it to {@link #ALL}.
+ * them. BlueStacks, LDPlayer, MEmu, MuMu and Gameloop all discover for real today (Gameloop is limited to
+ * its single primary instance). Add a product by adding it to {@link #ALL}.
  */
 public final class Platforms {
 

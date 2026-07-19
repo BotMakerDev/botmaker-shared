@@ -2,6 +2,8 @@ package com.botmaker.shared.emulator;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -57,5 +59,14 @@ class MuMuPlatformTest {
         assertFalse(MuMuPlatform.parseInstance("MuMuPlayer-12.0", "{}").isPresent());
         assertFalse(MuMuPlatform.parseInstance("nemu", "{}").isPresent());
         assertFalse(MuMuPlatform.parseInstance("vms", "{}").isPresent());
+    }
+
+    @Test
+    void attachesMuMuManagerControlCommands() {
+        EmulatorInstance base = MuMuPlatform.parseInstance("MuMuPlayer-12.0-1", "{}").orElseThrow();
+        Path console = Path.of("C:\\MuMu\\shell\\MuMuManager.exe");
+        EmulatorInstance withCmd = MuMuPlatform.withLaunch(base, 1, console);
+        assertEquals(List.of(console.toString(), "control", "-v", "1", "launch"), withCmd.launchCommand());
+        assertEquals(List.of(console.toString(), "control", "-v", "1", "shutdown"), withCmd.stopCommand());
     }
 }

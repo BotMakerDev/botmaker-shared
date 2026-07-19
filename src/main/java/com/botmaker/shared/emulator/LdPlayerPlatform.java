@@ -39,19 +39,25 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
 
     @Override
     public List<EmulatorInstance> discover() {
-        Path configDir = configDir();
+        Path install = installDir();
+        Path configDir = (install == null) ? null : install.resolve("vms").resolve("config");
         if (configDir == null || !Files.isDirectory(configDir)) {
             return List.of();
         }
+        Path console = install.resolve("ldconsole.exe");
         List<EmulatorInstance> instances = new ArrayList<>();
         try (Stream<Path> files = Files.list(configDir)) {
             for (Path file : (Iterable<Path>) files.sorted()::iterator) {
                 String fileName = file.getFileName().toString();
-                if (!CONFIG_INDEX.matcher(fileName).matches()) {
+                Matcher m = CONFIG_INDEX.matcher(fileName);
+                if (!m.matches()) {
                     continue; // skip leidian.config (global) and non-instance files
                 }
+                int index = Integer.parseInt(m.group(1));
                 try {
-                    parseInstance(fileName, Files.readString(file)).ifPresent(instances::add);
+                    parseInstance(fileName, Files.readString(file))
+                            .map(base -> withLaunch(base, index, console))
+                            .ifPresent(instances::add);
                 } catch (Exception ignored) {
                     // skip an unreadable/instance config; keep discovering the rest
                 }
@@ -62,8 +68,8 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
         return instances;
     }
 
-    /** {@code <InstallDir>\vms\config}, or {@code null} if LDPlayer isn't installed / can't be found. */
-    private static Path configDir() {
+    /** {@code <InstallDir>}, or {@code null} if LDPlayer isn't installed / can't be found. */
+    private static Path installDir() {
         String installDir = firstNonNull(
                 WindowsRegistry.read("HKLM\\SOFTWARE\\leidian\\LDPlayer9", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\WOW6432Node\\leidian\\LDPlayer9", "InstallDir"),
@@ -71,7 +77,22 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
         if (installDir == null || installDir.isBlank()) {
             return null;
         }
-        return Path.of(installDir.trim(), "vms", "config");
+        return Path.of(installDir.trim());
+    }
+
+    /**
+     * Attaches LDPlayer's {@code ldconsole.exe launch/quit --index <i>} host commands to a parsed instance.
+     * Package-private + pure so it's unit-testable; returns {@code base} unchanged when the console is absent.
+     */
+    static EmulatorInstance withLaunch(EmulatorInstance base, int index, Path console) {
+        if (console == null) {
+            return base;
+        }
+        String exe = console.toString();
+        String idx = String.valueOf(index);
+        return base.withCommands(
+                List.of(exe, "launch", "--index", idx),
+                List.of(exe, "quit", "--index", idx));
     }
 
     /**

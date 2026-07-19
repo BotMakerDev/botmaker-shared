@@ -50,10 +50,12 @@ public final class MemuPlatform implements EmulatorPlatform {
 
     @Override
     public List<EmulatorInstance> discover() {
-        Path vmsDir = vmsDir();
+        Path install = installDir();
+        Path vmsDir = (install == null) ? null : install.resolve(VMS_DIRNAME);
         if (vmsDir == null || !Files.isDirectory(vmsDir)) {
             return List.of();
         }
+        Path console = install.resolve("memuc.exe");
         List<EmulatorInstance> instances = new ArrayList<>();
         try (Stream<Path> dirs = Files.list(vmsDir)) {
             for (Path dir : (Iterable<Path>) dirs.sorted()::iterator) {
@@ -66,7 +68,9 @@ public final class MemuPlatform implements EmulatorPlatform {
                     continue;
                 }
                 try {
-                    parseVm(vmName, Files.readString(memu)).ifPresent(instances::add);
+                    parseVm(vmName, Files.readString(memu))
+                            .map(base -> withLaunch(base, vmName, console))
+                            .ifPresent(instances::add);
                 } catch (Exception ignored) {
                     // skip an unreadable/odd VM; keep discovering the rest
                 }
@@ -77,15 +81,30 @@ public final class MemuPlatform implements EmulatorPlatform {
         return instances;
     }
 
-    /** {@code <InstallDir>\MemuHyperv VMs}, or {@code null} if MEmu isn't installed / can't be found. */
-    private static Path vmsDir() {
+    /** {@code <InstallDir>}, or {@code null} if MEmu isn't installed / can't be found. */
+    private static Path installDir() {
         String installDir = firstNonNull(
                 WindowsRegistry.read("HKLM\\SOFTWARE\\Microvirt\\MEmu", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\WOW6432Node\\Microvirt\\MEmu", "InstallDir"));
         if (installDir == null || installDir.isBlank()) {
             return null;
         }
-        return Path.of(installDir.trim(), VMS_DIRNAME);
+        return Path.of(installDir.trim());
+    }
+
+    /**
+     * Attaches MEmu's {@code memuc.exe start/stop -n <vm>} host commands to a parsed instance. The VM's folder
+     * name is memuc's {@code -n} selector. Package-private + pure so it's unit-testable; returns {@code base}
+     * unchanged when the console is absent.
+     */
+    static EmulatorInstance withLaunch(EmulatorInstance base, String vmName, Path console) {
+        if (console == null) {
+            return base;
+        }
+        String exe = console.toString();
+        return base.withCommands(
+                List.of(exe, "start", "-n", vmName),
+                List.of(exe, "stop", "-n", vmName));
     }
 
     /**
