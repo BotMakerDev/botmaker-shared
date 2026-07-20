@@ -113,3 +113,17 @@ from JitPack. See `pom.xml` and `../CLAUDE.md`.
 Prefer functional OOP: minimize mutable state, keep the native side effects (JNA calls, window handles) at
 the edges, pass dependencies in rather than reaching for singletons. The one intentional singleton is the
 lazily-cached `NativeControllerFactory.instance` (overridable for tests).
+
+**Type a closed set rather than passing a bare `String`.** `PlatformId` is the worked example: the product
+key used to be a free-form `String platformId` on `EmulatorInstance`, which let a typo invent a product and
+let each consumer keep its own id→display-name switch — they had already drifted ("MuMu" vs "MuMu Player").
+An enum carrying both the stable wire `id()` and the `displayName()` makes the set closed, exhaustively
+switchable, and single-sourced. Keep the wire id stable (it may be persisted) and keep the parse total
+(`fromId` → `UNKNOWN`, never throws) so an unrecognised value from a newer config still loads.
+
+**Put a behaviour shared by the platform implementations in one place, not five.** Discovery is repetitive by
+nature, so the common parts are factored out and each platform supplies only what genuinely differs:
+`WindowsRegistry.firstNonBlank` (read the same setting from several keys), `PlatformScan.directory` (the
+"list the install dir, parse each entry, never throw" walk, taking a per-entry lambda), and
+`EmulatorInstance.identity()` / `PlatformStatus.statusLine()` for the keys and strings consumers would
+otherwise each rebuild. When adding a product, reach for these before writing a private copy.

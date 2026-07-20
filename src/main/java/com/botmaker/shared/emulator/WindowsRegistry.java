@@ -50,6 +50,20 @@ public final class WindowsRegistry {
         }
     }
 
+    /**
+     * The first value that is neither null nor blank, or {@code null} if there is none. Products keep the same
+     * setting under several keys depending on how they were installed (MSI vs. installer, 32- vs. 64-bit), so
+     * discovery reads them all and takes the first that answers: {@code firstNonBlank(read(a, k), read(b, k))}.
+     */
+    public static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return null;
+    }
+
     private static int indexOfRegType(String line) {
         for (String type : new String[]{"REG_SZ", "REG_EXPAND_SZ", "REG_DWORD", "REG_MULTI_SZ"}) {
             int i = line.indexOf(type);

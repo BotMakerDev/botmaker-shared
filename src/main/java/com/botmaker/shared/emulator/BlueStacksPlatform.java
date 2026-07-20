@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  */
 public final class BlueStacksPlatform implements EmulatorPlatform {
 
-    public static final String PLATFORM_ID = "bluestacks";
+    public static final PlatformId PLATFORM_ID = PlatformId.BLUESTACKS;
     private static final String CONF_FILE = "bluestacks.conf";
 
     // bst.instance.<name>.status.adb_port="<port>"
@@ -30,13 +30,8 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
             Pattern.compile("^bst\\.instance\\.([^.]+)\\.display_name=\"([^\"]*)\"", Pattern.MULTILINE);
 
     @Override
-    public String id() {
+    public PlatformId id() {
         return PLATFORM_ID;
-    }
-
-    @Override
-    public String displayName() {
-        return "BlueStacks";
     }
 
     @Override
@@ -59,7 +54,7 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
 
     /** {@code <InstallDir>\HD-Player.exe} (the program dir, not the data dir), or {@code null} if unknown. */
     private static Path hdPlayerPath() {
-        String installDir = firstNonNull(
+        String installDir = WindowsRegistry.firstNonBlank(
                 WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_nxt", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_msi", "InstallDir"));
         if (installDir == null || installDir.isBlank()) {
@@ -70,7 +65,7 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
 
     /** Locates {@code bluestacks.conf}, or {@code null} if BlueStacks isn't installed / can't be found. */
     private static Path confPath() {
-        String userDefinedDir = firstNonNull(
+        String userDefinedDir = WindowsRegistry.firstNonBlank(
                 WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_nxt", "UserDefinedDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_msi", "UserDefinedDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_nxt", "DataDir"),
@@ -119,14 +114,5 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
             instances.add(instance);
         }
         return instances;
-    }
-
-    private static String firstNonNull(String... values) {
-        for (String v : values) {
-            if (v != null && !v.isBlank()) {
-                return v;
-            }
-        }
-        return null;
     }
 }

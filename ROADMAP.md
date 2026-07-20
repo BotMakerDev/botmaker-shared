@@ -8,6 +8,30 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-20 — `PlatformId` enum + emulator discovery de-duplication
+
+**Done**
+
+- **`PlatformId` replaces the free-form `String platformId`.** A closed enum of the five known products,
+  each carrying its stable wire `id()` (unchanged, so stored values still resolve) and its `displayName()`.
+  `EmulatorInstance.platformId` and `Platforms.PlatformStatus.platformId` are now typed, `EmulatorPlatform.id()`
+  returns it, and `displayName()` is a default derived from it — so the name lives in exactly one place.
+  `fromId` is total (unknown/null → `UNKNOWN`) and a null platform defaults to `UNKNOWN` rather than NPE-ing
+  later. Deliberately **not** a Jackson type: shared has no Jackson dependency and nothing serializes an
+  `EmulatorInstance` today, so persisting `id()` + reading through `fromId` is the contract instead of pulling
+  a new dependency into the module both consumers inherit.
+  - Fixed a real drift this exposed: the platform said "MuMu Player" while Studio's own brand switch said
+    "MuMu". One enum, one answer (now "MuMu Player").
+- **`EmulatorInstance.identity()`** (`platformId@host:adbPort`) and **`brand()`**, so the scanner and the two
+  Studio pickers stop building the key three different ways.
+- **`Platforms.PlatformStatus.statusLine()`** — the one-line per-product summary both pickers rendered from
+  their own byte-identical copies.
+- **`WindowsRegistry.firstNonBlank`** replaces the same private helper copy-pasted into all five platforms.
+- **`PlatformScan.directory`** collapses the near-identical "list the install dir, parse each entry" walk in
+  `LdPlayer`/`Memu`/`MuMu` into a template method taking a per-entry lambda. Side benefit: MuMu now gets the
+  per-entry error isolation the other two already had, so one corrupt instance config can no longer hide the
+  working instances beside it.
+
 ## 2026-07-20 — Emulator discovery diagnostics (per-product status)
 
 **Done**

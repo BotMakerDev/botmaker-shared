@@ -22,7 +22,7 @@ class LdPlayerPlatformTest {
         Optional<EmulatorInstance> zero =
                 LdPlayerPlatform.parseInstance("leidian0.config", "{\"statusSettings.playerName\":\"LDPlayer\"}");
         assertTrue(zero.isPresent());
-        assertEquals("ldplayer", zero.get().platformId());
+        assertEquals(PlatformId.LDPLAYER, zero.get().platformId());
         assertEquals("LDPlayer", zero.get().name());
         assertEquals(5555, zero.get().adbPort());
 

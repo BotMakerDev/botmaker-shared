@@ -41,7 +41,7 @@ class MemuPlatformTest {
         Optional<EmulatorInstance> inst = MemuPlatform.parseVm("MEmu-folder", xml);
 
         assertTrue(inst.isPresent());
-        assertEquals("memu", inst.get().platformId());
+        assertEquals(PlatformId.MEMU, inst.get().platformId());
         assertEquals("MEmu_1", inst.get().name());          // <Machine name> wins over the folder name
         assertEquals("127.0.0.1", inst.get().host());
         assertEquals(21563, inst.get().adbPort());

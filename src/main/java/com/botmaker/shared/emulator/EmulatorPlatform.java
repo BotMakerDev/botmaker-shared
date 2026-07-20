@@ -13,11 +13,13 @@ import java.util.List;
  */
 public interface EmulatorPlatform {
 
-    /** Stable product key stamped onto every {@link EmulatorInstance}, e.g. {@code "bluestacks"}. */
-    String id();
+    /** Which product this is — stamped onto every {@link EmulatorInstance} it discovers. */
+    PlatformId id();
 
-    /** Human-readable product name for UI/logs, e.g. {@code "BlueStacks"}. */
-    String displayName();
+    /** Human-readable product name for UI/logs, e.g. {@code "BlueStacks"}. Comes from {@link #id()}. */
+    default String displayName() {
+        return id().displayName();
+    }
 
     /**
      * Whether this product appears installed on the machine (registry/install-dir present), independent of how

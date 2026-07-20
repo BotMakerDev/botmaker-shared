@@ -20,19 +20,14 @@ import java.util.List;
  */
 public final class GameloopPlatform implements EmulatorPlatform {
 
-    public static final String PLATFORM_ID = "gameloop";
+    public static final PlatformId PLATFORM_ID = PlatformId.GAMELOOP;
     private static final String HOST = "127.0.0.1";
     private static final int ADB_PORT = 5555;
     private static final String INSTANCE_NAME = "Gameloop";
 
     @Override
-    public String id() {
+    public PlatformId id() {
         return PLATFORM_ID;
-    }
-
-    @Override
-    public String displayName() {
-        return "Gameloop";
     }
 
     @Override
@@ -61,7 +56,7 @@ public final class GameloopPlatform implements EmulatorPlatform {
 
     /** Whether Gameloop appears installed — registry install dir, else the default engine path on disk. */
     private static boolean installed() {
-        String installDir = firstNonNull(
+        String installDir = WindowsRegistry.firstNonBlank(
                 WindowsRegistry.read(
                         "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\GameLoop",
                         "InstallLocation"),
@@ -84,15 +79,6 @@ public final class GameloopPlatform implements EmulatorPlatform {
             Path candidate = ui.resolve(exe);
             if (Files.isRegularFile(candidate)) {
                 return candidate;
-            }
-        }
-        return null;
-    }
-
-    private static String firstNonNull(String... values) {
-        for (String v : values) {
-            if (v != null && !v.isBlank()) {
-                return v;
             }
         }
         return null;

@@ -2,12 +2,10 @@ package com.botmaker.shared.emulator;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /**
  * Discovers <b>MuMu Player 12</b> instances. The install directory comes from the registry; each instance is
@@ -24,7 +22,7 @@ import java.util.stream.Stream;
  */
 public final class MuMuPlatform implements EmulatorPlatform {
 
-    public static final String PLATFORM_ID = "mumu";
+    public static final PlatformId PLATFORM_ID = PlatformId.MUMU;
     private static final int ADB_BASE_PORT = 16384;
     private static final int ADB_PORT_STRIDE = 32;
 
@@ -33,13 +31,8 @@ public final class MuMuPlatform implements EmulatorPlatform {
     private static final Pattern PLAYER_NAME = Pattern.compile("\"playerName\"\\s*:\\s*\"([^\"]*)\"");
 
     @Override
-    public String id() {
+    public PlatformId id() {
         return PLATFORM_ID;
-    }
-
-    @Override
-    public String displayName() {
-        return "MuMu Player";
     }
 
     @Override
@@ -50,31 +43,23 @@ public final class MuMuPlatform implements EmulatorPlatform {
     @Override
     public List<EmulatorInstance> discover() {
         Path install = installDir();
-        Path vmsDir = (install == null) ? null : install.resolve("vms");
-        if (vmsDir == null || !Files.isDirectory(vmsDir)) {
+        if (install == null) {
             return List.of();
         }
         Path console = install.resolve("shell").resolve("MuMuManager.exe");
-        List<EmulatorInstance> instances = new ArrayList<>();
-        try (Stream<Path> dirs = Files.list(vmsDir)) {
-            for (Path dir : (Iterable<Path>) dirs.sorted()::iterator) {
-                if (!Files.isDirectory(dir)) {
-                    continue;
-                }
-                String folder = dir.getFileName().toString();
-                Matcher m = INSTANCE_DIR.matcher(folder);
-                if (!m.matches()) {
-                    continue;
-                }
-                int index = Integer.parseInt(m.group(1));
-                parseInstance(folder, readConfig(dir))
-                        .map(base -> withLaunch(base, index, console))
-                        .ifPresent(instances::add);
+        return PlatformScan.directory(install.resolve("vms"), dir -> {
+            if (!Files.isDirectory(dir)) {
+                return Optional.empty();
             }
-        } catch (Exception e) {
-            return instances;
-        }
-        return instances;
+            String folder = dir.getFileName().toString();
+            Matcher m = INSTANCE_DIR.matcher(folder);
+            if (!m.matches()) {
+                return Optional.empty();
+            }
+            int index = Integer.parseInt(m.group(1));
+            return parseInstance(folder, readConfig(dir))
+                    .map(base -> withLaunch(base, index, console));
+        });
     }
 
     /**
@@ -104,7 +89,7 @@ public final class MuMuPlatform implements EmulatorPlatform {
 
     /** {@code <InstallDir>}, or {@code null} if MuMu isn't installed / can't be found. */
     private static Path installDir() {
-        String installDir = firstNonNull(
+        String installDir = WindowsRegistry.firstNonBlank(
                 WindowsRegistry.read("HKLM\\SOFTWARE\\WOW6432Node\\Netease\\MuMuPlayer-12.0", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\Netease\\MuMuPlayer-12.0", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\WOW6432Node\\Netease\\MuMuPlayerGlobal-12.0", "InstallDir"),
@@ -135,14 +120,5 @@ public final class MuMuPlatform implements EmulatorPlatform {
             }
         }
         return Optional.of(new EmulatorInstance(PLATFORM_ID, name, "127.0.0.1", adbPort));
-    }
-
-    private static String firstNonNull(String... values) {
-        for (String v : values) {
-            if (v != null && !v.isBlank()) {
-                return v;
-            }
-        }
-        return null;
     }
 }

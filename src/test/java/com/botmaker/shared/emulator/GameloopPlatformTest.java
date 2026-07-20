@@ -20,7 +20,7 @@ class GameloopPlatformTest {
         List<EmulatorInstance> instances = GameloopPlatform.singleInstance();
         assertEquals(1, instances.size());
         EmulatorInstance inst = instances.get(0);
-        assertEquals("gameloop", inst.platformId());
+        assertEquals(PlatformId.GAMELOOP, inst.platformId());
         assertEquals("Gameloop", inst.name());
         assertEquals("127.0.0.1", inst.host());
         assertEquals(5555, inst.adbPort());
@@ -30,7 +30,7 @@ class GameloopPlatformTest {
     @Test
     void identityMatchesRegisteredPlatform() {
         GameloopPlatform platform = new GameloopPlatform();
-        assertEquals("gameloop", platform.id());
+        assertEquals(PlatformId.GAMELOOP, platform.id());
         assertEquals("Gameloop", platform.displayName());
         // discover() is best-effort and never throws, regardless of whether Gameloop is installed here.
         assertFalse(platform.discover() == null);

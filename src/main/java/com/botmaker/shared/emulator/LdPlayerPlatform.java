@@ -2,12 +2,10 @@ package com.botmaker.shared.emulator;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /**
  * Discovers <b>LDPlayer</b> (LDPlayer9) instances. The install directory comes from the registry; each
@@ -19,7 +17,7 @@ import java.util.stream.Stream;
  */
 public final class LdPlayerPlatform implements EmulatorPlatform {
 
-    public static final String PLATFORM_ID = "ldplayer";
+    public static final PlatformId PLATFORM_ID = PlatformId.LDPLAYER;
     private static final int ADB_BASE_PORT = 5555;
 
     private static final Pattern CONFIG_INDEX = Pattern.compile("leidian(\\d+)\\.config");
@@ -28,13 +26,8 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
     private static final Pattern PLAYER_NAME = Pattern.compile("playerName\"\\s*:\\s*\"([^\"]*)\"");
 
     @Override
-    public String id() {
+    public PlatformId id() {
         return PLATFORM_ID;
-    }
-
-    @Override
-    public String displayName() {
-        return "LDPlayer";
     }
 
     @Override
@@ -45,37 +38,25 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
     @Override
     public List<EmulatorInstance> discover() {
         Path install = installDir();
-        Path configDir = (install == null) ? null : install.resolve("vms").resolve("config");
-        if (configDir == null || !Files.isDirectory(configDir)) {
+        if (install == null) {
             return List.of();
         }
         Path console = install.resolve("ldconsole.exe");
-        List<EmulatorInstance> instances = new ArrayList<>();
-        try (Stream<Path> files = Files.list(configDir)) {
-            for (Path file : (Iterable<Path>) files.sorted()::iterator) {
-                String fileName = file.getFileName().toString();
-                Matcher m = CONFIG_INDEX.matcher(fileName);
-                if (!m.matches()) {
-                    continue; // skip leidian.config (global) and non-instance files
-                }
-                int index = Integer.parseInt(m.group(1));
-                try {
-                    parseInstance(fileName, Files.readString(file))
-                            .map(base -> withLaunch(base, index, console))
-                            .ifPresent(instances::add);
-                } catch (Exception ignored) {
-                    // skip an unreadable/instance config; keep discovering the rest
-                }
+        return PlatformScan.directory(install.resolve("vms").resolve("config"), file -> {
+            String fileName = file.getFileName().toString();
+            Matcher m = CONFIG_INDEX.matcher(fileName);
+            if (!m.matches()) {
+                return Optional.empty(); // skip leidian.config (global) and non-instance files
             }
-        } catch (Exception e) {
-            return instances;
-        }
-        return instances;
+            int index = Integer.parseInt(m.group(1));
+            return parseInstance(fileName, Files.readString(file))
+                    .map(base -> withLaunch(base, index, console));
+        });
     }
 
     /** {@code <InstallDir>}, or {@code null} if LDPlayer isn't installed / can't be found. */
     private static Path installDir() {
-        String installDir = firstNonNull(
+        String installDir = WindowsRegistry.firstNonBlank(
                 WindowsRegistry.read("HKLM\\SOFTWARE\\leidian\\LDPlayer9", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\WOW6432Node\\leidian\\LDPlayer9", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\leidian\\LDPlayer", "InstallDir"));
@@ -118,14 +99,5 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
             name = playerName.group(1);
         }
         return Optional.of(new EmulatorInstance(PLATFORM_ID, name, "127.0.0.1", adbPort));
-    }
-
-    private static String firstNonNull(String... values) {
-        for (String v : values) {
-            if (v != null && !v.isBlank()) {
-                return v;
-            }
-        }
-        return null;
     }
 }

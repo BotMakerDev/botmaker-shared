@@ -44,10 +44,9 @@ public final class Platforms {
             try {
                 List<EmulatorInstance> found = platform.discover();
                 all.addAll(found);
-                statuses.add(new PlatformStatus(platform.id(), platform.displayName(), installed, found.size(), null));
+                statuses.add(new PlatformStatus(platform.id(), installed, found.size(), null));
             } catch (Exception e) {
-                statuses.add(new PlatformStatus(platform.id(), platform.displayName(), installed, 0,
-                        e.getClass().getSimpleName()));
+                statuses.add(new PlatformStatus(platform.id(), installed, 0, e.getClass().getSimpleName()));
             }
         }
         return new DiscoveryReport(List.copyOf(all), List.copyOf(statuses));
@@ -67,17 +66,34 @@ public final class Platforms {
     /**
      * What discovery saw for one product.
      *
-     * @param platformId    the product key ({@link EmulatorPlatform#id()})
-     * @param displayName   the product's human name ({@link EmulatorPlatform#displayName()})
+     * @param platformId    which product this is ({@link EmulatorPlatform#id()})
      * @param installed     whether the product appears installed at all
      * @param instanceCount how many instances discovery found
      * @param error         the failure kind if discovery threw for this product, else {@code null}
      */
-    public record PlatformStatus(String platformId, String displayName, boolean installed, int instanceCount,
-                                 String error) {
+    public record PlatformStatus(PlatformId platformId, boolean installed, int instanceCount, String error) {
+
         /** Whether discovery completed without throwing for this product. */
         public boolean ok() {
             return error == null;
+        }
+
+        /** The product's human name. */
+        public String displayName() {
+            return platformId.displayName();
+        }
+
+        /**
+         * The one-line summary a picker shows for this product — "MuMu: installed · 2 instances configured",
+         * "BlueStacks: not installed", "LDPlayer: scan error (IOException)". Lives here so every picker words
+         * it identically.
+         */
+        public String statusLine() {
+            if (!ok()) return displayName() + ": scan error (" + error + ")";
+            if (!installed) return displayName() + ": not installed";
+            if (instanceCount == 0) return displayName() + ": installed · no instances configured";
+            return displayName() + ": installed · " + instanceCount
+                    + (instanceCount == 1 ? " instance" : " instances") + " configured";
         }
     }
 }

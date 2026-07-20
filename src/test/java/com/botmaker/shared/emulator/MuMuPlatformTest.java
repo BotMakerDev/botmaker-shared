@@ -21,7 +21,7 @@ class MuMuPlatformTest {
         Optional<EmulatorInstance> zero =
                 MuMuPlatform.parseInstance("MuMuPlayer-12.0-0", "{\"playerName\":\"Main\"}");
         assertTrue(zero.isPresent());
-        assertEquals("mumu", zero.get().platformId());
+        assertEquals(PlatformId.MUMU, zero.get().platformId());
         assertEquals("Main", zero.get().name());
         assertEquals("127.0.0.1", zero.get().host());
         assertEquals(16384, zero.get().adbPort());

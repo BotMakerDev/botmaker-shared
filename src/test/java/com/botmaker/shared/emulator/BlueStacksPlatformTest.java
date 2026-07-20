@@ -27,7 +27,7 @@ class BlueStacksPlatformTest {
         List<EmulatorInstance> instances = BlueStacksPlatform.parseConf(conf);
 
         assertEquals(2, instances.size());
-        assertEquals("bluestacks", instances.get(0).platformId());
+        assertEquals(PlatformId.BLUESTACKS, instances.get(0).platformId());
         assertEquals("My Main", instances.get(0).name());
         assertEquals("127.0.0.1", instances.get(0).host());
         assertEquals(5555, instances.get(0).adbPort());

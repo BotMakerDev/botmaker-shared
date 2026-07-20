@@ -2,12 +2,10 @@ package com.botmaker.shared.emulator;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /**
  * Discovers <b>MEmu</b> instances. MEmu is VirtualBox-based: the install directory comes from the registry,
@@ -29,7 +27,7 @@ import java.util.stream.Stream;
  */
 public final class MemuPlatform implements EmulatorPlatform {
 
-    public static final String PLATFORM_ID = "memu";
+    public static final PlatformId PLATFORM_ID = PlatformId.MEMU;
     private static final String VMS_DIRNAME = "MemuHyperv VMs";
 
     // A single <Forwarding .../> element (its attributes captured in group 1); order-independent lookups follow.
@@ -39,13 +37,8 @@ public final class MemuPlatform implements EmulatorPlatform {
     private static final Pattern MACHINE_NAME = Pattern.compile("<Machine\\b[^>]*\\bname=\"([^\"]*)\"");
 
     @Override
-    public String id() {
+    public PlatformId id() {
         return PLATFORM_ID;
-    }
-
-    @Override
-    public String displayName() {
-        return "MEmu";
     }
 
     @Override
@@ -56,39 +49,27 @@ public final class MemuPlatform implements EmulatorPlatform {
     @Override
     public List<EmulatorInstance> discover() {
         Path install = installDir();
-        Path vmsDir = (install == null) ? null : install.resolve(VMS_DIRNAME);
-        if (vmsDir == null || !Files.isDirectory(vmsDir)) {
+        if (install == null) {
             return List.of();
         }
         Path console = install.resolve("memuc.exe");
-        List<EmulatorInstance> instances = new ArrayList<>();
-        try (Stream<Path> dirs = Files.list(vmsDir)) {
-            for (Path dir : (Iterable<Path>) dirs.sorted()::iterator) {
-                if (!Files.isDirectory(dir)) {
-                    continue;
-                }
-                String vmName = dir.getFileName().toString();
-                Path memu = dir.resolve(vmName + ".memu");
-                if (!Files.isReadable(memu)) {
-                    continue;
-                }
-                try {
-                    parseVm(vmName, Files.readString(memu))
-                            .map(base -> withLaunch(base, vmName, console))
-                            .ifPresent(instances::add);
-                } catch (Exception ignored) {
-                    // skip an unreadable/odd VM; keep discovering the rest
-                }
+        return PlatformScan.directory(install.resolve(VMS_DIRNAME), dir -> {
+            if (!Files.isDirectory(dir)) {
+                return Optional.empty();
             }
-        } catch (Exception e) {
-            return instances;
-        }
-        return instances;
+            String vmName = dir.getFileName().toString();
+            Path memu = dir.resolve(vmName + ".memu");
+            if (!Files.isReadable(memu)) {
+                return Optional.empty();
+            }
+            return parseVm(vmName, Files.readString(memu))
+                    .map(base -> withLaunch(base, vmName, console));
+        });
     }
 
     /** {@code <InstallDir>}, or {@code null} if MEmu isn't installed / can't be found. */
     private static Path installDir() {
-        String installDir = firstNonNull(
+        String installDir = WindowsRegistry.firstNonBlank(
                 WindowsRegistry.read("HKLM\\SOFTWARE\\Microvirt\\MEmu", "InstallDir"),
                 WindowsRegistry.read("HKLM\\SOFTWARE\\WOW6432Node\\Microvirt\\MEmu", "InstallDir"));
         if (installDir == null || installDir.isBlank()) {
@@ -138,14 +119,5 @@ public final class MemuPlatform implements EmulatorPlatform {
             name = machineName.group(1);
         }
         return Optional.of(new EmulatorInstance(PLATFORM_ID, name, "127.0.0.1", adbPort));
-    }
-
-    private static String firstNonNull(String... values) {
-        for (String v : values) {
-            if (v != null && !v.isBlank()) {
-                return v;
-            }
-        }
-        return null;
     }
 }
