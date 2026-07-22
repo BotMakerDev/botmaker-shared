@@ -4,6 +4,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import com.sun.jna.platform.win32.WinDef.LPARAM;
+import com.sun.jna.platform.win32.WinDef.POINT;
 import com.sun.jna.platform.win32.WinDef.RECT;
 import com.sun.jna.platform.win32.WinDef.WPARAM;
 
@@ -42,12 +43,62 @@ public class WindowsController implements NativeController {
 
 	@Override
 	public void postLeftClick(GenericWindow window, int relativeX, int relativeY) {
+		if (reliableInput) {
+			// Real input hits whatever is topmost, so raise the target first (same rule as the Linux
+			// xdotool path). Then click in absolute coordinates with the cursor put back afterwards.
+			HWND hwnd = (HWND) window.getNativeHandle();
+			focusWindow(window);
+			POINT pt = new POINT();
+			pt.x = relativeX;
+			pt.y = relativeY;
+			User32.INSTANCE.ClientToScreen(hwnd, pt);
+			clickRestoringCursor(pt.x, pt.y, 1);
+			return;
+		}
 		Clicker.postLeftClick((HWND) window.getNativeHandle(), relativeX, relativeY);
 	}
 
 	@Override
 	public void postLeftClickScreen(int xAbs, int yAbs) {
+		if (reliableInput) {
+			clickRestoringCursor(xAbs, yAbs, 1);
+			return;
+		}
 		Clicker.postLeftClickScreen(xAbs, yAbs);
+	}
+
+	/** The pointer's absolute screen position, or {@code null} if {@code GetCursorPos} fails. */
+	@Override
+	public java.awt.Point cursorPosition() {
+		POINT pt = new POINT();
+		return User32.INSTANCE.GetCursorPos(pt) ? new java.awt.Point(pt.x, pt.y) : null;
+	}
+
+	/**
+	 * True only while on the posted-message path, which genuinely does drive a background window without
+	 * touching the cursor. Once {@link #useReliableInput()} has escalated, input goes through the real device
+	 * and this correctly reports false.
+	 */
+	@Override
+	public boolean supportsBackgroundInput() {
+		return !reliableInput;
+	}
+
+	/**
+	 * Switch to real device input ({@code SetCursorPos} + {@code mouse_event} / scancode {@code keybd_event})
+	 * instead of {@code PostMessage}.
+	 *
+	 * <p>This used to be the inherited no-op returning true, on the claim that posting to a window's message
+	 * queue is "both reliable and cursor-safe". The second half holds; the first does not — Wine/Proton and
+	 * DirectInput games read raw input and never look at their message queue, so every posted click was
+	 * silently dropped. Escalating trades background operation for the click actually landing.
+	 *
+	 * <p>Idempotent and process-wide, matching the Linux backend swap.
+	 */
+	@Override
+	public boolean useReliableInput() {
+		reliableInput = true;
+		return true;
 	}
 
 	@Override
@@ -83,14 +134,30 @@ public class WindowsController implements NativeController {
 
 	private static final int VK_SHIFT = 0x10;
 
+	/**
+	 * Whether input has been escalated to the real-device path. Sticky and process-wide, matching the Linux
+	 * backend swap; see {@link #useReliableInput()}.
+	 */
+	private volatile boolean reliableInput = false;
+
+	// Keystrokes always carry a scancode. keybd_event with bScan=0 (what this used to send) is invisible to
+	// DirectInput/RawInput games, which read scancodes rather than virtual keys — that, and not only the
+	// PostMessage path, is why keyboard input never reached a game.
+	private static void sendKey(int nativeKeyCode, boolean press) {
+		int scan = User32.INSTANCE.MapVirtualKeyA(nativeKeyCode, User32.MAPVK_VK_TO_VSC);
+		int flags = (press ? 0 : User32.KEYEVENTF_KEYUP)
+			| (scan != 0 ? User32.KEYEVENTF_SCANCODE : 0);
+		User32.INSTANCE.keybd_event((byte) nativeKeyCode, (byte) scan, flags, null);
+	}
+
 	@Override
 	public void keyDown(int nativeKeyCode) {
-		User32.INSTANCE.keybd_event((byte) nativeKeyCode, (byte) 0, 0, null);
+		sendKey(nativeKeyCode, true);
 	}
 
 	@Override
 	public void keyUp(int nativeKeyCode) {
-		User32.INSTANCE.keybd_event((byte) nativeKeyCode, (byte) 0, User32.KEYEVENTF_KEYUP, null);
+		sendKey(nativeKeyCode, false);
 	}
 
 	@Override
@@ -116,7 +183,10 @@ public class WindowsController implements NativeController {
 
 	@Override
 	public void keyDown(GenericWindow window, int nativeKeyCode) {
-		if (window == null) {
+		if (window == null || reliableInput) {
+			// Escalated: focus the target, then drive the real keyboard — a posted WM_KEYDOWN is exactly
+			// what a raw-input game ignores.
+			if (window != null) focusWindow(window);
 			keyDown(nativeKeyCode);
 			return;
 		}
@@ -126,7 +196,7 @@ public class WindowsController implements NativeController {
 
 	@Override
 	public void keyUp(GenericWindow window, int nativeKeyCode) {
-		if (window == null) {
+		if (window == null || reliableInput) {
 			keyUp(nativeKeyCode);
 			return;
 		}
@@ -137,7 +207,8 @@ public class WindowsController implements NativeController {
 	@Override
 	public void typeText(GenericWindow window, String text) {
 		if (text == null) return;
-		if (window == null) {
+		if (window == null || reliableInput) {
+			if (window != null) focusWindow(window);
 			typeText(text);
 			return;
 		}

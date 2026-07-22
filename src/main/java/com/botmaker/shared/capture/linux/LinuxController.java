@@ -7,6 +7,7 @@ import com.botmaker.shared.capture.linux.input.LinuxInputBackend;
 import com.botmaker.shared.capture.linux.input.UinputBackend;
 import com.botmaker.shared.capture.linux.input.XSendEventBackend;
 import com.botmaker.shared.capture.linux.input.XTestBackend;
+import com.botmaker.shared.capture.linux.input.XdotoolBackend;
 import com.sun.jna.Pointer;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
@@ -84,6 +85,17 @@ public class LinuxController implements NativeController, AutoCloseable {
 			case "xtest":
 				backend = new XTestBackend(display);
 				break;
+			case "xdotool": {
+				LinuxInputBackend x = XdotoolBackend.tryCreate(display);
+				if (x == null) {
+					Diag.error("[Linux] xdotool not found on PATH (install it: "
+						+ "dnf install xdotool / apt install xdotool); falling back to in-process XTest.");
+					backend = new XTestBackend(display);
+				} else {
+					backend = x;
+				}
+				break;
+			}
 			case "uinput": {
 				int screen = X11.INSTANCE.XDefaultScreen(display);
 				int w = X11.INSTANCE.XDisplayWidth(display, screen);
@@ -814,6 +826,35 @@ public class LinuxController implements NativeController, AutoCloseable {
 		}
 	}
 
+	/**
+	 * The pointer's absolute position via {@code XQueryPointer} on the root window, or {@code null} if X11
+	 * isn't available. When the active backend is xdotool its own {@code getmouselocation} is used, so the
+	 * read and the subsequent warp go through the same mechanism.
+	 */
+	@Override
+	public Point cursorPosition() {
+		if (inputBackend instanceof XdotoolBackend xdotool) {
+			Point p = xdotool.cursorPosition();
+			if (p != null) {
+				return p;
+			}
+		}
+		if (!x11Available || closed) {
+			return null;
+		}
+		Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
+		PointerByReference rootReturn = new PointerByReference();
+		PointerByReference childReturn = new PointerByReference();
+		IntByReference rootX = new IntByReference();
+		IntByReference rootY = new IntByReference();
+		IntByReference winX = new IntByReference();
+		IntByReference winY = new IntByReference();
+		IntByReference mask = new IntByReference();
+		boolean ok = X11.INSTANCE.XQueryPointer(display, root, rootReturn, childReturn,
+			rootX, rootY, winX, winY, mask);
+		return ok ? new Point(rootX.getValue(), rootY.getValue()) : null;
+	}
+
 	/** True if the active input backend leaves the user's real cursor untouched (background-capable). */
 	@Override
 	public boolean supportsBackgroundInput() {
@@ -836,19 +877,26 @@ public class LinuxController implements NativeController, AutoCloseable {
 		if (!x11Available || inputBackend == null) return false;
 		if (!inputBackend.preservesCursor()) return true; // already uinput/xtest
 
-		int screen = X11.INSTANCE.XDefaultScreen(display);
-		int w = X11.INSTANCE.XDisplayWidth(display, screen);
-		int h = X11.INSTANCE.XDisplayHeight(display, screen);
-		LinuxInputBackend escalated = UinputBackend.tryCreate(w, h, display);
+		// xdotool first: it is the same XTEST mechanism, but restores the pointer atomically and needs no
+		// /dev/uinput permission. uinput is last because it is the only one requiring device access.
+		LinuxInputBackend escalated = XdotoolBackend.tryCreate(display);
 		if (escalated == null) {
-			Diag.log("[Linux] uinput unavailable (can't open /dev/uinput); trying XTest.");
+			Diag.log("[Linux] xdotool not on PATH (install it: dnf install xdotool / apt install xdotool); "
+				+ "trying in-process XTest.");
 			try {
 				escalated = new XTestBackend(display);
 			} catch (Exception | UnsatisfiedLinkError e) {
-				Diag.error("[Linux] XTest unavailable (" + e.getMessage()
-					+ "); staying on xsendevent — clicks may not reach the target.");
-				return false;
+				Diag.error("[Linux] XTest unavailable (" + e.getMessage() + "); trying uinput.");
+				int screen = X11.INSTANCE.XDefaultScreen(display);
+				escalated = UinputBackend.tryCreate(
+					X11.INSTANCE.XDisplayWidth(display, screen),
+					X11.INSTANCE.XDisplayHeight(display, screen), display);
 			}
+		}
+		if (escalated == null) {
+			Diag.error("[Linux] no reliable input backend available; "
+				+ "staying on xsendevent — clicks may not reach the target.");
+			return false;
 		}
 		LinuxInputBackend previous = inputBackend;
 		inputBackend = escalated;

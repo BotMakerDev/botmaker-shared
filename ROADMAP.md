@@ -8,6 +8,52 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-22 — Real input that games accept, with the cursor put back
+
+**Done**
+
+- **`XdotoolBackend`** (`capture/linux/input/`) — real pointer/keyboard input by driving the `xdotool` CLI.
+  It is the same XTEST extension `XTestBackend` binds directly, but chains a whole gesture into one
+  invocation (`mousemove --sync X Y click B mousemove restore`), so positioning, clicking and restoring the
+  pointer happen with one round trip and xdotool's own bookkeeping of the prior position. Measured ~2 ms per
+  spawn, cheaper than the settle delay the gesture needs anyway. Falls back to `XTestBackend` when xdotool
+  isn't installed, logging the distro install hint once.
+- **It never passes `--window`, deliberately.** Verified against the installed xdotool: that variant uses
+  `XSendEvent`, whose `send_event` flag is exactly what games reject, it takes coordinates from the *current
+  pointer position* rather than an argument, and `mousemove --window` moves the real cursor anyway — so it is
+  not even a cursor-safe way to click a specific point. Coordinate-accurate background clicking stays
+  `XSendEventBackend`'s job. Measured directly: with Dolphin behind a maximized IntelliJ,
+  `mousemove --window <dolphin> 100 100` put the pointer at the right absolute coordinate but
+  `getmouselocation` reported IntelliJ as the window under it — real input hits whatever is **topmost**.
+  Hence `clickWindow` raises the target first (`windowactivate --sync`).
+- **`NativeController.cursorPosition()` + `clickRestoringCursor(x, y, button)`.** The click policy lives in
+  shared rather than in the SDK's `Mouse` because Studio's `PilotInputService` needs the identical behaviour
+  and Studio does not depend on the SDK. Default implementation is read → move → settle → press → release →
+  move back; the xdotool backend overrides it with its atomic form. `cursorPosition` is `XQueryPointer`
+  (already bound) on Linux and the already-bound `GetCursorPos` on Windows.
+- **Escalation order is now xdotool → XTest → uinput** (was uinput → XTest). XTEST reaches X11 games and
+  needs no `/dev/uinput` permission, so requiring device access first was backwards.
+- **Windows: `useReliableInput()` stopped being a no-op.** It had inherited the default returning `true` on
+  the claim that `PostMessage` is "both reliable and cursor-safe" — the second half holds, the first does
+  not, since a raw-input game never reads its message queue. Escalating now routes `postLeftClick*` and the
+  targeted `keyDown`/`keyUp`/`typeText(window, …)` overloads through real device input, and
+  `supportsBackgroundInput()` reports honestly afterwards.
+- **Windows keyboard sent scancode 0** — a separate root cause from the click bug. `keybd_event` was called
+  with `bScan = 0`, which DirectInput/RawInput games ignore because they read scancodes rather than virtual
+  keys. Now maps the VK through `MapVirtualKeyA` and sets `KEYEVENTF_SCANCODE`.
+- Bound `X11.XKeysymToString` so a keysym can be handed to xdotool by name without a parallel table that
+  would drift from the SDK's `Key` constants.
+
+**Deferred / next**
+
+- Windows input still uses `keybd_event`/`mouse_event` rather than `SendInput`. `SendInput` is the modern,
+  atomic API and would be the fuller fix, but needs the `INPUT` struct plumbing `User32.java` deliberately
+  avoids. The scancode fix above addresses the observed failure; revisit if a game still ignores input.
+- Only Linux/X11 was verified on real hardware (click lands + cursor restored, through the Java path).
+  The Windows paths compile but are untested — no Windows machine in this session.
+
+---
+
 ## 2026-07-22 — One diagnostic switch for both modules (`Diag`)
 
 **Done**

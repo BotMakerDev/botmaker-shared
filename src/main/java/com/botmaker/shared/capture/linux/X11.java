@@ -118,6 +118,14 @@ public interface X11 extends Library {
 						  IntByReference winXReturn, IntByReference winYReturn,
 						  IntByReference maskReturn);
 
+	/**
+	 * Keysym → its X name (e.g. {@code 0xFF0D} → {@code "Return"}). Used to hand a keysym to xdotool, whose
+	 * {@code key}/{@code keydown}/{@code keyup} take a keysym *string*; converting through Xlib avoids
+	 * maintaining a parallel name table that would drift from {@code Key}'s numeric constants.
+	 * Returns {@code null} for an unknown keysym.
+	 */
+	String XKeysymToString(int keysym);
+
 	// Window focus
 	int XGetInputFocus(Pointer display, PointerByReference focusReturn, IntByReference revertToReturn);
 	int XSetInputFocus(Pointer display, Pointer focus, int revertTo, long time);

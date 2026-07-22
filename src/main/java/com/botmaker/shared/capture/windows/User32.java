@@ -98,7 +98,14 @@ public interface User32 extends StdCallLibrary {
     boolean SetCursorPos(int x, int y);
     short VkKeyScanA(byte ch);
 
+    /** Virtual key → scancode. {@code MAPVK_VK_TO_VSC} (0) is the mapping DirectInput/RawInput games read. */
+    int MapVirtualKeyA(int uCode, int uMapType);
+
+    int MAPVK_VK_TO_VSC = 0;
+
     int KEYEVENTF_KEYUP      = 0x0002;
+    /** Interpret {@code bScan} as a scancode; without it a game reading raw input sees nothing. */
+    int KEYEVENTF_SCANCODE   = 0x0008;
 
     int MOUSEEVENTF_MOVE      = 0x0001;
     int MOUSEEVENTF_LEFTDOWN  = 0x0002;

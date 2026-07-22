@@ -1,5 +1,6 @@
 package com.botmaker.shared.capture;
 
+import java.awt.Point;
 import java.awt.image.BufferedImage;
 import java.util.List;
 
@@ -111,4 +112,49 @@ public interface NativeController {
 	void mouseMove(int xAbs, int yAbs);
 	void mouseButton(int button, boolean press); // 1=left, 2=middle, 3=right
 	void scroll(int amount);                      // + = up/away, - = down/toward
+
+	/**
+	 * The real pointer's current absolute screen position, or {@code null} if it can't be read. Callers must
+	 * treat {@code null} as "don't restore" rather than as an origin — a stale or invented coordinate would
+	 * park the cursor somewhere the user never left it.
+	 */
+	default Point cursorPosition() {
+		return null;
+	}
+
+	/**
+	 * Click at an absolute screen coordinate on the <em>reliable</em> path (real pointer input, which games
+	 * accept), leaving the cursor where it started.
+	 *
+	 * <p>This lives here rather than in the SDK's {@code Mouse} because both consumers need the identical
+	 * policy and Studio does not depend on the SDK: the SDK's {@code Mouse.click} and Studio's
+	 * {@code PilotInputService} {@code TAP} would otherwise each rebuild it and drift.
+	 *
+	 * <p>The default implementation is the portable one — read cursor, move, settle, press, release, move
+	 * back. The settle delay matters: games sample the pointer on their own timer, so a press issued in the
+	 * same instant as the move is read at the <em>old</em> position. A backend that can do this atomically
+	 * (the xdotool one chains {@code mousemove … click … mousemove restore} in a single invocation) overrides
+	 * it.
+	 *
+	 * <p>Note this deliberately cannot target an occluded window: real pointer input lands on whatever is
+	 * topmost at that coordinate. Raising the target first is the caller's decision, since it is visible to
+	 * the user.
+	 */
+	default void clickRestoringCursor(int xAbs, int yAbs, int button) {
+		Point origin = cursorPosition();
+		mouseMove(xAbs, yAbs);
+		try {
+			Thread.sleep(CLICK_SETTLE_MS);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+		mouseButton(button, true);
+		mouseButton(button, false);
+		if (origin != null) {
+			mouseMove(origin.x, origin.y);
+		}
+	}
+
+	/** Delay between positioning the pointer and pressing, so the target reads the new position. */
+	int CLICK_SETTLE_MS = 20;
 }
