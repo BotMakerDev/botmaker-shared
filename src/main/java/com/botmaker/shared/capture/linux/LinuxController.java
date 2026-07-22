@@ -1,5 +1,6 @@
 package com.botmaker.shared.capture.linux;
 
+import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.linux.input.LinuxInputBackend;
@@ -57,14 +58,14 @@ public class LinuxController implements NativeController, AutoCloseable {
 			available = (disp != null);
 
 			if (!available) {
-				System.err.println("[Linux] Warning: Could not open X11 display. Falling back to Robot for all operations.");
-				System.err.println("[Linux] Make sure DISPLAY environment variable is set and X11 is running.");
+				Diag.error("[Linux] Warning: Could not open X11 display. Falling back to Robot for all operations.");
+				Diag.error("[Linux] Make sure DISPLAY environment variable is set and X11 is running.");
 			}
 		} catch (UnsatisfiedLinkError e) {
-			System.err.println("[Linux] Warning: X11 libraries not found. Install libx11-6 and libxtst-6.");
-			System.err.println("[Linux] Falling back to Robot for all operations.");
+			Diag.error("[Linux] Warning: X11 libraries not found. Install libx11-6 and libxtst-6.");
+			Diag.error("[Linux] Falling back to Robot for all operations.");
 		} catch (Exception e) {
-			System.err.println("[Linux] Warning: Error initializing X11: " + e.getMessage());
+			Diag.error("[Linux] Warning: Error initializing X11: " + e.getMessage());
 		}
 
 		this.display = disp;
@@ -89,7 +90,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 				int h = X11.INSTANCE.XDisplayHeight(display, screen);
 				UinputBackend u = UinputBackend.tryCreate(w, h, display);
 				if (u == null) {
-					System.err.println("[Linux] uinput unavailable (can't open /dev/uinput); "
+					Diag.error("[Linux] uinput unavailable (can't open /dev/uinput); "
 						+ "falling back to cursor-safe xsendevent.");
 					backend = new XSendEventBackend(display);
 				} else {
@@ -103,7 +104,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 				backend = new XSendEventBackend(display);
 				break;
 		}
-		System.out.println("[Linux] input backend = " + backend.name()
+		Diag.log("[Linux] input backend = " + backend.name()
 			+ " (preservesCursor=" + backend.preservesCursor() + ")");
 		return backend;
 	}
@@ -113,7 +114,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 		checkNotClosed();
 
 		if (!x11Available) {
-			System.out.println("[Linux] X11 not available, returning mock window.");
+			Diag.log("[Linux] X11 not available, returning mock window.");
 			return new GenericWindow(-1, "Mock Linux Window", new Rectangle(0, 0, 800, 600));
 		}
 
@@ -130,14 +131,13 @@ public class LinuxController implements NativeController, AutoCloseable {
 			}
 
 			if (activeWindow == null || Pointer.nativeValue(activeWindow) == 0 || Pointer.nativeValue(activeWindow) == 1) {
-				System.out.println("[Linux] No active window found.");
+				Diag.log("[Linux] No active window found.");
 				return null;
 			}
 
 			return toGenericWindow(activeWindow);
 		} catch (Exception e) {
-			System.err.println("[Linux] Error getting foreground window: " + e.getMessage());
-			e.printStackTrace();
+			Diag.error("[Linux] Error getting foreground window: " + e.getMessage(), e);
 			return null;
 		}
 	}
@@ -194,8 +194,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 				X11.INSTANCE.XFree(children);
 			}
 		} catch (Exception e) {
-			System.err.println("[Linux] Error getting child windows: " + e.getMessage());
-			e.printStackTrace();
+			Diag.error("[Linux] Error getting child windows: " + e.getMessage(), e);
 		}
 
 		return result;
@@ -242,8 +241,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 				}
 			}
 		} catch (Exception e) {
-			System.err.println("[Linux] Error getting all windows: " + e.getMessage());
-			e.printStackTrace();
+			Diag.error("[Linux] Error getting all windows: " + e.getMessage(), e);
 		}
 
 		return result;
@@ -267,7 +265,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			activateWindow(x11Window);
 			X11.INSTANCE.XFlush(display);
 		} catch (Exception e) {
-			System.err.println("[Linux] Error restoring window: " + e.getMessage());
+			Diag.error("[Linux] Error restoring window: " + e.getMessage());
 		}
 	}
 
@@ -347,7 +345,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			// Geometry gives us the window's size and absolute screen position (via XTranslateCoordinates).
 			Rectangle rect = X11Utils.getWindowGeometry(display, x11Window);
 			if (rect == null || rect.width <= 0 || rect.height <= 0) {
-				System.err.println("[Linux] Invalid window geometry, cannot capture window.");
+				Diag.error("[Linux] Invalid window geometry, cannot capture window.");
 				return null;
 			}
 
@@ -395,7 +393,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			return result != null ? result : onWindow;
 
 		} catch (Throwable e) {
-			System.err.println("[Linux] Error capturing window: " + e.getMessage());
+			Diag.error("[Linux] Error capturing window: " + e.getMessage());
 			return null;
 		} finally {
 			if (image != null) image.destroyImage();
@@ -551,7 +549,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 	public void postLeftClickScreen(int xAbs, int yAbs) {
 		checkNotClosed();
 		if (inputBackend == null) {
-			System.out.println("[Linux] X11 not available, cannot post click.");
+			Diag.log("[Linux] X11 not available, cannot post click.");
 			return;
 		}
 		inputBackend.clickScreen(xAbs, yAbs, 1);
@@ -570,7 +568,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			activateWindow(x11Window);
 			X11.INSTANCE.XFlush(display);
 		} catch (Exception e) {
-			System.err.println("[Linux] Error focusing window: " + e.getMessage());
+			Diag.error("[Linux] Error focusing window: " + e.getMessage());
 		}
 	}
 
@@ -616,7 +614,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			X11.INSTANCE.XMoveWindow(display, (Pointer) window.getNativeHandle(), x, y);
 			X11.INSTANCE.XFlush(display);
 		} catch (Exception e) {
-			System.err.println("[Linux] Error moving window: " + e.getMessage());
+			Diag.error("[Linux] Error moving window: " + e.getMessage());
 		}
 	}
 
@@ -630,7 +628,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			X11.INSTANCE.XResizeWindow(display, (Pointer) window.getNativeHandle(), width, height);
 			X11.INSTANCE.XFlush(display);
 		} catch (Exception e) {
-			System.err.println("[Linux] Error resizing window: " + e.getMessage());
+			Diag.error("[Linux] Error resizing window: " + e.getMessage());
 		}
 	}
 
@@ -651,7 +649,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 				}
 			}
 		} catch (Exception e) {
-			System.err.println("[Linux] promoteOverlayAboveFullscreen failed: " + e.getMessage());
+			Diag.error("[Linux] promoteOverlayAboveFullscreen failed: " + e.getMessage());
 		}
 	}
 
@@ -783,7 +781,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 
 			return new GenericWindow(window, title != null ? title : "", rect);
 		} catch (Exception e) {
-			System.err.println("[Linux] Error converting to GenericWindow: " + e.getMessage());
+			Diag.error("[Linux] Error converting to GenericWindow: " + e.getMessage());
 			return null;
 		}
 	}
@@ -802,12 +800,12 @@ public class LinuxController implements NativeController, AutoCloseable {
 							inputBackend.close(); // destroy the uinput device, if any
 						}
 					} catch (Exception e) {
-						System.err.println("[Linux] Error closing input backend: " + e.getMessage());
+						Diag.error("[Linux] Error closing input backend: " + e.getMessage());
 					}
 					try {
 						X11.INSTANCE.XCloseDisplay(display);
 					} catch (Exception e) {
-						System.err.println("[Linux] Error closing X11 display: " + e.getMessage());
+						Diag.error("[Linux] Error closing X11 display: " + e.getMessage());
 					} finally {
 						closed = true;
 					}
@@ -843,11 +841,11 @@ public class LinuxController implements NativeController, AutoCloseable {
 		int h = X11.INSTANCE.XDisplayHeight(display, screen);
 		LinuxInputBackend escalated = UinputBackend.tryCreate(w, h, display);
 		if (escalated == null) {
-			System.out.println("[Linux] uinput unavailable (can't open /dev/uinput); trying XTest.");
+			Diag.log("[Linux] uinput unavailable (can't open /dev/uinput); trying XTest.");
 			try {
 				escalated = new XTestBackend(display);
 			} catch (Exception | UnsatisfiedLinkError e) {
-				System.err.println("[Linux] XTest unavailable (" + e.getMessage()
+				Diag.error("[Linux] XTest unavailable (" + e.getMessage()
 					+ "); staying on xsendevent — clicks may not reach the target.");
 				return false;
 			}
@@ -857,9 +855,9 @@ public class LinuxController implements NativeController, AutoCloseable {
 		try {
 			previous.close();
 		} catch (Exception e) {
-			System.err.println("[Linux] Error closing previous input backend: " + e.getMessage());
+			Diag.error("[Linux] Error closing previous input backend: " + e.getMessage());
 		}
-		System.out.println("[Linux] input backend = " + escalated.name()
+		Diag.log("[Linux] input backend = " + escalated.name()
 			+ " (preservesCursor=" + escalated.preservesCursor() + ") — escalated for reliable input");
 		return true;
 	}

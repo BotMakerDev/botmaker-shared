@@ -1,5 +1,6 @@
 package com.botmaker.shared.capture.linux.input;
 
+import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.linux.X11Utils;
 import com.sun.jna.Pointer;
 
@@ -92,7 +93,7 @@ public final class UinputBackend implements LinuxInputBackend {
 			sleep(120); // let udev create the node and the compositor attach the device
 			return new UinputBackend(fd, screenW, screenH, display);
 		} catch (Throwable t) {
-			System.err.println("[Linux/uinput] Failed to create virtual device: " + t.getMessage());
+			Diag.error("[Linux/uinput] Failed to create virtual device: " + t.getMessage());
 			try {
 				CLib.INSTANCE.close(fd);
 			} catch (Throwable ignored) {
@@ -117,7 +118,7 @@ public final class UinputBackend implements LinuxInputBackend {
 		// uinput has no window concept — convert window-relative to absolute screen coordinates and click there.
 		Rectangle rect = X11Utils.getWindowGeometry(display, window);
 		if (rect == null) {
-			System.err.println("[Linux/uinput] Could not get window geometry for click.");
+			Diag.error("[Linux/uinput] Could not get window geometry for click.");
 			return;
 		}
 		clickScreen(rect.x + relX, rect.y + relY, button);

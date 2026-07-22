@@ -1,5 +1,6 @@
 package com.botmaker.shared.capture.linux.input;
 
+import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.linux.X11;
 import com.botmaker.shared.capture.linux.X11Utils;
 import com.botmaker.shared.capture.linux.XTest;
@@ -35,7 +36,7 @@ public final class XTestBackend implements LinuxInputBackend {
 	public void clickWindow(Pointer window, int relX, int relY, int button) {
 		Rectangle rect = X11Utils.getWindowGeometry(display, window);
 		if (rect == null) {
-			System.err.println("[Linux/xtest] Could not get window geometry for click.");
+			Diag.error("[Linux/xtest] Could not get window geometry for click.");
 			return;
 		}
 		clickScreen(rect.x + relX, rect.y + relY, button);

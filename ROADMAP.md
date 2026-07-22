@@ -8,6 +8,27 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-22 — One diagnostic switch for both modules (`Diag`)
+
+**Done**
+
+- **`com.botmaker.shared.Diag`** — the process-wide diagnostic-output flag, with `log`/`error(String)`/
+  `error(String, Throwable)`. The SDK's `api.Debug` is now a **thin delegate** over it, so the single Studio
+  "Debug output" toggle governs `shared` too. The flag had to move *down*: `shared` can't depend on the SDK,
+  and a second flag here would have silently diverged the first time only one was flipped.
+- **Every diagnostic print in `shared` now goes through `Diag`** — ~35 raw
+  `System.out/err.println` + `printStackTrace` calls in `LinuxController`, `UinputBackend`, `XTestBackend`
+  and `WindowCapture`. They printed unconditionally before, which is why a bot with debug **off** was still
+  noisy. Paired "message + stack trace" sites collapsed into the `error(String, Throwable)` overload —
+  a bare `printStackTrace()` is the one thing that can't be silenced.
+
+**Caveat worth knowing:** `Diag` defaults to **on** and the SDK narrows it in `Debug`'s static initializer.
+Anything `shared` prints before the SDK's `Debug` class is first touched therefore prints under the default.
+In practice a bot reaches `shared` through an SDK facade that traces first, so the window is a line or two at
+most; it is not worth a lazier seeding mechanism unless it actually bites.
+
+---
+
 ## 2026-07-22 — Escalating to an input backend whose clicks actually land
 
 **Done**

@@ -1,5 +1,6 @@
 package com.botmaker.shared.capture.windows;
 
+import com.botmaker.shared.Diag;
 import com.sun.jna.platform.win32.WinDef.*;
 import com.sun.jna.platform.win32.WinGDI;
 
@@ -114,7 +115,7 @@ public final class WindowCapture {
 		try {
 			return new Robot().createScreenCapture(new Rectangle(bounds.left, bounds.top, width, height));
 		} catch (AWTException e) {
-			e.printStackTrace();
+			Diag.error("[Windows] Robot screen capture failed: " + e.getMessage(), e);
 			return null;
 		}
 	}
