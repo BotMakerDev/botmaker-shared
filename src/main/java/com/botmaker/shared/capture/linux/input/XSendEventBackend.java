@@ -109,6 +109,23 @@ public final class XSendEventBackend implements LinuxInputBackend {
 	}
 
 	@Override
+	public void key(Pointer window, int keysym, boolean press) {
+		if (window == null || Pointer.nativeValue(window) == 0) {
+			key(keysym, press); // no target → focused-window path
+			return;
+		}
+		int keycode = X11.INSTANCE.XKeysymToKeycode(display, keysym) & 0xFF;
+		if (keycode == 0) {
+			return;
+		}
+		int type = press ? X11.KeyPress : X11.KeyRelease;
+		long mask = press ? X11.KeyPressMask : X11.KeyReleaseMask;
+		// Deliver straight to the target's client — no focus change, no cursor move (same as clickWindow).
+		send(window, type, 1, 1, lastX, lastY, 0, keycode, mask);
+		X11.INSTANCE.XFlush(display);
+	}
+
+	@Override
 	public void scroll(int amount) {
 		if (amount == 0) {
 			return;

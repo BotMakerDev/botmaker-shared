@@ -40,8 +40,18 @@ public interface LinuxInputBackend extends AutoCloseable {
 	/** Press/release a mouse button at the current pointer position. 1=left, 2=middle, 3=right. */
 	void button(int button, boolean press);
 
-	/** Press/release a key given its X keysym. */
+	/** Press/release a key given its X keysym (delivered to whatever currently holds focus). */
 	void key(int keysym, boolean press);
+
+	/**
+	 * Press/release a key delivered to {@code window} specifically rather than the focused window — the
+	 * keyboard analogue of {@link #clickWindow}. Only the cursor-preserving {@link XSendEventBackend}
+	 * targets a window; the cursor-moving backends drive the one real device and have no per-window notion,
+	 * so they keep the default (delegate to the focused-window {@link #key(int, boolean)} path).
+	 */
+	default void key(Pointer window, int keysym, boolean press) {
+		key(keysym, press);
+	}
 
 	/** Scroll: {@code +} = up/away, {@code -} = down/toward. */
 	void scroll(int amount);

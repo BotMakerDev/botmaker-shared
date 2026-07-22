@@ -8,6 +8,23 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-22 — Targeted keyboard input on `NativeController`
+
+**Done**
+
+- **`NativeController.keyDown/keyUp/typeText(GenericWindow, …)`** — the keyboard counterpart of the existing
+  `postLeftClick(GenericWindow, …)`. All three are `default` methods delegating to the window-less path, so the
+  change is additive (a `null` window also falls back to the focused-window path).
+- **Windows** (`WindowsController`) posts `WM_KEYDOWN`/`WM_KEYUP`/`WM_CHAR` straight to the target HWND
+  (`User32` gained those three constants), inheriting `Clicker`'s "no focus stolen, background-capable"
+  property — and its caveat (raw-input/DirectInput games ignore posted messages).
+- **Linux** (`LinuxController` + `LinuxInputBackend.key(Pointer, int, boolean)`) routes to a specific window's
+  client via the cursor-preserving `XSendEventBackend` (sends the `Key*` events to that window instead of
+  `focusedWindow()`); the cursor-moving `XTest`/`uinput` backends keep the global default (they drive the one
+  real device — no per-window notion). `typeText` was refactored to a shared `typeVia(window, text)` helper.
+
+---
+
 ## 2026-07-20 — `PlatformId` enum + emulator discovery de-duplication
 
 **Done**

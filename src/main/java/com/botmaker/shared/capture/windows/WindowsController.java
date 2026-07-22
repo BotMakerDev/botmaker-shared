@@ -3,7 +3,9 @@ package com.botmaker.shared.capture.windows;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.sun.jna.platform.win32.WinDef.HWND;
+import com.sun.jna.platform.win32.WinDef.LPARAM;
 import com.sun.jna.platform.win32.WinDef.RECT;
+import com.sun.jna.platform.win32.WinDef.WPARAM;
 
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
@@ -103,6 +105,47 @@ public class WindowsController implements NativeController {
 			keyDown(vk);
 			keyUp(vk);
 			if (needShift) keyUp(VK_SHIFT);
+		}
+	}
+
+	// --- Targeted key synthesis: PostMessage straight to a specific HWND (background, focus-preserving) ---
+	// lParam encodes the keystroke context: bit 0 is the repeat count (1); on key-up bits 30/31 (previous
+	// key state + transition) are set, which well-behaved windows expect on a WM_KEYUP.
+	private static final long KEYDOWN_LPARAM = 0x00000001L;
+	private static final long KEYUP_LPARAM = 0xC0000001L;
+
+	@Override
+	public void keyDown(GenericWindow window, int nativeKeyCode) {
+		if (window == null) {
+			keyDown(nativeKeyCode);
+			return;
+		}
+		User32.INSTANCE.PostMessage((HWND) window.getNativeHandle(), User32.WM_KEYDOWN,
+			new WPARAM(nativeKeyCode), new LPARAM(KEYDOWN_LPARAM));
+	}
+
+	@Override
+	public void keyUp(GenericWindow window, int nativeKeyCode) {
+		if (window == null) {
+			keyUp(nativeKeyCode);
+			return;
+		}
+		User32.INSTANCE.PostMessage((HWND) window.getNativeHandle(), User32.WM_KEYUP,
+			new WPARAM(nativeKeyCode), new LPARAM(KEYUP_LPARAM));
+	}
+
+	@Override
+	public void typeText(GenericWindow window, String text) {
+		if (text == null) return;
+		if (window == null) {
+			typeText(text);
+			return;
+		}
+		// WM_CHAR carries the character directly, so shifting/layout is the target's concern, not ours.
+		HWND hwnd = (HWND) window.getNativeHandle();
+		for (int i = 0; i < text.length(); i++) {
+			User32.INSTANCE.PostMessage(hwnd, User32.WM_CHAR,
+				new WPARAM(text.charAt(i)), new LPARAM(KEYDOWN_LPARAM));
 		}
 	}
 

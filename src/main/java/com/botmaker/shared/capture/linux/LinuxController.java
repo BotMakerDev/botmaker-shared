@@ -679,19 +679,64 @@ public class LinuxController implements NativeController, AutoCloseable {
 		if (inputBackend == null || text == null) {
 			return;
 		}
+		typeVia(null, text);
+	}
+
+	// --- Targeted key synthesis (route to a specific window's client via the backend) ---
+
+	@Override
+	public void keyDown(GenericWindow window, int nativeKeyCode) {
+		checkNotClosed();
+		if (inputBackend != null) {
+			keyVia(handleOf(window), nativeKeyCode, true);
+		}
+	}
+
+	@Override
+	public void keyUp(GenericWindow window, int nativeKeyCode) {
+		checkNotClosed();
+		if (inputBackend != null) {
+			keyVia(handleOf(window), nativeKeyCode, false);
+		}
+	}
+
+	@Override
+	public void typeText(GenericWindow window, String text) {
+		checkNotClosed();
+		if (inputBackend == null || text == null) {
+			return;
+		}
+		typeVia(handleOf(window), text);
+	}
+
+	/** Type {@code text} into {@code window} (or the focused window when {@code null}), shifting uppercase. */
+	private void typeVia(Pointer window, String text) {
 		for (int i = 0; i < text.length(); i++) {
 			char c = text.charAt(i);
 			// For Latin-1 the X keysym equals the code point; uppercase letters need Shift held.
 			boolean needShift = Character.isUpperCase(c);
 			if (needShift) {
-				inputBackend.key(KEYSYM_SHIFT_L, true);
+				keyVia(window, KEYSYM_SHIFT_L, true);
 			}
-			inputBackend.key(c, true);
-			inputBackend.key(c, false);
+			keyVia(window, c, true);
+			keyVia(window, c, false);
 			if (needShift) {
-				inputBackend.key(KEYSYM_SHIFT_L, false);
+				keyVia(window, KEYSYM_SHIFT_L, false);
 			}
 		}
+	}
+
+	/** Deliver one key event to {@code window}, or the focused window when {@code null}. */
+	private void keyVia(Pointer window, int keysym, boolean press) {
+		if (window == null) {
+			inputBackend.key(keysym, press);
+		} else {
+			inputBackend.key(window, keysym, press);
+		}
+	}
+
+	private static Pointer handleOf(GenericWindow window) {
+		return window == null ? null : (Pointer) window.getNativeHandle();
 	}
 
 	@Override

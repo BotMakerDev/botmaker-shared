@@ -69,6 +69,27 @@ public interface NativeController {
 	void keyDown(int nativeKeyCode);
 	void keyUp(int nativeKeyCode);
 	void typeText(String text);
+
+	/**
+	 * Targeted key synthesis: deliver the key to {@code window} specifically rather than to whatever
+	 * currently holds focus — the keyboard counterpart of {@link #postLeftClick(GenericWindow, int, int)}.
+	 * Windows posts {@code WM_KEYDOWN/UP}/{@code WM_CHAR} straight to the HWND; the Linux xsendevent backend
+	 * sends the synthetic {@code Key*} events to that window's client, so both inherit their click path's
+	 * "no focus stolen, works in the background" property (and the same caveat — raw-input/DirectInput games
+	 * ignore posted/synthetic events, exactly as they ignore the posted clicks). Default to the window-less
+	 * path so the change is additive; a {@code null} window also falls back to the global path.
+	 */
+	default void keyDown(GenericWindow window, int nativeKeyCode) {
+		keyDown(nativeKeyCode);
+	}
+
+	default void keyUp(GenericWindow window, int nativeKeyCode) {
+		keyUp(nativeKeyCode);
+	}
+
+	default void typeText(GenericWindow window, String text) {
+		typeText(text);
+	}
 	void mouseMove(int xAbs, int yAbs);
 	void mouseButton(int button, boolean press); // 1=left, 2=middle, 3=right
 	void scroll(int amount);                      // + = up/away, - = down/toward

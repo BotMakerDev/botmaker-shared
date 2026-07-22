@@ -114,4 +114,10 @@ public interface User32 extends StdCallLibrary {
     int WM_LBUTTONDOWN = 0x0201;
     int WM_LBUTTONUP   = 0x0202;
     int MK_LBUTTON     = 0x0001;
+
+    /* ---------  keyboard messages (targeted, posted to a specific HWND)  --------- */
+
+    int WM_KEYDOWN = 0x0100;
+    int WM_KEYUP   = 0x0101;
+    int WM_CHAR    = 0x0102;
 }
