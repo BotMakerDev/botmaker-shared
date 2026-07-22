@@ -8,6 +8,25 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-22 — Escalating to an input backend whose clicks actually land
+
+**Done**
+
+- **`NativeController.useReliableInput()`** (default `true`, i.e. nothing to do) — a consumer that needs its
+  input to *reach the target* can ask the controller to give up the cursor-preserving guarantee. Windows
+  keeps the default: `PostMessage` is already both reliable and cursor-safe.
+- **`LinuxController.useReliableInput()`** swaps the live `inputBackend` (now `volatile`, no longer final)
+  from `XSendEventBackend` to uinput, else XTest, else stays put and returns `false`. `XSendEvent`'s events
+  carry `send_event=True`, which every Wine/Proton game and many toolkits drop — which is why the pilot's
+  Interact mode clicked nothing on exactly the targets it exists for. Idempotent; a no-op when the active
+  backend already moves the cursor (including an explicit `botmaker.linux.input=uinput/xtest` at startup).
+- The swap is **process-wide and sticky**, so `supportsBackgroundInput()` starts returning `false` afterwards
+  — that's the honest signal Studio forwards to the pilot's "moves the computer's real cursor" warning. Only
+  Studio's `PilotInputService` calls it, lazily on first Interact use, so bot-only sessions keep the
+  cursor-safe default.
+
+---
+
 ## 2026-07-22 — Targeted keyboard input on `NativeController`
 
 **Done**

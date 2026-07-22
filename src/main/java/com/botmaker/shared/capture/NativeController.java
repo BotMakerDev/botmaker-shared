@@ -58,6 +58,24 @@ public interface NativeController {
 		return false;
 	}
 
+	/**
+	 * Ask this controller to switch to an input path that actually reaches the target, giving up the
+	 * cursor-preserving guarantee if it must. Meant for <em>interactive</em> consumers (the pilot's Interact
+	 * mode), not for bots: the cursor-safe default cannot drive Wine/Proton games or native Wayland clients,
+	 * which silently drop the synthetic events it sends.
+	 *
+	 * <p>Default {@code true} — Windows already posts into the target's message queue, which is both reliable
+	 * and cursor-safe, so there is nothing to escalate. Only the Linux backend overrides this. After a call
+	 * that returns true, {@link #supportsBackgroundInput()} may flip to {@code false}: escalating is exactly
+	 * the trade of "leaves your cursor alone" for "the click lands". The switch is <b>process-wide and
+	 * sticky</b> — the controller is shared with bot runs.
+	 *
+	 * @return true if input is now on a reliable path, false if no better backend could be obtained
+	 */
+	default boolean useReliableInput() {
+		return true;
+	}
+
 	// --- Window management ---
 	void focusWindow(GenericWindow window);
 	void moveWindow(GenericWindow window, int x, int y);

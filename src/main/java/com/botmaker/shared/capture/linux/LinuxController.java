@@ -36,13 +36,15 @@ import java.util.List;
  *       the shared cursor; falls back to xsendevent if {@code /dev/uinput} can't be opened.</li>
  *   <li>{@code xtest} — {@link XTestBackend}: the legacy warp-and-click (moves the cursor).</li>
  * </ul>
- * {@code auto} never selects a cursor-moving backend.
+ * {@code auto} never selects a cursor-moving backend — but {@link #useReliableInput()} can escalate to one
+ * later, on request, for a consumer that needs the click to actually land (see its javadoc).
  */
 public class LinuxController implements NativeController, AutoCloseable {
 
 	private final Pointer display;
 	private final boolean x11Available;
-	private final LinuxInputBackend inputBackend;
+	/** Not final: {@link #useReliableInput()} can swap it for a cursor-moving backend at runtime. */
+	private volatile LinuxInputBackend inputBackend;
 	private volatile boolean closed = false;
 
 	public LinuxController() {
@@ -818,6 +820,48 @@ public class LinuxController implements NativeController, AutoCloseable {
 	@Override
 	public boolean supportsBackgroundInput() {
 		return inputBackend != null && inputBackend.preservesCursor();
+	}
+
+	/**
+	 * Escalate to an input backend whose events are not ignored: uinput first (reaches everything, incl.
+	 * native Wayland and Wine/Proton games), then XTest, else keep {@link XSendEventBackend} and report
+	 * failure. {@code XSendEvent}'s events carry {@code send_event=True}, which every Wine/Proton game and
+	 * many toolkits drop on the floor — that is why the cursor-safe default clicks nothing in the pilot's
+	 * Interact mode.
+	 *
+	 * <p>Idempotent, and a no-op once the active backend is already a cursor-moving one (including when the
+	 * user opted into {@code botmaker.linux.input=uinput/xtest} at startup). The swap is process-wide, so
+	 * {@link #supportsBackgroundInput()} starts reporting {@code false} afterwards — callers surface that.
+	 */
+	@Override
+	public synchronized boolean useReliableInput() {
+		if (!x11Available || inputBackend == null) return false;
+		if (!inputBackend.preservesCursor()) return true; // already uinput/xtest
+
+		int screen = X11.INSTANCE.XDefaultScreen(display);
+		int w = X11.INSTANCE.XDisplayWidth(display, screen);
+		int h = X11.INSTANCE.XDisplayHeight(display, screen);
+		LinuxInputBackend escalated = UinputBackend.tryCreate(w, h, display);
+		if (escalated == null) {
+			System.out.println("[Linux] uinput unavailable (can't open /dev/uinput); trying XTest.");
+			try {
+				escalated = new XTestBackend(display);
+			} catch (Exception | UnsatisfiedLinkError e) {
+				System.err.println("[Linux] XTest unavailable (" + e.getMessage()
+					+ "); staying on xsendevent — clicks may not reach the target.");
+				return false;
+			}
+		}
+		LinuxInputBackend previous = inputBackend;
+		inputBackend = escalated;
+		try {
+			previous.close();
+		} catch (Exception e) {
+			System.err.println("[Linux] Error closing previous input backend: " + e.getMessage());
+		}
+		System.out.println("[Linux] input backend = " + escalated.name()
+			+ " (preservesCursor=" + escalated.preservesCursor() + ") — escalated for reliable input");
+		return true;
 	}
 
 	/**
