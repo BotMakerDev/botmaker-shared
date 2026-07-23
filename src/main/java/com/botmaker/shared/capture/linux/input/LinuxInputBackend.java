@@ -48,6 +48,11 @@ public interface LinuxInputBackend extends AutoCloseable {
 	 * keyboard analogue of {@link #clickWindow}. Only the cursor-preserving {@link XSendEventBackend}
 	 * targets a window; the cursor-moving backends drive the one real device and have no per-window notion,
 	 * so they keep the default (delegate to the focused-window {@link #key(int, boolean)} path).
+	 *
+	 * <p>That default is a last resort, not the policy:
+	 * {@link com.botmaker.shared.capture.linux.LinuxController} checks {@link #preservesCursor()} and raises
+	 * the target window itself before sending a global key, so a targeted key doesn't quietly land on
+	 * whatever had focus. Don't route around it by calling this on a cursor-moving backend.
 	 */
 	default void key(Pointer window, int keysym, boolean press) {
 		key(keysym, press);

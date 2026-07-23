@@ -7,15 +7,26 @@ import com.sun.jna.Pointer;
 import java.awt.Rectangle;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Pure-Java uinput backend — creates a virtual absolute pointer + keyboard via {@code /dev/uinput} and drives
  * it below the compositor. This is the <b>reliable-everywhere</b> path: it reaches every app including native
  * Wayland and games (SDL/Chromium), unlike {@link XSendEventBackend}.
  *
- * <p><b>It moves the one shared cursor</b> and cannot restore it (Wayland won't report the prior position), so
- * it is an explicit opt-in ({@code botmaker.linux.input=uinput}), not the default. Requires write access to
- * {@code /dev/uinput} (a udev/logind ACL grants it to the seat user — no root, no permission dialog).
+ * <p><b>It moves the one shared cursor</b>, so it is never chosen by {@code auto} — but it is the <em>first</em>
+ * choice of {@link com.botmaker.shared.capture.linux.LinuxController#useReliableInput()}, ahead of
+ * xdotool/XTest, because it is the only backend whose events a Wine/Proton game cannot tell from a real
+ * device. Under X11 the cursor is still restored by the caller (
+ * {@link com.botmaker.shared.capture.NativeController#clickRestoringCursor}) since {@code XQueryPointer} can
+ * read the prior position; under native Wayland it cannot, and the cursor stays on the target. Requires write
+ * access to {@code /dev/uinput} (a udev/logind ACL grants it to the seat user — no root, no permission dialog).
+ *
+ * <p><b>It carries no window.</b> Keys and clicks go wherever the compositor routes real input, so a caller
+ * targeting a specific window must raise/focus it first — {@code LinuxController} does this for the
+ * window-targeted key path. Background, cursor-free input into a game is not achievable this way; that is the
+ * price of events a game accepts.
  *
  * <p>Absolute positioning maps the device across a single output; on multi-monitor layouts clicks may land on
  * the primary output only.
@@ -24,10 +35,15 @@ public final class UinputBackend implements LinuxInputBackend {
 
 	// evdev KEY_* scancodes (linux/input-event-codes.h) — NOT alphabetical.
 	private static final int KEY_ESC = 1, KEY_BACKSPACE = 14, KEY_TAB = 15, KEY_ENTER = 28, KEY_LEFTSHIFT = 42,
-		KEY_RIGHTSHIFT = 54, KEY_SPACE = 57, KEY_MINUS = 12, KEY_DOT = 52, KEY_COMMA = 51;
+		KEY_RIGHTSHIFT = 54, KEY_SPACE = 57, KEY_MINUS = 12, KEY_DOT = 52, KEY_COMMA = 51,
+		KEY_LEFTCTRL = 29, KEY_RIGHTCTRL = 97, KEY_LEFTALT = 56, KEY_RIGHTALT = 100, KEY_LEFTMETA = 125,
+		KEY_RIGHTMETA = 126, KEY_DELETE = 111, KEY_LEFT = 105, KEY_RIGHT = 106, KEY_UP = 103, KEY_DOWN = 108;
 
 	/** keysym (X) → evdev KEY_* code. Letters map by identity of the letter (case handled via Shift keysym). */
 	private static final Map<Integer, Integer> KEYSYM_TO_KEY = buildKeymap();
+
+	/** Keysyms already reported as unmapped, so a held-down key logs once instead of per event. */
+	private static final Set<Integer> UNMAPPED_REPORTED = ConcurrentHashMap.newKeySet();
 
 	private final int fd;
 	private final int screenW;
@@ -61,8 +77,11 @@ public final class UinputBackend implements LinuxInputBackend {
 			for (int btn : new int[]{CLib.BTN_LEFT, CLib.BTN_RIGHT, CLib.BTN_MIDDLE}) {
 				ioctlInt(fd, CLib.UI_SET_KEYBIT(), btn);
 			}
-			// Register only the KEY_* codes we actually emit — a tight capability set keeps libinput from
-			// misclassifying the device (a broad keyboard range + ABS axes reads as an ambiguous kbd/joystick).
+			// Register only the KEY_* codes we actually emit, derived from the keymap so the two can't drift.
+			// It is deliberately not the full keyboard range: a device advertising every key *and* ABS axes
+			// reads to libinput as an ambiguous keyboard/joystick. If widening the keymap ever makes the
+			// compositor stop treating this as a pointer, split into two virtual devices (pointer + keyboard)
+			// rather than dropping keys back out of the map — a missing key is invisible at runtime.
 			for (int key : new java.util.HashSet<>(KEYSYM_TO_KEY.values())) {
 				ioctlInt(fd, CLib.UI_SET_KEYBIT(), key);
 			}
@@ -155,6 +174,12 @@ public final class UinputBackend implements LinuxInputBackend {
 	public void key(int keysym, boolean press) {
 		Integer code = KEYSYM_TO_KEY.get(keysym);
 		if (code == null) {
+			// Silence here is how CTRL/ALT/arrows/F-keys "did nothing" for a whole release: the keysym missed
+			// the map and the event evaporated with no trace. Report it (once per keysym) instead.
+			if (UNMAPPED_REPORTED.add(keysym)) {
+				Diag.error(String.format("[Linux/uinput] No evdev code for keysym 0x%04X — key ignored. "
+					+ "Add it to UinputBackend.buildKeymap().", keysym));
+			}
 			return;
 		}
 		emit(CLib.EV_KEY, code, press ? 1 : 0);
@@ -186,6 +211,15 @@ public final class UinputBackend implements LinuxInputBackend {
 		} catch (Throwable ignored) {
 			// best effort
 		}
+	}
+
+	/**
+	 * True if {@code keysym} has an evdev code, i.e. this backend can actually send it. Exists so the keymap's
+	 * coverage of the SDK's key set can be asserted in a test — shared can't see the SDK's {@code Key} enum, so
+	 * the alternative is discovering a gap at runtime, which is exactly the failure this replaces.
+	 */
+	static boolean mapsKeysym(int keysym) {
+		return KEYSYM_TO_KEY.containsKey(keysym);
 	}
 
 	// --- helpers ---
@@ -270,8 +304,28 @@ public final class UinputBackend implements LinuxInputBackend {
 		m.put(0xFF09, KEY_TAB);       // Tab
 		m.put(0xFF08, KEY_BACKSPACE); // BackSpace
 		m.put(0xFF1B, KEY_ESC);       // Escape
+		m.put(0xFFFF, KEY_DELETE);    // Delete
+		// Modifiers. Both the _L and _R keysyms are mapped: the SDK's Key enum only exposes the left variants,
+		// but typeVia and any caller composing raw keysyms may emit either.
 		m.put(0xFFE1, KEY_LEFTSHIFT); // Shift_L
 		m.put(0xFFE2, KEY_RIGHTSHIFT);// Shift_R
+		m.put(0xFFE3, KEY_LEFTCTRL);  // Control_L
+		m.put(0xFFE4, KEY_RIGHTCTRL); // Control_R
+		m.put(0xFFE9, KEY_LEFTALT);   // Alt_L
+		m.put(0xFFEA, KEY_RIGHTALT);  // Alt_R
+		m.put(0xFFEB, KEY_LEFTMETA);  // Super_L
+		m.put(0xFFEC, KEY_RIGHTMETA); // Super_R
+		// Arrows: keysym XK_Left..XK_Down == 0xFF51..0xFF54, in that order.
+		m.put(0xFF51, KEY_LEFT);
+		m.put(0xFF52, KEY_UP);
+		m.put(0xFF53, KEY_RIGHT);
+		m.put(0xFF54, KEY_DOWN);
+		// Function keys: keysym XK_F1..XK_F12 == 0xFFBE..0xFFC9 (contiguous); evdev KEY_F1..KEY_F10 == 59..68,
+		// then KEY_F11/KEY_F12 == 87/88 (the range is *not* contiguous past F10).
+		int[] fKeys = {59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 87, 88};
+		for (int i = 0; i < fKeys.length; i++) {
+			m.put(0xFFBE + i, fKeys[i]);
+		}
 		return m;
 	}
 }

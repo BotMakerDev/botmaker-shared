@@ -573,8 +573,12 @@ public class LinuxController implements NativeController, AutoCloseable {
 		if (!x11Available || window == null) {
 			return;
 		}
+		focusHandle((Pointer) window.getNativeHandle());
+	}
+
+	/** {@link #focusWindow} on a raw X11 handle — the targeted key path already holds one. */
+	private void focusHandle(Pointer x11Window) {
 		try {
-			Pointer x11Window = (Pointer) window.getNativeHandle();
 			X11.INSTANCE.XRaiseWindow(display, x11Window);
 			X11.INSTANCE.XSetInputFocus(display, x11Window, X11.RevertToParent, 0);
 			activateWindow(x11Window);
@@ -738,14 +742,60 @@ public class LinuxController implements NativeController, AutoCloseable {
 		}
 	}
 
-	/** Deliver one key event to {@code window}, or the focused window when {@code null}. */
+	/**
+	 * Deliver one key event to {@code window}, or the focused window when {@code null}.
+	 *
+	 * <p>Only {@link XSendEventBackend} can address a window; the cursor-moving backends drive one real
+	 * device and deliver wherever the compositor routes input. For those, "targeted" has to mean <em>raise
+	 * the target, then type</em> — the keyboard analogue of what {@code clickWindow} already does. Without
+	 * this, a targeted key under uinput/xdotool silently went to whatever held focus (the Studio), which is
+	 * why {@code Keyboard.press} appeared to do nothing in a game while clicks worked.
+	 */
 	private void keyVia(Pointer window, int keysym, boolean press) {
 		if (window == null) {
 			inputBackend.key(keysym, press);
-		} else {
+			return;
+		}
+		if (inputBackend.preservesCursor()) {
 			inputBackend.key(window, keysym, press);
+			return;
+		}
+		raiseForTypingIfStale(window);
+		inputBackend.key(keysym, press);
+	}
+
+	/** Target of the last raise done for a key event, and when — see {@link #raiseForTypingIfStale}. */
+	private volatile Pointer lastKeyTarget;
+	private volatile long lastKeyTargetAt;
+
+	/**
+	 * Focus {@code window} unless we already did so for this same target moments ago. Raising per keystroke
+	 * would make {@code typeText} flicker and cost a WM round-trip per character; never re-raising would let
+	 * focus drift away mid-sequence (the user clicks elsewhere) and silently send the rest of the string
+	 * there. Re-raising when the target changes or the gap exceeds {@link #KEY_FOCUS_TTL_MS} covers both.
+	 */
+	private void raiseForTypingIfStale(Pointer window) {
+		long now = System.currentTimeMillis();
+		if (window.equals(lastKeyTarget) && now - lastKeyTargetAt < KEY_FOCUS_TTL_MS) {
+			lastKeyTargetAt = now;
+			return;
+		}
+		focusHandle(window);
+		lastKeyTarget = window;
+		lastKeyTargetAt = now;
+		try {
+			// Let the WM actually transfer focus before the first key lands; a key sent in the same instant
+			// as the activation request is delivered to the window that is still focused.
+			Thread.sleep(KEY_FOCUS_SETTLE_MS);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
 		}
 	}
+
+	/** How long a raise-for-typing is trusted before the target is raised again. */
+	private static final long KEY_FOCUS_TTL_MS = 1000;
+	/** Pause after raising a window so the WM has transferred focus before the key is sent. */
+	private static final long KEY_FOCUS_SETTLE_MS = 60;
 
 	private static Pointer handleOf(GenericWindow window) {
 		return window == null ? null : (Pointer) window.getNativeHandle();
@@ -862,11 +912,11 @@ public class LinuxController implements NativeController, AutoCloseable {
 	}
 
 	/**
-	 * Escalate to an input backend whose events are not ignored: uinput first (reaches everything, incl.
-	 * native Wayland and Wine/Proton games), then XTest, else keep {@link XSendEventBackend} and report
-	 * failure. {@code XSendEvent}'s events carry {@code send_event=True}, which every Wine/Proton game and
-	 * many toolkits drop on the floor — that is why the cursor-safe default clicks nothing in the pilot's
-	 * Interact mode.
+	 * Escalate to an input backend whose events are not ignored: <b>uinput</b> first (a kernel virtual device,
+	 * so it reaches everything incl. native Wayland and Wine/Proton games), then xdotool, then in-process
+	 * XTest, else keep {@link XSendEventBackend} and report failure. {@code XSendEvent}'s events carry
+	 * {@code send_event=True}, which every Wine/Proton game and many toolkits drop on the floor — that is why
+	 * the cursor-safe default clicks nothing in the pilot's Interact mode.
 	 *
 	 * <p>Idempotent, and a no-op once the active backend is already a cursor-moving one (including when the
 	 * user opted into {@code botmaker.linux.input=uinput/xtest} at startup). The swap is process-wide, so
@@ -877,20 +927,27 @@ public class LinuxController implements NativeController, AutoCloseable {
 		if (!x11Available || inputBackend == null) return false;
 		if (!inputBackend.preservesCursor()) return true; // already uinput/xtest
 
-		// xdotool first: it is the same XTEST mechanism, but restores the pointer atomically and needs no
-		// /dev/uinput permission. uinput is last because it is the only one requiring device access.
-		LinuxInputBackend escalated = XdotoolBackend.tryCreate(display);
+		// uinput first: it is a kernel-level virtual device, so its events are indistinguishable from a real
+		// mouse/keyboard and reach Wine/Proton games and native Wayland clients. xdotool and XTest both go
+		// through XTEST, which a game running under XWayland may still ignore — they are the fallbacks for
+		// when /dev/uinput can't be opened, not the preference. (This order was reversed until keyboard input
+		// was found to reach nothing in a game: xdotool was winning and its keys were being dropped.)
+		int screen = X11.INSTANCE.XDefaultScreen(display);
+		LinuxInputBackend escalated = UinputBackend.tryCreate(
+			X11.INSTANCE.XDisplayWidth(display, screen),
+			X11.INSTANCE.XDisplayHeight(display, screen), display);
+		if (escalated == null) {
+			Diag.log("[Linux] /dev/uinput not writable (add yourself to the 'input' group, or install a udev "
+				+ "rule: KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"input\"); trying xdotool.");
+			escalated = XdotoolBackend.tryCreate(display);
+		}
 		if (escalated == null) {
 			Diag.log("[Linux] xdotool not on PATH (install it: dnf install xdotool / apt install xdotool); "
 				+ "trying in-process XTest.");
 			try {
 				escalated = new XTestBackend(display);
 			} catch (Exception | UnsatisfiedLinkError e) {
-				Diag.error("[Linux] XTest unavailable (" + e.getMessage() + "); trying uinput.");
-				int screen = X11.INSTANCE.XDefaultScreen(display);
-				escalated = UinputBackend.tryCreate(
-					X11.INSTANCE.XDisplayWidth(display, screen),
-					X11.INSTANCE.XDisplayHeight(display, screen), display);
+				Diag.error("[Linux] XTest unavailable (" + e.getMessage() + ").");
 			}
 		}
 		if (escalated == null) {

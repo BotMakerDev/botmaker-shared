@@ -8,6 +8,46 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — uinput is the real-input path, and targeted keys actually reach the target
+
+**Done**
+
+- **`UinputBackend`'s keymap was covering a third of the key set, silently.** It mapped letters, digits,
+  space, `-`/`.`/`,`, Return, Tab, BackSpace, Escape and Shift — and nothing else. `key()` looked the keysym
+  up, got `null`, and `return`ed. So `CTRL`, `ALT`, `META`, `DELETE`, the four arrows and `F1`–`F12` — every
+  one of them a constant the SDK's `Key` enum publishes — emitted no event and logged no error. Added the
+  missing evdev codes (both `_L` and `_R` modifier keysyms, since `typeVia` and raw-keysym callers may send
+  either), and an unmapped keysym now logs once per keysym instead of vanishing. `UinputKeymapTest` pins the
+  coverage: shared can't import the SDK's `Key`, so the constants are mirrored there and a future gap fails
+  the build rather than showing up as "that key does nothing in the game".
+- **`useReliableInput()` now escalates uinput → xdotool → XTest**, was xdotool → XTest → uinput. uinput is a
+  kernel virtual device, so its events are indistinguishable from a real keyboard/mouse and reach Wine/Proton
+  and native Wayland clients; xdotool and XTest both ride XTEST, which a game under XWayland can still ignore.
+  The old order meant xdotool essentially always won and uinput was unreachable in practice. Each fall-through
+  logs why, with the udev/`input`-group hint on the uinput failure.
+- **A targeted key under a cursor-moving backend now raises the target first.** `LinuxInputBackend`'s
+  `key(Pointer window, …)` default delegates to the focused-window path, which is the only thing uinput/
+  xdotool/XTest can do — they drive one real device and carry no window. The consequence was that
+  `Keyboard.press(source, key)` sent the key to whatever held focus (the Studio) while `Mouse.click` worked,
+  because clicks go through `clickRestoringCursor` on the real-pointer path. `LinuxController.keyVia` now
+  checks `preservesCursor()` and, when false, focuses the window itself before sending the key globally — the
+  keyboard analogue of what `clickWindow` already did. The raise is cached per target for
+  `KEY_FOCUS_TTL_MS` (1s) so `typeText` doesn't re-raise per character, and re-done after that so focus
+  drifting mid-sequence doesn't silently redirect the rest of the string. `focusWindow` gained a
+  `focusHandle(Pointer)` sibling so the key path doesn't rebuild a `GenericWindow` it already has the handle
+  for.
+
+**Deferred / next**
+
+- Background *and* game-accepted input is not achievable on X11: the only per-window mechanism is
+  `XSendEvent`, and rejecting `send_event=True` is precisely what makes a game a game. The real fix is the
+  xdg-desktop-portal **RemoteDesktop** (libei) interface, which is per-session rather than per-window but is
+  accepted as real input. Still deferred; the same note is in the Wayland capture entry.
+- uinput's absolute axes map across a single output, so on a multi-monitor layout clicks may land on the
+  primary only. Untested beyond one screen.
+
+---
+
 ## 2026-07-23 — shared takes the rest of `sdk/internal`: matching, desktop capture, project properties
 
 **Done**
