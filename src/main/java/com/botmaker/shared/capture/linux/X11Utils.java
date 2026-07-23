@@ -222,6 +222,72 @@ public class X11Utils {
 	}
 
 	/**
+	 * Read a single 32-bit {@code CARDINAL}/{@code WINDOW} property off {@code window} as an unsigned value, or
+	 * {@code -1} when the property is absent or unreadable. Unlike {@link #getWindowProperty} (which decodes the
+	 * bytes as a string), this is for numeric EWMH properties like {@code _NET_WM_PID} — a format-32 item that
+	 * comes back as one C {@code long} in the returned buffer.
+	 */
+	public static long getCardinalProperty(Pointer display, Pointer window, String propertyName) {
+		if (window == null || Pointer.nativeValue(window) == 0) {
+			return -1;
+		}
+		// onlyIfExists MUST be false. JNA marshals a Java {@code true} as 0xFFFFFFFF, and Xlib copies its low
+		// byte (0xFF) into the InternAtom request's 1-byte only_if_exists field; the server rejects any value
+		// but 0/1 with BadValue — but only exercises that check when the atom is actually missing. On :0 the
+		// EWMH atoms already exist so a stray `true` looks fine; on a fresh nested display they don't, and it
+		// crashes the process. false always interns (harmless for a name we're only reading through) and never
+		// errors — which is why every other caller in this file passes false.
+		Pointer atom = X11.INSTANCE.XInternAtom(display, propertyName, false);
+		if (atom == null || Pointer.nativeValue(atom) == 0) {
+			return -1;
+		}
+		PointerByReference actualType = new PointerByReference();
+		IntByReference actualFormat = new IntByReference();
+		IntByReference nItems = new IntByReference();
+		IntByReference bytesAfter = new IntByReference();
+		PointerByReference prop = new PointerByReference();
+		int result = X11.INSTANCE.XGetWindowProperty(
+			display, window, atom,
+			0, 1, false,
+			new Pointer(X11.AnyPropertyType),
+			actualType, actualFormat, nItems, bytesAfter, prop);
+		if (result != X11.Success || nItems.getValue() <= 0) {
+			return -1;
+		}
+		Pointer p = prop.getValue();
+		if (p == null) {
+			return -1;
+		}
+		try {
+			// format 32 ⇒ one C long per item (8 bytes on LP64); the value is unsigned.
+			return p.getLong(0) & 0xFFFFFFFFL;
+		} finally {
+			X11.INSTANCE.XFree(p);
+		}
+	}
+
+	/** The process id that owns {@code window} via {@code _NET_WM_PID}, or {@code -1} if it advertises none. */
+	public static long getWindowPid(Pointer display, Pointer window) {
+		return getCardinalProperty(display, window, "_NET_WM_PID");
+	}
+
+	/**
+	 * Whether an EWMH window manager has finished claiming this display — the readiness signal a nested
+	 * supervisor waits on before launching the game. A conformant WM sets {@code _NET_SUPPORTING_WM_CHECK} on
+	 * the root to a child window that itself carries the same property pointing back at itself; we accept the
+	 * cheaper "root has a non-zero check window" test, which flips true only once the WM is up.
+	 */
+	public static boolean hasWindowManager(Pointer display) {
+		try {
+			Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
+			long check = getCardinalProperty(display, root, "_NET_SUPPORTING_WM_CHECK");
+			return check > 0;
+		} catch (Throwable t) {
+			return false;
+		}
+	}
+
+	/**
 	 * Check if window has override redirect (popup, menu, etc.)
 	 */
 	public static boolean hasOverrideRedirect(Pointer display, Pointer window) {

@@ -1,0 +1,423 @@
+package com.botmaker.shared.session;
+
+import com.botmaker.shared.Diag;
+import com.botmaker.shared.capture.GenericWindow;
+import com.botmaker.shared.capture.NativeController;
+import com.botmaker.shared.capture.linux.LinuxController;
+import com.botmaker.shared.capture.linux.X11;
+import com.botmaker.shared.capture.linux.X11Utils;
+import com.botmaker.shared.launch.GameLauncher;
+import com.botmaker.shared.launch.LaunchSpec;
+import com.botmaker.shared.launch.Launcher;
+import com.sun.jna.Pointer;
+
+import java.awt.Rectangle;
+import java.awt.image.BufferedImage;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * A {@link DesktopSession} over a private nested display the bot owns — the piece that makes background input
+ * <em>flawless</em>. Because the game runs in its own Xephyr {@code :N}, that display's global pointer and
+ * keyboard focus are the bot's alone: the same device-level XTest injection that would hijack the real cursor
+ * on {@code :0} is, on {@code :N}, both accepted by the game <em>and</em> invisible to the user driving their
+ * real desktop. That is why — unlike {@link HostSession} — a nested session honestly advertises
+ * {@link Capability#BACKGROUND_CLICK}, {@link Capability#ISOLATED_FOCUS} and {@link Capability#MULTI_SESSION}.
+ *
+ * <p>A nested session <b>launches</b> its target (it cannot attach across servers — X11 has no window
+ * migration), stopping any instance already running on {@code :0} first. Bring one up with {@link #start},
+ * then {@link #launch(LaunchSpec)} the game into it. Everything it spawns — the X server, an optional window
+ * manager, the game — lives in one {@link SessionReaper} group, so {@link #close()} reaps the whole tree.
+ *
+ * <p>Scope note (Phase 2, 2D): the display server is Xephyr, so this path is for 2D targets and reports no
+ * {@link Capability#HARDWARE_GL}/{@link Capability#VULKAN}; the gamescope 3D backend is a later phase behind
+ * the same contract. Launch is wired for the {@code exe:}/{@code cli:} kinds — the ones that can be handed a
+ * private {@code DISPLAY} in their child environment; store-launcher kinds that hand off to a daemon already
+ * running on {@code :0} are deferred.
+ */
+public final class NestedSession implements DesktopSession {
+
+	/** Monotonic per-JVM counter so concurrent sessions get distinct reap-group ids (display numbers come from Xephyr). */
+	private static final AtomicInteger SEQ = new AtomicInteger();
+
+	/** How long to wait for a launched game's window to appear on the nested display before giving up the attach. */
+	private static final long WINDOW_TIMEOUT_MS = 20_000;
+	/** How long to wait for an optional window manager to claim the display; a WM-less session proceeds anyway. */
+	private static final long WM_TIMEOUT_MS = 5_000;
+	private static final long POLL_MS = 150;
+
+	private final String id;
+	private final SessionReaper reaper;
+	private final NestedDisplay display;
+	private final LinuxController controller;
+	/** A second connection to {@code :N} for EWMH reads (pid/geometry), separate from the controller's own. */
+	private final Pointer ewmhDisplay;
+	private final ControllerPointer pointer;
+	private final ControllerKeyboard keyboard;
+	private final Options options;
+
+	private volatile GenericWindow attached;
+	private volatile Process gameProc;
+	private volatile boolean closed;
+
+	private NestedSession(String id, SessionReaper reaper, NestedDisplay display,
+						  LinuxController controller, Pointer ewmhDisplay, Options options) {
+		this.id = id;
+		this.reaper = reaper;
+		this.display = display;
+		this.controller = controller;
+		this.ewmhDisplay = ewmhDisplay;
+		this.options = options;
+		this.pointer = new ControllerPointer(controller);
+		this.keyboard = new ControllerKeyboard(controller, this::attached);
+	}
+
+	/**
+	 * Bring up a nested display (and its optional window manager), ready for a game to be {@link #launch}ed into
+	 * it. On any failure the partially-started tree is reaped before the exception propagates, so a caller can
+	 * cleanly fall back to a {@link HostSession}.
+	 */
+	public static NestedSession start(Options options) throws SessionStartException {
+		// Sweep any trees left by a previously-SIGKILLed JVM before starting a fresh one (systemd strategy only).
+		reapOrphanSessions();
+		// Id shape s<pid>-<seq> is a contract: the orphan sweep parses the owner pid back out of the slice name.
+		String id = "s" + ProcessHandle.current().pid() + "-" + SEQ.incrementAndGet();
+		SessionReaper reaper = new SessionReaper(id);
+		NestedDisplay display = null;
+		LinuxController controller = null;
+		Pointer ewmh = null;
+		try {
+			display = NestedDisplay.startXephyr(reaper, options.width(), options.height());
+			// Pin XTest: on a private display device-level input is both accepted and non-intrusive, and the
+			// process-wide botmaker.linux.input property (which steers :0) must not decide :N's backend.
+			controller = LinuxController.forDisplay(display.displayName(), "xtest");
+			ewmh = X11.INSTANCE.XOpenDisplay(display.displayName());
+			if (ewmh == null) {
+				throw new SessionStartException("could not open a second connection to " + display.displayName());
+			}
+			NestedSession session = new NestedSession(id, reaper, display, controller, ewmh, options);
+			session.startWindowManager();
+			return session;
+		} catch (SessionStartException e) {
+			cleanupFailedStart(reaper, controller, ewmh);
+			throw e;
+		} catch (Exception e) {
+			cleanupFailedStart(reaper, controller, ewmh);
+			throw new SessionStartException("nested session start failed: " + e.getMessage(), e);
+		}
+	}
+
+	/** Reap a half-built session's resources in the reverse order they were acquired. */
+	private static void cleanupFailedStart(SessionReaper reaper, LinuxController controller, Pointer ewmh) {
+		if (ewmh != null) {
+			try { X11.INSTANCE.XCloseDisplay(ewmh); } catch (Throwable ignored) { }
+		}
+		if (controller != null) {
+			try { controller.close(); } catch (Throwable ignored) { }
+		}
+		reaper.reap();
+	}
+
+	/** Launch the configured window manager (if any) into the nested display and wait, best-effort, for it. */
+	private void startWindowManager() {
+		List<String> wm = options.windowManagerCommand();
+		if (wm.isEmpty()) {
+			Diag.log("[Session] " + id + ": no window manager configured — running WM-less");
+			return;
+		}
+		try {
+			reaper.launch("wm", wm, sessionEnv(), ProcessBuilder.Redirect.DISCARD);
+		} catch (Exception e) {
+			Diag.error("[Session] " + id + ": window manager launch failed: " + e.getMessage());
+			return;
+		}
+		long deadline = System.currentTimeMillis() + WM_TIMEOUT_MS;
+		while (System.currentTimeMillis() < deadline) {
+			if (X11Utils.hasWindowManager(ewmhDisplay)) {
+				Diag.log("[Session] " + id + ": window manager is up");
+				return;
+			}
+			sleep();
+		}
+		// A WM that never claims the display is a soft failure: input still reaches a mapped window without one.
+		Diag.error("[Session] " + id + ": window manager did not claim " + display.displayName()
+			+ " within " + WM_TIMEOUT_MS + "ms — continuing WM-less");
+	}
+
+	@Override
+	public Set<Capability> capabilities() {
+		// The whole point of a bot-owned display: these three, which a shared :0 desktop cannot offer.
+		return Set.of(
+			Capability.ABSOLUTE_POINTER,
+			Capability.RELATIVE_POINTER,
+			Capability.BACKGROUND_CLICK,
+			Capability.ISOLATED_FOCUS,
+			Capability.MULTI_SESSION,
+			Capability.SCREEN_CAPTURE,
+			Capability.WINDOW_LAUNCH,
+			Capability.WINDOW_ATTACH);
+	}
+
+	@Override
+	public Rectangle screen() {
+		return new Rectangle(0, 0, display.width(), display.height());
+	}
+
+	@Override
+	public SessionPointer pointer() {
+		return pointer;
+	}
+
+	@Override
+	public SessionKeyboard keyboard() {
+		return keyboard;
+	}
+
+	@Override
+	public void attach(GenericWindow window) {
+		this.attached = window;
+	}
+
+	@Override
+	public GenericWindow attached() {
+		return attached;
+	}
+
+	/**
+	 * Launch {@code spec} into this nested display and attach to the window it produces. Any instance already
+	 * running on {@code :0} is force-stopped first (a game can't run in two places, and we want <em>ours</em>).
+	 * Only the kinds that accept a private {@code DISPLAY} in their child environment ({@code exe:}/{@code cli:})
+	 * are supported here; a store-launcher kind is logged and skipped (see the class scope note).
+	 */
+	@Override
+	public void launch(LaunchSpec spec) {
+		if (closed || spec == null) {
+			return;
+		}
+		List<String> command = commandFor(spec);
+		if (command.isEmpty()) {
+			Diag.error("[Session] " + id + ": nested launch not supported for kind " + spec.kind()
+				+ " (" + spec.spec() + ") — needs a DISPLAY-in-env launch");
+			return;
+		}
+		stopHostInstance(spec);
+
+		Set<Long> before = windowIdsOnDisplay();
+		try {
+			gameProc = reaper.launch("app", command, sessionEnv(), ProcessBuilder.Redirect.DISCARD);
+		} catch (Exception e) {
+			Diag.error("[Session] " + id + ": launching " + spec.spec() + " failed: " + e.getMessage());
+			return;
+		}
+		GenericWindow target = awaitWindow(gameProc, before);
+		if (target == null) {
+			Diag.error("[Session] " + id + ": " + spec.spec() + " launched but no window appeared on "
+				+ display.displayName() + " within " + WINDOW_TIMEOUT_MS + "ms");
+			return;
+		}
+		attach(target);
+		Diag.log("[Session] " + id + ": attached to '" + target.getTitle() + "' on " + display.displayName());
+	}
+
+	@Override
+	public BufferedImage capture() {
+		GenericWindow target = attached;
+		return target == null ? null : controller.captureWindow(target);
+	}
+
+	@Override
+	public SessionHealth health() {
+		if (closed || !display.alive()) {
+			return SessionHealth.DEAD;
+		}
+		Process g = gameProc;
+		if (g != null && !g.isAlive()) {
+			// Display and (any) WM are up but the game died — recoverable by relaunching into the same display.
+			return SessionHealth.DEGRADED;
+		}
+		return SessionHealth.HEALTHY;
+	}
+
+	@Override
+	public NativeController controller() {
+		return controller;
+	}
+
+	@Override
+	public void close() {
+		if (closed) {
+			return;
+		}
+		closed = true;
+		try { controller.close(); } catch (Throwable t) { Diag.error("[Session] " + id + ": controller close: " + t.getMessage()); }
+		try { X11.INSTANCE.XCloseDisplay(ewmhDisplay); } catch (Throwable t) { Diag.error("[Session] " + id + ": ewmh close: " + t.getMessage()); }
+		reaper.reap();
+		Diag.log("[Session] " + id + ": closed");
+	}
+
+	/** The nested display this session drives, e.g. {@code ":9"} — for diagnostics and tests. */
+	public String displayName() {
+		return display.displayName();
+	}
+
+	/** This session's reap-group id — for diagnostics and tests. */
+	public String sessionId() {
+		return id;
+	}
+
+	/**
+	 * Reap the process trees of nested sessions whose owning JVM has died — the reliable answer to "a bot
+	 * crashed and left a Xephyr running". Call it at startup (a supervisor/Studio boot) as well; {@link #start}
+	 * already runs it before each new session. No-op where there is no user systemd.
+	 */
+	public static void reapOrphanSessions() {
+		SessionReaper.reapOrphans();
+	}
+
+	// --- internals ---
+
+	/** The child environment every process launched into this session gets: its private DISPLAY, plus extras. */
+	private Map<String, String> sessionEnv() {
+		Map<String, String> env = new LinkedHashMap<>();
+		env.put("DISPLAY", display.displayName());
+		env.putAll(options.extraEnv());
+		return env;
+	}
+
+	/** The argv to run {@code spec} as our own child, or empty for a kind we can't hand a private DISPLAY. */
+	static List<String> commandFor(LaunchSpec spec) {
+		return switch (spec.kind()) {
+			case EXE -> List.of(spec.token());
+			case CLI -> List.of(spec.commandTokens());
+			default -> List.of();
+		};
+	}
+
+	/** Force-stop any incarnation of {@code spec} already running on the host, so ours is the only one. */
+	private void stopHostInstance(LaunchSpec spec) {
+		if (!Launcher.isRunning(spec)) {
+			return;
+		}
+		String name = spec.fileName();
+		if (name != null && !name.isBlank()) {
+			Diag.log("[Session] " + id + ": stopping host instance of " + spec.spec() + " (" + name + ")");
+			GameLauncher.kill(name);
+		} else {
+			Diag.error("[Session] " + id + ": " + spec.spec() + " is running on the host but can't be stopped by name");
+		}
+	}
+
+	/** All window ids currently on the nested display — the "before" snapshot the new-window attach diffs against. */
+	private Set<Long> windowIdsOnDisplay() {
+		Set<Long> ids = new HashSet<>();
+		for (GenericWindow w : controller.getAllWindows()) {
+			ids.add(handleId(w));
+		}
+		return ids;
+	}
+
+	/**
+	 * Wait for the game's window and return it. Preference order: a window whose {@code _NET_WM_PID} is in the
+	 * launched process subtree (the robust match — Wine/Proton set it); else a window that appeared since
+	 * {@code before} (covers apps/WMs that don't set {@code _NET_WM_PID}, and WM-less displays with no client
+	 * list); else {@code null} on timeout.
+	 */
+	private GenericWindow awaitWindow(Process proc, Set<Long> before) {
+		long deadline = System.currentTimeMillis() + WINDOW_TIMEOUT_MS;
+		while (System.currentTimeMillis() < deadline) {
+			Set<Long> pids = subtreePids(proc);
+			GenericWindow newest = null;
+			for (GenericWindow w : controller.getAllWindows()) {
+				long pid = X11Utils.getWindowPid(ewmhDisplay, (Pointer) w.getNativeHandle());
+				if (pid > 0 && pids.contains(pid)) {
+					return w; // strongest evidence — this window's own client is our process
+				}
+				if (!before.contains(handleId(w))) {
+					newest = w; // last new window wins (the most recently mapped top-level)
+				}
+			}
+			if (newest != null && !proc.isAlive() && subtreePids(proc).isEmpty()) {
+				// Process already exited and left a new window (e.g. a launcher shim) — take it rather than spin.
+				return newest;
+			}
+			if (newest != null) {
+				return newest;
+			}
+			if (!proc.isAlive() && subtreePids(proc).isEmpty()) {
+				Diag.error("[Session] " + id + ": launched process exited before a window appeared");
+				return null;
+			}
+			sleep();
+		}
+		return null;
+	}
+
+	/** The pid of {@code proc} plus all its live descendants — under systemd the payload is a descendant of the scope. */
+	private static Set<Long> subtreePids(Process proc) {
+		Set<Long> pids = new HashSet<>();
+		if (proc.isAlive()) {
+			pids.add(proc.pid());
+		}
+		try {
+			proc.descendants().forEach(h -> pids.add(h.pid()));
+		} catch (Exception ignored) {
+			// descendants() can race with exit; the pids we already have are enough.
+		}
+		return pids;
+	}
+
+	private static long handleId(GenericWindow w) {
+		return Pointer.nativeValue((Pointer) w.getNativeHandle());
+	}
+
+	private static void sleep() {
+		try {
+			Thread.sleep(POLL_MS);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+	}
+
+	/**
+	 * How a nested session is shaped: the display size, an optional window manager to run in it, and any extra
+	 * per-session environment (a private {@code HOME}/{@code XDG_RUNTIME_DIR}/{@code WINEPREFIX} to stop a
+	 * single-instance game escaping back to {@code :0}). The {@code DISPLAY} is always set for you.
+	 */
+	public static final class Options {
+		private final int width;
+		private final int height;
+		private final List<String> windowManagerCommand;
+		private final Map<String, String> extraEnv;
+
+		private Options(int width, int height, List<String> wm, Map<String, String> extraEnv) {
+			this.width = width;
+			this.height = height;
+			this.windowManagerCommand = List.copyOf(wm);
+			this.extraEnv = Map.copyOf(extraEnv);
+		}
+
+		/** A 2D Xephyr session at {@code width}x{@code height}, WM-less, no extra env. */
+		public static Options xephyr(int width, int height) {
+			return new Options(width, height, List.of(), Map.of());
+		}
+
+		/** This session, but running {@code command} as its window manager (e.g. {@code "openbox"}). */
+		public Options withWindowManager(String... command) {
+			return new Options(width, height, List.of(command), extraEnv);
+		}
+
+		/** This session, but with {@code env} overlaid on every child's environment (in addition to DISPLAY). */
+		public Options withExtraEnv(Map<String, String> env) {
+			return new Options(width, height, windowManagerCommand, env);
+		}
+
+		public int width() { return width; }
+		public int height() { return height; }
+		public List<String> windowManagerCommand() { return windowManagerCommand; }
+		public Map<String, String> extraEnv() { return extraEnv; }
+	}
+}

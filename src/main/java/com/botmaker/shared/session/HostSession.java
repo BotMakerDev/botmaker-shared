@@ -1,13 +1,11 @@
 package com.botmaker.shared.session;
 
-import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.launch.Launcher;
 
-import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.image.BufferedImage;
@@ -33,14 +31,16 @@ import java.util.Set;
 public final class HostSession implements DesktopSession {
 
 	private final NativeController controller;
-	private final HostPointer pointer = new HostPointer();
-	private final HostKeyboard keyboard = new HostKeyboard();
+	private final ControllerPointer pointer;
+	private final ControllerKeyboard keyboard;
 	private volatile GenericWindow attached;
 	private volatile boolean closed;
 
 	/** Wraps {@code controller} without taking ownership of it (see the class note on {@link #close()}). */
 	public HostSession(NativeController controller) {
 		this.controller = controller;
+		this.pointer = new ControllerPointer(controller);
+		this.keyboard = new ControllerKeyboard(controller, this::attached);
 	}
 
 	/** A host session over the process-wide default controller ({@link NativeControllerFactory#get()}). */
@@ -116,60 +116,5 @@ public final class HostSession implements DesktopSession {
 	/** True once {@link #close()} has been called — for tests/asserts; the controller stays open regardless. */
 	public boolean isClosed() {
 		return closed;
-	}
-
-	/** Pointer facade: raw device motion through the wrapped controller, routing relative moves via the read-back position. */
-	private final class HostPointer implements SessionPointer {
-		@Override
-		public void moveAbsolute(int x, int y) {
-			controller.mouseMove(x, y);
-		}
-
-		@Override
-		public void moveRelative(int dx, int dy) {
-			Point p = controller.cursorPosition();
-			if (p == null) {
-				// Can't read where the pointer is, so a delta has no anchor — skip rather than warp to (dx,dy).
-				Diag.log("[Session] moveRelative: pointer position unreadable; delta (" + dx + "," + dy + ") skipped");
-				return;
-			}
-			controller.mouseMove(p.x + dx, p.y + dy);
-		}
-
-		@Override
-		public void button(int button, boolean press) {
-			controller.mouseButton(button, press);
-		}
-
-		@Override
-		public void scroll(int amount) {
-			controller.scroll(amount);
-		}
-
-		@Override
-		public Point position() {
-			return controller.cursorPosition();
-		}
-	}
-
-	/** Keyboard facade: targeted at the {@link #attached() attached} window when there is one, else the focused window. */
-	private final class HostKeyboard implements SessionKeyboard {
-		@Override
-		public void keyDown(int nativeKeyCode) {
-			GenericWindow w = attached;
-			if (w != null) controller.keyDown(w, nativeKeyCode); else controller.keyDown(nativeKeyCode);
-		}
-
-		@Override
-		public void keyUp(int nativeKeyCode) {
-			GenericWindow w = attached;
-			if (w != null) controller.keyUp(w, nativeKeyCode); else controller.keyUp(nativeKeyCode);
-		}
-
-		@Override
-		public void type(String text) {
-			GenericWindow w = attached;
-			if (w != null) controller.typeText(w, text); else controller.typeText(text);
-		}
 	}
 }

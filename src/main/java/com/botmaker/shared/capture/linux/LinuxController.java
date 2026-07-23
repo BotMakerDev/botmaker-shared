@@ -54,7 +54,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 
 	/** Opens the default display named by {@code $DISPLAY} — the host session. */
 	public LinuxController() {
-		this(null);
+		this(null, null);
 	}
 
 	/**
@@ -65,6 +65,18 @@ public class LinuxController implements NativeController, AutoCloseable {
 	 * {@link #LinuxController()} — the default display.
 	 */
 	public LinuxController(String displayName) {
+		this(displayName, null);
+	}
+
+	/**
+	 * Opens {@code displayName} and forces a specific input backend ({@code "xtest"}, {@code "xsendevent"},
+	 * {@code "uinput"}, {@code "xdotool"}), bypassing the {@code botmaker.linux.input} property. A nested
+	 * {@code :N} server uses this to pin {@link XTestBackend}: on a private display the global cursor is the
+	 * bot's alone, so device-level XTest is both accepted by games <em>and</em> non-intrusive — and the
+	 * process-wide property that steers {@code :0} must not decide a nested display's backend. {@code null}
+	 * {@code backendChoice} falls back to the property, i.e. exactly {@link #LinuxController(String)}.
+	 */
+	public LinuxController(String displayName, String backendChoice) {
 		// Try to open the named X11 display (null → default $DISPLAY).
 		Pointer disp = null;
 		boolean available = false;
@@ -89,7 +101,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 		this.displayName = displayName;
 		this.display = disp;
 		this.x11Available = available;
-		this.inputBackend = available ? selectBackend(disp) : null;
+		this.inputBackend = available ? selectBackend(disp, backendChoice) : null;
 	}
 
 	/**
@@ -102,16 +114,34 @@ public class LinuxController implements NativeController, AutoCloseable {
 		return new LinuxController(displayName);
 	}
 
+	/**
+	 * {@link #forDisplay(String)} with the input backend pinned (e.g. {@code "xtest"} for a nested display —
+	 * see {@link #LinuxController(String, String)}). The caller owns the returned instance and must
+	 * {@link #close()} it.
+	 */
+	public static LinuxController forDisplay(String displayName, String backendChoice) {
+		return new LinuxController(displayName, backendChoice);
+	}
+
 	/** The X11 display name this controller is bound to, or {@code null} for the default {@code $DISPLAY}. */
 	public String displayName() {
 		return displayName;
 	}
 
-	/** Pick the input backend from {@code botmaker.linux.input} (default {@code auto} → cursor-safe xsendevent). */
-	private static LinuxInputBackend selectBackend(Pointer display) {
-		String env = System.getenv("BOTMAKER_LINUX_INPUT");
-		String choice = System.getProperty("botmaker.linux.input", env != null ? env : "auto")
-			.trim().toLowerCase();
+	/**
+	 * Pick the input backend. When {@code forced} is non-null it wins outright (a nested display pins
+	 * {@code "xtest"}); otherwise the choice comes from {@code botmaker.linux.input} / {@code BOTMAKER_LINUX_INPUT}
+	 * (default {@code auto} → cursor-safe xsendevent).
+	 */
+	private static LinuxInputBackend selectBackend(Pointer display, String forced) {
+		String choice;
+		if (forced != null && !forced.isBlank()) {
+			choice = forced.trim().toLowerCase();
+		} else {
+			String env = System.getenv("BOTMAKER_LINUX_INPUT");
+			choice = System.getProperty("botmaker.linux.input", env != null ? env : "auto")
+				.trim().toLowerCase();
+		}
 
 		LinuxInputBackend backend;
 		switch (choice) {

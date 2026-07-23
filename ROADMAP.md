@@ -8,6 +8,69 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — Bot-owned-display plan, Phase 2: nested supervisor (Xephyr `:N`)
+
+The supervisor that makes background input **flawless**: a bot launches its game into a private nested Xephyr
+`:N`, whose global pointer/focus are the bot's alone — so device-level XTest that would hijack the real cursor
+on `:0` is, on `:N`, both accepted by the game *and* invisible to the user. All in `com.botmaker.shared.session`;
+no new module.
+
+**Done**
+
+- **`NestedSession implements DesktopSession`** — `start(Options)` brings up the display (+ optional WM);
+  `launch(LaunchSpec)` stops any `:0` instance then launches the game into `:N` and attaches to its window.
+  Advertises the three capabilities a shared desktop can't: **BACKGROUND_CLICK / ISOLATED_FOCUS /
+  MULTI_SESSION** (plus ABSOLUTE/RELATIVE_POINTER, SCREEN_CAPTURE, WINDOW_LAUNCH/ATTACH). Pins the **XTest**
+  backend on `:N` (`LinuxController.forDisplay(name, "xtest")`) — private display ⇒ device-level input is both
+  accepted and non-intrusive, and the process-wide `botmaker.linux.input` property must not decide `:N`'s
+  backend. `health()` → DEAD (display gone) / DEGRADED (game died, display up) / HEALTHY. `Options` (immutable)
+  = screen size + optional WM command + extra per-session env; `DISPLAY` is always injected.
+- **`NestedDisplay`** — race-free display allocation: Xephyr `-displayfd 1` picks a free number and writes it
+  back (never scan `/tmp/.X11-unix`); readiness gated on an actual `XOpenDisplay` succeeding (no `sleep`).
+- **`SessionReaper`** — launches every session process into a per-session systemd **scope in a shared
+  `.slice`** (`systemd-run --user --scope --slice=botmaker-sess-<id>.slice`), so one `systemctl --user stop`
+  reaps the whole cgroup. `--scope` inherits the `ProcessBuilder`'s stdio, which is how `-displayfd` output is
+  read back. Env via `--setenv=`. Falls back to plain `ProcessBuilder` children reaped via
+  `ProcessHandle.descendants()` when there's no user systemd. **Orphan sweep** (`reapOrphans()`): the session
+  id is `s<pid>-<seq>`, so a leftover `botmaker-sess-s<pid>-*.slice` whose owner pid is dead is reaped by slice
+  name — the reliable answer to "`kill -9` the JVM ⇒ zero orphans" (a `--scope` outlives its JVM by design;
+  `NestedSession.start` sweeps before each start, and `NestedSession.reapOrphanSessions()` is public for boot).
+- **Window targeting** — `X11Utils.getCardinalProperty` / `getWindowPid` (`_NET_WM_PID`) /
+  `hasWindowManager` (`_NET_SUPPORTING_WM_CHECK`). Attach prefers a window whose `_NET_WM_PID` is in the
+  launched process subtree, else the newest window that appeared since a pre-launch snapshot (covers WM-less
+  displays with no `_NET_CLIENT_LIST`, and apps that don't set the pid).
+- **`ControllerPointer`/`ControllerKeyboard`** extracted from `HostSession` so both sessions share one input
+  delegation (keyboard reads the attached target via a `Supplier`, so it always reflects the current target).
+- **Bug fixed: `XInternAtom(..., onlyIfExists=true)` crashes the process.** JNA marshals Java `true` as
+  `0xFFFFFFFF`; Xlib copies the low byte (`0xFF`) into the request's 1-byte `only_if_exists` field, and the
+  server rejects anything but 0/1 with `BadValue` — but *only* when the atom is actually missing. On `:0` the
+  EWMH atoms already exist so a stray `true` looks fine; on a fresh nested display they don't, so it aborts.
+  All new property reads use `onlyIfExists=false` (the idiom every other caller in `X11Utils` already uses).
+  (Pre-existing `promoteAboveFullscreen` still passes `true`, latent-safe on `:0`; left as-is.)
+
+**Verified** (live, this box — 2D Xephyr path): `NestedSessionTest` (launch-kind→argv, immutable Options) +
+`HostSessionTest` still green (102 shared tests, 0 failures). End-to-end run: Xephyr `:1` allocated via
+`-displayfd`, `cli:xterm` launched into it with `DISPLAY=:1` and attached; driving the `:N` pointer 40 moves +
+4 clicks (device-level XTest) left the **real `:0` cursor at exactly its start position** — flawless
+background input. `close()` stopped the slice with zero orphans; a `kill -9`'d session's orphan Xephyr was
+reaped by a second JVM's sweep (and a *live* session's tree was correctly left alone).
+
+**Deferred / next**
+
+- **openbox + a real game** untested here (this box has neither; only `kwin_x11`). The WM launch + readiness
+  (`hasWindowManager`) code path exists and returns `false` correctly WM-less. Verify on a box with openbox and
+  a Wine/Proton title (which set `_NET_WM_PID`, exercising the strong attach path).
+- **Phase 3 — gamescope backend (3D):** same `DesktopSession` contract; needs a real GPU + `gamescope`
+  (absent here). Store-launcher kinds (steam/heroic) that hand off to a `:0` daemon are deferred with it —
+  `NestedSession.launch` currently supports only `exe:`/`cli:` (the kinds you can hand a private `DISPLAY`).
+- **Per-session isolation env** (`Options.withExtraEnv`) is wired but defaults empty; Phase 2+ should populate
+  private `HOME`/`XDG_RUNTIME_DIR`/`WINEPREFIX` + `dbus-run-session` to stop a single-instance game escaping
+  back to `:0`.
+- Empty structural parent slices (`botmaker.slice`, `botmaker-sess.slice`) linger after a session — no
+  processes, systemd GCs them; not worth racing a concurrent session to stop.
+
+---
+
 ## 2026-07-23 — Bot-owned-display plan, Phase 1: display retargeting + session seam
 
 Second phase of **flawless background input** (see `../.claude/plans/review-this-draft-plan-spicy-flask.md`).
