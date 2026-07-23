@@ -1,8 +1,6 @@
 package com.botmaker.shared.session;
 
 import com.botmaker.shared.Diag;
-import com.botmaker.shared.capture.linux.X11;
-import com.sun.jna.Pointer;
 
 import java.io.File;
 import java.lang.ProcessBuilder.Redirect;
@@ -18,10 +16,12 @@ import java.util.Map;
  * read that number off the (reaper-inherited) stdout. Readiness is gated on an actual {@code XOpenDisplay}
  * succeeding — never a {@code sleep}.
  *
- * <p>The server process is owned by the session's {@link SessionReaper}; this type only starts it and reports
- * whether it is still {@link #alive()}.
+ * <p>Xephyr is the 2D host: it reports no {@link #hardwareAccelerated()}, so a session over it advertises no
+ * {@link Capability#HARDWARE_GL}/{@link Capability#VULKAN} (see {@link GamescopeDisplay} for the 3D host). The
+ * server process is owned by the session's {@link SessionReaper}; this type only starts it and reports whether
+ * it is still {@link #alive()}.
  */
-final class NestedDisplay {
+final class NestedDisplay implements SessionDisplay {
 
 	/** How long to wait for Xephyr to write its display number, then for that display to accept a connection. */
 	private static final long START_TIMEOUT_MS = 10_000;
@@ -40,21 +40,30 @@ final class NestedDisplay {
 	}
 
 	/** The display this server owns, e.g. {@code ":9"}. */
-	String displayName() {
+	@Override
+	public String displayName() {
 		return displayName;
 	}
 
-	int width() {
+	@Override
+	public int width() {
 		return width;
 	}
 
-	int height() {
+	@Override
+	public int height() {
 		return height;
 	}
 
 	/** Whether the X server process is still running — the signal a session's {@code DEAD} health rests on. */
-	boolean alive() {
+	@Override
+	public boolean alive() {
 		return server.isAlive();
+	}
+
+	@Override
+	public boolean hardwareAccelerated() {
+		return false; // Xephyr here is glamor-over-whatever-the-host-has; treated as the 2D backend.
 	}
 
 	/**
@@ -82,7 +91,7 @@ final class NestedDisplay {
 
 		String number = awaitDisplayNumber(out, server);
 		String display = ":" + number;
-		awaitConnectable(display, server);
+		DisplayReadiness.awaitConnectable(display, server, START_TIMEOUT_MS);
 		Diag.log("[Session] nested display " + display + " up (" + width + "x" + height + ")");
 		return new NestedDisplay(display, width, height, server);
 	}
@@ -118,28 +127,6 @@ final class NestedDisplay {
 		} catch (Exception e) {
 			return null;
 		}
-	}
-
-	/** Block until {@code XOpenDisplay(display)} succeeds — the readiness gate that replaces a fixed sleep. */
-	private static void awaitConnectable(String display, Process server) throws SessionStartException {
-		long deadline = System.currentTimeMillis() + START_TIMEOUT_MS;
-		while (System.currentTimeMillis() < deadline) {
-			Pointer d = null;
-			try {
-				d = X11.INSTANCE.XOpenDisplay(display);
-			} catch (Throwable ignored) {
-				// X11 not linkable / transient — treated the same as "not ready yet".
-			}
-			if (d != null) {
-				X11.INSTANCE.XCloseDisplay(d);
-				return;
-			}
-			if (!server.isAlive()) {
-				throw new SessionStartException("Xephyr on " + display + " died before it accepted connections");
-			}
-			sleep();
-		}
-		throw new SessionStartException("nested display " + display + " never accepted a connection");
 	}
 
 	private static void sleep() {

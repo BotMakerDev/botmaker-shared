@@ -13,6 +13,7 @@ import com.sun.jna.Pointer;
 
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,11 +34,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  * then {@link #launch(LaunchSpec)} the game into it. Everything it spawns — the X server, an optional window
  * manager, the game — lives in one {@link SessionReaper} group, so {@link #close()} reaps the whole tree.
  *
- * <p>Scope note (Phase 2, 2D): the display server is Xephyr, so this path is for 2D targets and reports no
- * {@link Capability#HARDWARE_GL}/{@link Capability#VULKAN}; the gamescope 3D backend is a later phase behind
- * the same contract. Launch is wired for the {@code exe:}/{@code cli:} kinds — the ones that can be handed a
- * private {@code DISPLAY} in their child environment; store-launcher kinds that hand off to a daemon already
- * running on {@code :0} are deferred.
+ * <p>Two display backends sit behind one {@link SessionDisplay} seam, chosen by {@link Options}: {@link
+ * NestedDisplay} (Xephyr, 2D — no {@link Capability#HARDWARE_GL}/{@link Capability#VULKAN}) and {@link
+ * GamescopeDisplay} (gamescope, hardware 3D — adds both). The supervisor here is identical for both. Launch is
+ * wired for the {@code exe:}/{@code cli:} kinds — the ones that can be handed a private {@code DISPLAY} in
+ * their child environment; store-launcher kinds that hand off to a daemon already running on {@code :0} are
+ * deferred.
  */
 public final class NestedSession implements DesktopSession {
 
@@ -52,7 +54,7 @@ public final class NestedSession implements DesktopSession {
 
 	private final String id;
 	private final SessionReaper reaper;
-	private final NestedDisplay display;
+	private final SessionDisplay display;
 	private final LinuxController controller;
 	/** A second connection to {@code :N} for EWMH reads (pid/geometry), separate from the controller's own. */
 	private final Pointer ewmhDisplay;
@@ -64,7 +66,7 @@ public final class NestedSession implements DesktopSession {
 	private volatile Process gameProc;
 	private volatile boolean closed;
 
-	private NestedSession(String id, SessionReaper reaper, NestedDisplay display,
+	private NestedSession(String id, SessionReaper reaper, SessionDisplay display,
 						  LinuxController controller, Pointer ewmhDisplay, Options options) {
 		this.id = id;
 		this.reaper = reaper;
@@ -87,11 +89,11 @@ public final class NestedSession implements DesktopSession {
 		// Id shape s<pid>-<seq> is a contract: the orphan sweep parses the owner pid back out of the slice name.
 		String id = "s" + ProcessHandle.current().pid() + "-" + SEQ.incrementAndGet();
 		SessionReaper reaper = new SessionReaper(id);
-		NestedDisplay display = null;
+		SessionDisplay display = null;
 		LinuxController controller = null;
 		Pointer ewmh = null;
 		try {
-			display = NestedDisplay.startXephyr(reaper, options.width(), options.height());
+			display = startDisplay(reaper, options);
 			// Pin XTest: on a private display device-level input is both accepted and non-intrusive, and the
 			// process-wide botmaker.linux.input property (which steers :0) must not decide :N's backend.
 			controller = LinuxController.forDisplay(display.displayName(), "xtest");
@@ -109,6 +111,15 @@ public final class NestedSession implements DesktopSession {
 			cleanupFailedStart(reaper, controller, ewmh);
 			throw new SessionStartException("nested session start failed: " + e.getMessage(), e);
 		}
+	}
+
+	/** Bring up the display server the options ask for: Xephyr (2D) or gamescope (hardware 3D). */
+	private static SessionDisplay startDisplay(SessionReaper reaper, Options options) throws SessionStartException {
+		return switch (options.backend()) {
+			case XEPHYR -> NestedDisplay.startXephyr(reaper, options.width(), options.height());
+			case GAMESCOPE -> GamescopeDisplay.start(reaper, options.displayServerCommand(),
+				options.width(), options.height());
+		};
 	}
 
 	/** Reap a half-built session's resources in the reverse order they were acquired. */
@@ -150,8 +161,9 @@ public final class NestedSession implements DesktopSession {
 
 	@Override
 	public Set<Capability> capabilities() {
-		// The whole point of a bot-owned display: these three, which a shared :0 desktop cannot offer.
-		return Set.of(
+		// The whole point of a bot-owned display: BACKGROUND_CLICK/ISOLATED_FOCUS/MULTI_SESSION, which a shared
+		// :0 desktop cannot offer. HARDWARE_GL/VULKAN come only from the gamescope backend (Xephyr is 2D here).
+		EnumSet<Capability> caps = EnumSet.of(
 			Capability.ABSOLUTE_POINTER,
 			Capability.RELATIVE_POINTER,
 			Capability.BACKGROUND_CLICK,
@@ -160,6 +172,11 @@ public final class NestedSession implements DesktopSession {
 			Capability.SCREEN_CAPTURE,
 			Capability.WINDOW_LAUNCH,
 			Capability.WINDOW_ATTACH);
+		if (display.hardwareAccelerated()) {
+			caps.add(Capability.HARDWARE_GL);
+			caps.add(Capability.VULKAN);
+		}
+		return caps;
 	}
 
 	@Override
@@ -382,42 +399,78 @@ public final class NestedSession implements DesktopSession {
 		}
 	}
 
+	/** Which display server hosts the nested session — the 2D vs. hardware-3D choice. */
+	public enum Backend {
+		/** Xephyr: cheap 2D host, software-rendered here. */
+		XEPHYR,
+		/** gamescope: embedded Xwayland on the real GPU — for Proton/DXVK/Vulkan 3D targets. */
+		GAMESCOPE
+	}
+
 	/**
-	 * How a nested session is shaped: the display size, an optional window manager to run in it, and any extra
-	 * per-session environment (a private {@code HOME}/{@code XDG_RUNTIME_DIR}/{@code WINEPREFIX} to stop a
-	 * single-instance game escaping back to {@code :0}). The {@code DISPLAY} is always set for you.
+	 * How a nested session is shaped: which {@link Backend} hosts it, the display size, an optional window
+	 * manager to run in it, and any extra per-session environment (a private {@code HOME}/{@code XDG_RUNTIME_DIR}/
+	 * {@code WINEPREFIX} to stop a single-instance game escaping back to {@code :0}). The {@code DISPLAY} is
+	 * always set for you. For {@link Backend#GAMESCOPE} the exact gamescope argv is overridable
+	 * ({@link #withGamescopeCommand}) so a real box can tune it — or switch to the child-launch form — without a
+	 * code change.
 	 */
 	public static final class Options {
+		private final Backend backend;
 		private final int width;
 		private final int height;
 		private final List<String> windowManagerCommand;
 		private final Map<String, String> extraEnv;
+		private final List<String> gamescopeCommand;
 
-		private Options(int width, int height, List<String> wm, Map<String, String> extraEnv) {
+		private Options(Backend backend, int width, int height, List<String> wm,
+						Map<String, String> extraEnv, List<String> gamescopeCommand) {
+			this.backend = backend;
 			this.width = width;
 			this.height = height;
 			this.windowManagerCommand = List.copyOf(wm);
 			this.extraEnv = Map.copyOf(extraEnv);
+			this.gamescopeCommand = gamescopeCommand == null ? List.of() : List.copyOf(gamescopeCommand);
 		}
 
 		/** A 2D Xephyr session at {@code width}x{@code height}, WM-less, no extra env. */
 		public static Options xephyr(int width, int height) {
-			return new Options(width, height, List.of(), Map.of());
+			return new Options(Backend.XEPHYR, width, height, List.of(), Map.of(), List.of());
+		}
+
+		/** A hardware-3D gamescope session at {@code width}x{@code height}, WM-less, no extra env. */
+		public static Options gamescope(int width, int height) {
+			return new Options(Backend.GAMESCOPE, width, height, List.of(), Map.of(), List.of());
 		}
 
 		/** This session, but running {@code command} as its window manager (e.g. {@code "openbox"}). */
 		public Options withWindowManager(String... command) {
-			return new Options(width, height, List.of(command), extraEnv);
+			return new Options(backend, width, height, List.of(command), extraEnv, gamescopeCommand);
 		}
 
 		/** This session, but with {@code env} overlaid on every child's environment (in addition to DISPLAY). */
 		public Options withExtraEnv(Map<String, String> env) {
-			return new Options(width, height, windowManagerCommand, env);
+			return new Options(backend, width, height, windowManagerCommand, env, gamescopeCommand);
 		}
 
+		/**
+		 * This session, but launching gamescope with {@code command} instead of the default argv. Only meaningful
+		 * for {@link Backend#GAMESCOPE}; lets a real box adjust flags (backend, HDR, {@code --} child form) without
+		 * touching {@link GamescopeDisplay}.
+		 */
+		public Options withGamescopeCommand(String... command) {
+			return new Options(backend, width, height, windowManagerCommand, extraEnv, List.of(command));
+		}
+
+		public Backend backend() { return backend; }
 		public int width() { return width; }
 		public int height() { return height; }
 		public List<String> windowManagerCommand() { return windowManagerCommand; }
 		public Map<String, String> extraEnv() { return extraEnv; }
+
+		/** The gamescope argv to launch: an explicit override if set, else {@link GamescopeDisplay#defaultCommand}. */
+		public List<String> displayServerCommand() {
+			return gamescopeCommand.isEmpty() ? GamescopeDisplay.defaultCommand(width, height) : gamescopeCommand;
+		}
 	}
 }

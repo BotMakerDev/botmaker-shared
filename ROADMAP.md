@@ -8,6 +8,55 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — Bot-owned-display plan, Phase 3: gamescope backend (hardware 3D)
+
+The hardware-3D display backend, behind the *same* `DesktopSession` contract as Phase 2. Xephyr is
+software-rendered here (2D-only); a Proton/DXVK/Vulkan title needs a real GPU, which **gamescope** provides via
+its embedded Xwayland. The win of Phase 2's design shows here: the supervisor (launch game → find window →
+inject XTest → reap) didn't change at all — only the display server did.
+
+**Done**
+
+- **`SessionDisplay` seam** — extracted the tiny surface `NestedSession` actually needs from a display
+  (`displayName` / `width` / `height` / `alive` / `hardwareAccelerated`). `NestedDisplay` (Xephyr) and the new
+  `GamescopeDisplay` both implement it; `NestedSession` holds a `SessionDisplay` and `start()` branches on
+  `Options.Backend` (`XEPHYR` | `GAMESCOPE`). The whole supervisor below the seam is backend-agnostic.
+- **`GamescopeDisplay`** — launches gamescope via the reaper and discovers its nested display number. gamescope
+  has **no `-displayfd`**: it announces its Xwayland on **stderr** (`Starting Xwayland on :N`). So we run
+  gamescope in its **standalone-compositor** form (no `--` child — the SteamOS session model, where gamescope
+  hosts an Xwayland apps then join with `DISPLAY=:N`), capture stderr (new `SessionReaper.launch` stderr-redirect
+  overload), and `parseDisplayNumber` it out with a tolerant `(?i)xwayland on (:\d+)` regex. Readiness still
+  gated on a real `XOpenDisplay` (shared `DisplayReadiness.awaitConnectable`, extracted from `NestedDisplay`).
+  Reports `hardwareAccelerated() = true`, so a gamescope session additionally advertises **HARDWARE_GL** +
+  **VULKAN** (`capabilities()` now an `EnumSet` gated on the display).
+- **`Options.gamescope(w, h)`** factory + `withGamescopeCommand(...)` override — the exact gamescope argv is
+  tunable without touching `GamescopeDisplay`, so a real box can adjust flags (`--backend`, HDR) or switch to
+  the child-launch form. `displayServerCommand()` returns the override or `GamescopeDisplay.defaultCommand`.
+
+**Verified** (unit only — see caveat): `NestedSessionTest` grew backend-selection + gamescope stderr-parse
+cases (5 tests); full shared suite **104 green, 0 failures**. `mvn -pl botmaker-shared install` clean.
+
+**Not verified live — no gamescope on this box.** The dev machine has a real GPU (`/dev/dri`, `glxinfo`,
+`vulkaninfo`, `Xwayland`) but **no `gamescope` binary** and only software GL, so the gamescope path is
+implemented + unit-tested but has **not** been run end-to-end. This matches the plan's Phase 3 exit
+("a DXVK/Proton title driven end-to-end in the background"), which inherently needs a GPU+gamescope box.
+
+**Deferred / next (real-box bring-up)**
+
+- **Live-run gamescope** on a GPU+gamescope machine: confirm the standalone-host form stays up and the stderr
+  banner matches `parseDisplayNumber`. **If fragile** (a build that exits without a `--` child, or a banner the
+  regex misses), switch to the **child form** — launch the game *as* gamescope's child so it inherits
+  `DISPLAY` — via `Options.withGamescopeCommand(...)` (no code change needed) and read the number from the same
+  stderr. `GpuProbe` (Phase 0) already reports whether gamescope is installed and whether Xephyr can do 3D, to
+  drive the backend choice.
+- **Store-launcher kinds** (steam/heroic/epic) still deferred: they hand off to a `:0` daemon, so they can't be
+  given a private `DISPLAY`; `NestedSession.launch` supports only `exe:`/`cli:`. gamescope's child form is the
+  likely home for a Proton title once the Steam/Heroic launch-into-`:N` story is designed.
+- Phase 4 (input hardening: click timing, keymap determinism, modifier tracking, mouselook grab) is unchanged
+  by this phase and applies to both backends.
+
+---
+
 ## 2026-07-23 — Bot-owned-display plan, Phase 2: nested supervisor (Xephyr `:N`)
 
 The supervisor that makes background input **flawless**: a bot launches its game into a private nested Xephyr

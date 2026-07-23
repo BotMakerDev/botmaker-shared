@@ -69,6 +69,17 @@ final class SessionReaper {
 	 *         strategy (whose lifetime tracks the payload's), or the payload itself under the fallback.
 	 */
 	Process launch(String role, List<String> command, Map<String, String> env, Redirect stdout) throws IOException {
+		return launch(role, command, env, stdout, null);
+	}
+
+	/**
+	 * As {@link #launch(String, List, Map, Redirect)}, but also redirecting the child's <em>stderr</em> to
+	 * {@code stderr} (defaulting to {@link Redirect#DISCARD} when {@code null}). Needed for a server that
+	 * reports its display number on stderr rather than a {@code -displayfd} stdout — gamescope does exactly
+	 * that (it logs {@code Starting Xwayland on :N}), so {@link GamescopeDisplay} captures stderr to parse it.
+	 */
+	Process launch(String role, List<String> command, Map<String, String> env, Redirect stdout, Redirect stderr)
+			throws IOException {
 		if (reaped) {
 			throw new IllegalStateException("SessionReaper " + id + " already reaped");
 		}
@@ -94,7 +105,7 @@ final class SessionReaper {
 			}
 		}
 		pb.redirectOutput(stdout != null ? stdout : Redirect.DISCARD);
-		pb.redirectError(Redirect.DISCARD);
+		pb.redirectError(stderr != null ? stderr : Redirect.DISCARD);
 		Diag.log("[Session] " + id + "/" + role + ": " + String.join(" ", useSystemd ? full : command));
 		Process p = pb.start();
 		launched.add(p);

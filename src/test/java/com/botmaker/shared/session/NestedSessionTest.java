@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,5 +53,35 @@ class NestedSessionTest {
 		// Defensive copy: mutating the returned view is refused.
 		assertThrows(UnsupportedOperationException.class,
 			() -> withEnv.extraEnv().put("X", "y"));
+	}
+
+	@Test
+	void backendPicksTheDisplayServer() {
+		NestedSession.Options xephyr = NestedSession.Options.xephyr(1280, 720);
+		assertEquals(NestedSession.Backend.XEPHYR, xephyr.backend());
+
+		NestedSession.Options gs = NestedSession.Options.gamescope(1920, 1080);
+		assertEquals(NestedSession.Backend.GAMESCOPE, gs.backend());
+		// Default gamescope argv carries the requested size and is standalone (no "--" child).
+		assertEquals(List.of("gamescope", "-W", "1920", "-H", "1080"), gs.displayServerCommand());
+		assertTrue(gs.displayServerCommand().stream().noneMatch("--"::equals));
+
+		// An explicit override wins over the default argv.
+		NestedSession.Options custom = gs.withGamescopeCommand("gamescope", "--backend", "sdl", "-W", "800", "-H", "600");
+		assertEquals(List.of("gamescope", "--backend", "sdl", "-W", "800", "-H", "600"),
+			custom.displayServerCommand());
+	}
+
+	@Test
+	void gamescopeDisplayNumberParsedFromStderrBanner() {
+		// The forms gamescope prints across versions (some prefix wlserver:, casing varies).
+		assertEquals(":1", GamescopeDisplay.parseDisplayNumber(
+			"wlserver: [xwayland/server.c:1146] Starting Xwayland on :1"));
+		assertEquals(":2", GamescopeDisplay.parseDisplayNumber(
+			"gamescope: starting\nStarting Xwayland on :2, DISPLAY=:2\nmore log"));
+		// Not announced yet / unrelated output → no number.
+		assertNull(GamescopeDisplay.parseDisplayNumber(""));
+		assertNull(GamescopeDisplay.parseDisplayNumber(null));
+		assertNull(GamescopeDisplay.parseDisplayNumber("gamescope: creating nested compositor\n"));
 	}
 }
