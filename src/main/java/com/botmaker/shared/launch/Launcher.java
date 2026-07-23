@@ -2,6 +2,8 @@ package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
 
+import java.util.List;
+
 /**
  * The one entry point for "bring this launch target up" and "is it up?", given nothing but a parsed
  * {@link LaunchSpec}. This is what makes a launch target launchable from <em>either</em> consumer: the SDK's
@@ -102,11 +104,15 @@ public final class Launcher {
      *   <li>ADB, for an emulator app — nothing on the host describes an app running inside an emulator;</li>
      *   <li>a process this JVM itself spawned for this spec still being alive (only {@code exe:}/{@code cli:}
      *       ever record one);</li>
-     *   <li>any live process whose command line mentions the spec's {@link LaunchSpec#runningToken() token},
+     *   <li>any live process whose command line mentions one of the spec's {@link #runningTokens tokens},
      *       deliberately matching the wrapper a launcher-started game runs under — and deliberately
      *       <em>not</em> matching the launcher's own UI, see {@link RunningProbe};</li>
-     *   <li>a window titled after the token, enumerated from the OS.</li>
+     *   <li>a window titled after one of those tokens, enumerated from the OS.</li>
      * </ol>
+     *
+     * <p>Every command-line token is tried before any window title, on purpose: the process table is the
+     * stronger evidence (a window can be a launcher's own dialog named after the game), so a cheap-but-weak
+     * layer must not pre-empt a strong one.
      *
      * <p>Known gap, accepted knowingly: for the ~second between a launcher hand-off and the wrapper process
      * appearing, every layer is legitimately false, so a caller polling in a tight loop could launch twice.
@@ -127,18 +133,39 @@ public final class Launcher {
             Diag.log("[Target] " + spec.spec() + ": the process we launched is still alive");
             return true;
         }
-        String token = spec.runningToken();
-        if (token == null || token.isBlank()) {
-            return false;
+        List<String> tokens = runningTokens(spec);
+        for (String token : tokens) {
+            if (RunningProbe.commandLineMentions(token)) {
+                Diag.log("[Target] " + spec.spec() + ": a live process mentions '" + token + "'");
+                return true;
+            }
         }
-        if (RunningProbe.commandLineMentions(token)) {
-            Diag.log("[Target] " + spec.spec() + ": a live process mentions '" + token + "'");
-            return true;
-        }
-        if (RunningProbe.windowTitled(token)) {
-            Diag.log("[Target] " + spec.spec() + ": a window is titled after '" + token + "'");
-            return true;
+        for (String token : tokens) {
+            if (RunningProbe.windowTitled(token)) {
+                Diag.log("[Target] " + spec.spec() + ": a window is titled after '" + token + "'");
+                return true;
+            }
         }
         return false;
+    }
+
+    /**
+     * The strings a live incarnation of {@code spec} could carry, most distinctive first. For every kind but
+     * {@code heroic:} this is just {@link LaunchSpec#runningToken()} — the launcher's own launch identity is
+     * what the wrapper process carries.
+     *
+     * <p>Heroic is the exception, and the reason this returns a list at all: its token is an <em>app name</em>,
+     * an opaque hash for Epic games, and modern Heroic launches in-process — so the live process is
+     * {@code wine}/{@code umu-run}/{@code proton} carrying the game's executable and install path, and the
+     * window is named after its title. None of those is the app name. {@link HeroicLibrary} reads them out of
+     * Heroic's own config so all four are tried; when that config can't be read, the list degrades to the bare
+     * app name, i.e. exactly the old behaviour.
+     */
+    private static List<String> runningTokens(LaunchSpec spec) {
+        if (spec.kind() == LaunchKind.HEROIC) {
+            return HeroicLibrary.runningTokens(spec.token());
+        }
+        String token = spec.runningToken();
+        return token == null || token.isBlank() ? List.of() : List.of(token);
     }
 }

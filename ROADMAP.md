@@ -8,6 +8,42 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — Heroic detection stops depending on a hash nothing carries
+
+**Done**
+
+- **`launch/HeroicLibrary`** — reads Heroic's own on-disk config (Epic `legendaryConfig/legendary/installed.json`,
+  GOG `gog_store/installed.json` + `store_cache/gog_library.json`, `sideload_apps/library.json`, from both the
+  native and Flatpak roots) into `Game(appName, title, installPath, executable)`. Hand-rolled brace/regex
+  scanning, not Jackson — shared has no JSON dependency (same call as `LdPlayerPlatform`) and this is a handful
+  of string fields. Best-effort and total throughout; parses are cached for 10 s so a poll loop doesn't re-read
+  three files per tick.
+- **`Launcher.isRunning` takes a token *list*.** A `heroic:` target's token is Heroic's app name — an opaque
+  hash for Epic games — and modern Heroic launches in-process, so the live process is `wine`/`umu-run`/`proton`
+  carrying the game's *executable* and *install path* and the window is named after its *title*. None of those
+  is the app name, which is why detection worked only sometimes. All four are now tried, most distinctive
+  first, and every command-line token is tried before any window title (the process table is the stronger
+  evidence). Unreadable config degrades to the bare app name, i.e. the old behaviour.
+- **Tokens shorter than 3 chars are dropped** (`Game.runningTokens`). A title like "Go" would match half the
+  process table, and a false "already running" is indistinguishable from a launch that silently did nothing —
+  the same failure the `LAUNCHER_EXECUTABLES` deny-list exists to prevent, which is untouched and still applies.
+- **Studio's `HeroicLibraryScanner` now delegates here** for the game list (it keeps only the `InstalledGame`
+  mapping and the `icons/` artwork probe, and now probes *every* config root rather than the first). Two
+  parsers of one config file drift; this is the "shared owns what its consumers would rebuild" rule.
+- `HeroicLibraryTest` fixtures keep the parts that break a naive regex: nested objects, escaped Windows
+  separators, a brace inside a title, fields in an unhelpful order.
+
+**Deferred / next**
+
+- Heroic's newer backends (`nile` for Amazon, `comet` for GOG) aren't in `RunningProbe`'s "doing library work"
+  exclusion the way `legendary` is. Harmless today — they'd only ever cause a *false positive*, and only while
+  Heroic is syncing — but worth adding if one shows up in a `[Target] ignoring pid` trace.
+- The install-path token is matched as a substring of the whole command line. A game installed *inside* another
+  game's directory would cross-match; no real layout does this, but a path-boundary check is the fix if it ever
+  bites.
+
+---
+
 ## 2026-07-23 — uinput is the real-input path, and targeted keys actually reach the target
 
 **Done**
