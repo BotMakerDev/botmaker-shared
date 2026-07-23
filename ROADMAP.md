@@ -8,6 +8,45 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — shared takes the rest of `sdk/internal`: matching, desktop capture, project properties
+
+**Done**
+
+- **`com.botmaker.shared.opencv`** — `OpencvManager` (template matching), `ColorMatcher` (CIELAB ΔE colour
+  clusters), `ResolutionScaler`, `RawMatch`/`RawColorMatch` and `OpenCvNative` moved here from the SDK, with
+  their four test classes. The SDK matches at run time and Studio's Magic Wand matches at edit time, so both
+  consumers needed the engine; only the SDK had it.
+- **One OpenCV loader, not three.** There were three independent `loadLocally()` calls each guarded by its own
+  `loaded` flag — the SDK's `OpenCvNative`, Studio's copy under `ui/app/capture` (whose javadoc admitted it
+  mirrored the SDK's), and a third inside shared's own `OcrNative`. All three could run in one JVM, so nothing
+  stopped the native from being extracted more than once. `shared.opencv.OpenCvNative` is now the only one;
+  `OcrNative.ensureOpenCvLoaded()` and Studio's `MagicWand` delegate to it and Studio's copy is deleted.
+- **Full-desktop capture** (`ScreenCapture`, sealed `CaptureBackend`, `RobotCapture`, `SpectacleCapture`) moved
+  into `shared.capture`, beside per-window capture. shared's own `CLAUDE.md` used to say full-desktop capture
+  "deliberately lives in the consumers"; that rule was wrong on its own terms — the platform knowledge is
+  identical to per-window capture's, and Studio's picker wants the same grab. The note is corrected.
+- **`com.botmaker.shared.config.ProjectProperties`** — the `botmaker-project.properties` file: its name, its
+  key names, the caching and the best-effort parsing. This is the literal case the "a shared type owns the
+  keys" rule describes: Studio's `ProjectCreator` *writes* the very keys the SDK reads, and both sides had
+  them as string literals. `ProjectCreator` now uses the constants; the SDK's `ProjectDefaults` shrinks to the
+  part shared genuinely cannot do — mapping raw values onto `CaptureSource`/`Size`.
+- **The raw-record boundary is what makes this work.** shared returns `RawMatch`/`RawColorMatch` and takes the
+  authored resolution as a `java.awt.Dimension`; the SDK maps to `MatchResult`/`ColorMatch` and converts
+  `Size` once, in `ImageTemplate.authoredSize()`. No SDK type crosses into shared.
+- **Found while moving: `OpencvManagerTest` had not run in a long time.** It loaded its template behind
+  `assumeTrue(Files.exists("src/main/resources/images/accept_button.png"))`, and that file exists in neither
+  module — so the assumption aborted the class and all six tests reported as *skipped*, which reads as green.
+  It now generates its own deterministic noise patch: nothing about template matching needs a photograph of a
+  button, and a test that cannot be skipped by a missing file cannot rot that way again. shared: 81 tests.
+
+**Deferred / next**
+
+- `ImageDisplay` (Swing preview) stayed in the SDK with the `internal` dev harnesses that are its only
+  callers; a JFrame is not something the JavaFX Studio would consume.
+- `ProjectProperties` has no tests — it needs a classpath-resource fixture to be worth writing.
+
+---
+
 ## 2026-07-23 — shared owns the launch stack, and a launcher stops counting as its games
 
 **Done**

@@ -6,10 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 (runtime, `../botmaker-sdk`) and the BotMaker Studio (editor, `../botmaker-studio`) — so Studio never has to
 depend on the SDK. Its original charter is native window plumbing (enumerate, capture, focus, move, resize,
 drive input); it also now hosts **OCR** (`com.botmaker.shared.ocr`), the first capability both consumers
-share above the window layer, plus the **Android-emulator** capability (`com.botmaker.shared.emulator`). It
-depends on **JNA** (window/input), **OpenCV** (`org.openpnp:opencv`) + **Tess4J** (`net.sourceforge.tess4j`)
-for OCR, and **dadb** (`dev.mobile:dadb`, pure-JVM ADB) for the emulator transport. No JavaFX. Full-desktop
-capture backends deliberately live in the *consumers*, not here.
+share above the window layer, the **Android-emulator** capability (`com.botmaker.shared.emulator`), the
+**launch stack** (`com.botmaker.shared.launch`), **template/colour matching** (`com.botmaker.shared.opencv`),
+**full-desktop capture** and the **project properties file** (`com.botmaker.shared.config`). It depends on
+**JNA** (window/input), **OpenCV** (`org.openpnp:opencv`) + **Tess4J** (`net.sourceforge.tess4j`) for OCR and
+matching, and **dadb** (`dev.mobile:dadb`, pure-JVM ADB) for the emulator transport. No JavaFX.
 
 ## OCR (`com.botmaker.shared.ocr`)
 
@@ -17,8 +18,8 @@ On-screen text recognition, consumed today by the SDK's `api.vision.Text` bot fa
 features later). `OcrEngine` is the core: `text(img)` for a whole-image string and `recognize(img, opts)`
 for per-word/line `TextResult`s (source-local boxes + confidence). `OcrPreprocessor` runs the OpenCV pass
 (grayscale → upscale → binarize → optional invert) that makes game fonts viable; `OcrOptions` are the tuning
-knobs (languages, PSM, upscale, binarize mode, char whitelist, WORD/LINE). `OcrNative` is the idempotent
-loader (OpenCV native + extracting bundled `tessdata` to a temp dir) mirroring the SDK's `OpenCvNative`.
+knobs (languages, PSM, upscale, binarize mode, char whitelist, WORD/LINE). `OcrNative` extracts the bundled `tessdata` to a temp dir and delegates the OpenCV load to
+`opencv.OpenCvNative` (it used to call `loadLocally()` itself, one of three independent loaders).
 Tess4J's `Tesseract` is **not** thread-safe, so `OcrEngine` holds it in a `ThreadLocal` (bots are
 multi-threaded). Traineddata (`tessdata_fast` eng/chi_sim/jpn/kor, ~10 MB) is bundled under
 `src/main/resources/tessdata/`; adding a language is data-only. Self-contained on Windows (Tess4J bundles
@@ -59,8 +60,15 @@ removed — it was just that `mvn install`. See `../CLAUDE.md` › Local dev.
 (`getAllWindows` / `getChildWindows` / `getForegroundWindow`), per-window capture (`captureWindow`, returns
 `null` when it can't produce a usable frame — e.g. native Wayland, invalid geometry — so callers apply their
 own full-desktop fallback), window management (`focus`/`move`/`resize`), and input synthesis
-(`keyDown`/`keyUp`/`typeText`/`mouseMove`/`mouseButton`/`scroll`, plus `postLeftClick*`). There is
-**deliberately no `captureDesktop()`** here — full-desktop capture lives in each consumer.
+(`keyDown`/`keyUp`/`typeText`/`mouseMove`/`mouseButton`/`scroll`, plus `postLeftClick*`).
+
+Full-desktop capture is **not** on that interface but does live in this module, as the static
+`capture.ScreenCapture` facade over a sealed `CaptureBackend` (`RobotCapture` on Windows/X11/XWayland,
+`SpectacleCapture` on KDE Wayland, chosen by `CaptureBackend.select()`); `getVirtualScreenBounds()` is the one
+AWT all-monitor union. It used to live in the SDK under the rule "full-desktop capture belongs to each
+consumer", which was wrong on its own terms: the platform knowledge is identical to per-window capture's, and
+Studio's picker wants the same grab. Adding a GNOME/sway portal+PipeWire path means one new `CaptureBackend`
+wired into `select()`, with no caller changes.
 
 On X11 KDE, `LinuxController.captureWindow` sets `_NET_WM_BYPASS_COMPOSITOR=2` on the target so KWin doesn't
 unredirect a fullscreen game (which would black out its — and every other window's — off-screen pixmap), then
@@ -74,14 +82,38 @@ tests. Key codes crossing the interface are **per-OS native codes** (X keysym on
 Windows); consumers resolve them from their own platform-neutral key enums.
 
 Package map:
-- `capture/` — the cross-platform surface: `NativeController`, `NativeControllerFactory`, `GenericWindow`.
+- `capture/` — the cross-platform surface: `NativeController`, `NativeControllerFactory`, `GenericWindow`,
+  plus full-desktop capture (`ScreenCapture`, `CaptureBackend`, `RobotCapture`, `SpectacleCapture`).
 - `capture/windows/` — JNA Windows backend: `User32`/`GDI32` bindings, `WindowsController`, `WindowFinder`,
   `WindowInfo`, `WindowCapture`, `Clicker`.
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.
 - `ocr/` — OCR core: `OcrEngine`, `OcrPreprocessor`, `OcrOptions`, `TextResult`, `OcrNative` (see OCR above).
+- `opencv/` — matching engines: `OpencvManager` (template matching), `ColorMatcher` (CIELAB ΔE clusters),
+  `ResolutionScaler`, the raw results `RawMatch`/`RawColorMatch`, and `OpenCvNative` — **the** process-wide
+  OpenCV loader (see below).
+- `config/` — `ProjectProperties`: the `botmaker-project.properties` key names + raw reader, shared because
+  Studio writes exactly the keys the SDK reads.
+- `launch/` — the launch stack: `LaunchKind`/`LaunchSpec` (the `launch.target` grammar), `GameLauncher`,
+  `UriLauncher`, `EmulatorAppLauncher`, `RunningProbe` and the `Launcher` facade.
 - `emulator/` — Android-emulator capability (see below): `AdbDevice` (dadb transport), `Platforms` +
   `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/`MemuPlatform`/`MuMuPlatform`/`GameloopPlatform`
   (all discover for real), `EmulatorLauncher` (host launch/stop), `WindowsRegistry`, `EmulatorInstance`.
+
+## Matching (`com.botmaker.shared.opencv`)
+
+`OpencvManager` (template matching on `org.opencv.core.Mat`) and `ColorMatcher` (CIELAB ΔE clusters behind the
+SDK's `Pixel`) live here because the SDK matches at runtime and Studio's Magic Wand matches at edit time.
+
+**Loading the native goes through `OpenCvNative.ensureLoaded()` and nowhere else.** There were three copies of
+that loader — the SDK's, Studio's (whose javadoc admitted it mirrored the SDK's) and one inside `OcrNative` —
+each with its own `loaded` flag, so nothing stopped the same process from extracting the native repeatedly.
+Call it from a `static {}` block on any class that links an `org.opencv` type.
+
+**shared returns raw records; the consumer maps them to its own value types.** `RawMatch`/`RawColorMatch`
+carry plain ints and a score and are named "raw" for exactly this reason; the SDK's `vision` layer maps them
+onto its public `MatchResult`/`ColorMatch`. The same rule sets the signatures: the authored-resolution
+parameter is a `java.awt.Dimension`, not the SDK's `Size` — the SDK converts once, in
+`ImageTemplate.authoredSize()`.
 
 ## Android emulator (`com.botmaker.shared.emulator`)
 

@@ -8,12 +8,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 /**
- * Idempotent native-resource loading for the OCR stack — the OCR counterpart to the SDK's
- * {@code internal/opencv/OpenCvNative}. Two responsibilities, each run at most once:
+ * Idempotent native-resource loading for the OCR stack. Two responsibilities, each run at most once:
  *
  * <ul>
- *   <li>{@link #ensureOpenCvLoaded()} — extract + load the OpenPnP OpenCV native (used by
- *       {@link OcrPreprocessor}), mirroring the SDK's loader so both modules share one native.</li>
+ *   <li>{@link #ensureOpenCvLoaded()} — load the OpenPnP OpenCV native (used by {@link OcrPreprocessor}),
+ *       delegated to {@link com.botmaker.shared.opencv.OpenCvNative} so the whole process has one loader.</li>
  *   <li>{@link #tessdataPath()} — Tesseract needs a real filesystem {@code datapath}, not a classpath
  *       resource, so the bundled {@code *.traineddata} are extracted to a temp dir on first use and that
  *       dir is handed to every {@code Tesseract} instance.</li>
@@ -34,15 +33,15 @@ public final class OcrNative {
      */
     static final String[] BUNDLED_LANGUAGES = {"eng", "chi_sim", "jpn", "kor"};
 
-    private static volatile boolean openCvLoaded = false;
     private static volatile Path tessdataDir = null;
 
-    /** Loads the OpenCV native once (idempotent). Mirrors the SDK's {@code OpenCvNative.ensureLoaded()}. */
-    public static synchronized void ensureOpenCvLoaded() {
-        if (openCvLoaded) return;
-        // OpenPnP extracts and loads the correct OS native automatically.
-        nu.pattern.OpenCV.loadLocally();
-        openCvLoaded = true;
+    /**
+     * Loads the OpenCV native once (idempotent), through the module-wide
+     * {@link com.botmaker.shared.opencv.OpenCvNative} — this used to be its own {@code loadLocally()} call
+     * with its own flag, which is one of the three independent loaders that class now replaces.
+     */
+    public static void ensureOpenCvLoaded() {
+        com.botmaker.shared.opencv.OpenCvNative.ensureLoaded();
     }
 
     /**
