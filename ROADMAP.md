@@ -8,6 +8,52 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — Bot-owned-display plan, Phase 1: display retargeting + session seam
+
+Second phase of **flawless background input** (see `../.claude/plans/review-this-draft-plan-spicy-flask.md`).
+Makes a `LinuxController` targetable at any display and introduces the thin session abstraction bot code will
+be written against, all as a pure wrap of today's behaviour (nothing on `:0` changes).
+
+**Done**
+
+- **`LinuxController` retargeting** — new `LinuxController(String displayName)` ctor calls
+  `XOpenDisplay(name)` (was hardcoded `XOpenDisplay(null)`); `LinuxController.forDisplay(":9")` factory
+  **bypasses** the `NativeControllerFactory` singleton so a nested-`:N` controller and the default `:0`
+  controller coexist in one JVM. The no-arg ctor still opens the default `$DISPLAY`. Every backend/X11 helper
+  already threads the resulting `Display*`, so a `:9`-bound instance does input+capture+window-mgmt entirely on
+  `:9`. `displayName()` accessor added.
+- **Session seam** in `com.botmaker.shared.session`:
+  - `Capability` enum (ABSOLUTE/RELATIVE_POINTER, BACKGROUND_CLICK, ISOLATED_FOCUS, MULTI_SESSION,
+    HARDWARE_GL, VULKAN, SCREEN_CAPTURE, WINDOW_LAUNCH, WINDOW_ATTACH) — so a bot fails fast via
+    `session.has(cap)` instead of silently no-op'ing.
+  - `DesktopSession` (AutoCloseable): `capabilities()`, `screen()`, `pointer()`, `keyboard()`,
+    `attach(GenericWindow)`/`attached()`, `launch(LaunchSpec)`, `capture()`, `health()`, and a `controller()`
+    migration bridge (the SDK/pilot still hold a `NativeController` directly; routing them through a session
+    means handing them *this* one instead of the global singleton).
+  - `SessionPointer` exposes **both** `moveAbsolute` and `moveRelative` from day one (mouselook reads deltas;
+    retrofitting later would touch every call site). `SessionKeyboard`, `SessionHealth`.
+  - `HostSession` — wraps the default controller, **changes nothing**. Advertises ABSOLUTE/RELATIVE_POINTER,
+    SCREEN_CAPTURE, WINDOW_ATTACH, WINDOW_LAUNCH — but **not** BACKGROUND_CLICK / ISOLATED_FOCUS / MULTI_SESSION
+    (a shared `:0` desktop genuinely can't offer them). Does **not** own its controller — `close()` never
+    closes the shared X11 connection. Keyboard routes to the attached window's targeted calls when attached,
+    else the focused-window path; `moveRelative` anchors on the read-back cursor position (skips if unreadable
+    rather than warping to the bare delta).
+- **Characterization test** `HostSessionTest` (8 tests, green) pins HostSession as a pure pass-through:
+  capability honesty, attached-vs-unattached keyboard routing, raw pointer delegation, relative-move anchoring,
+  capture targeting the attached window, and `close()` not touching the shared controller.
+
+**Verified:** `HostSessionTest` green; and a live two-controller run (`:0` + a throwaway Xephyr `:9` in one
+JVM) — both opened independent X11 connections, each picked its own backend, the `:9` click posted to `:9`,
+both closed cleanly. Phase-1 exit criterion met.
+
+**Deferred / next (Phase 2 — nested supervisor, `session/`):** launch Xephyr/gamescope + WM + game with
+readiness gating (no `sleep`), `-displayfd` allocation (proven in Phase 0), XTest backend on `:N`, per-session
+env (`HOME`/`XDG_RUNTIME_DIR`/`dbus-run-session`/`WINEPREFIX`), `systemd-run --user --scope` tree reaping,
+`_NET_WM_PID` window targeting. Template on `EmulatorAppLauncher` (launch → poll-readiness → act → teardown).
+`NestedSession` fills in the BACKGROUND_CLICK/ISOLATED_FOCUS/MULTI_SESSION capabilities `HostSession` withholds.
+
+---
+
 ## 2026-07-23 — Bot-owned-display plan, Phase 0: nested-display GPU probe
 
 Groundwork for **flawless background input** (the game runs in its own nested display `:N`, whose global

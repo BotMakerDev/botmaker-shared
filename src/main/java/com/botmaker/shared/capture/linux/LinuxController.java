@@ -49,17 +49,34 @@ public class LinuxController implements NativeController, AutoCloseable {
 	private volatile LinuxInputBackend inputBackend;
 	private volatile boolean closed = false;
 
+	/** The X11 display this controller drives — {@code null} for the default {@code $DISPLAY}, or a name like {@code ":9"}. */
+	private final String displayName;
+
+	/** Opens the default display named by {@code $DISPLAY} — the host session. */
 	public LinuxController() {
-		// Try to open X11 display
+		this(null);
+	}
+
+	/**
+	 * Opens a specific X11 display by name (e.g. {@code ":9"} for a nested Xephyr/gamescope server). Every
+	 * backend and X11 helper this controller uses already threads the resulting {@code Display*}, so an
+	 * instance bound to {@code :9} does its input, capture and window management entirely on {@code :9},
+	 * independently of a {@code :0}-bound instance living in the same JVM. Passing {@code null} is the same as
+	 * {@link #LinuxController()} — the default display.
+	 */
+	public LinuxController(String displayName) {
+		// Try to open the named X11 display (null → default $DISPLAY).
 		Pointer disp = null;
 		boolean available = false;
 
 		try {
-			disp = X11.INSTANCE.XOpenDisplay(null);
+			disp = X11.INSTANCE.XOpenDisplay(displayName);
 			available = (disp != null);
 
 			if (!available) {
-				Diag.error("[Linux] Warning: Could not open X11 display. Falling back to Robot for all operations.");
+				Diag.error("[Linux] Warning: Could not open X11 display "
+					+ (displayName == null ? "(default $DISPLAY)" : "'" + displayName + "'")
+					+ ". Falling back to Robot for all operations.");
 				Diag.error("[Linux] Make sure DISPLAY environment variable is set and X11 is running.");
 			}
 		} catch (UnsatisfiedLinkError e) {
@@ -69,9 +86,25 @@ public class LinuxController implements NativeController, AutoCloseable {
 			Diag.error("[Linux] Warning: Error initializing X11: " + e.getMessage());
 		}
 
+		this.displayName = displayName;
 		this.display = disp;
 		this.x11Available = available;
 		this.inputBackend = available ? selectBackend(disp) : null;
+	}
+
+	/**
+	 * A {@code LinuxController} bound to the named display (e.g. {@code ":9"}), <b>bypassing</b> the
+	 * {@link com.botmaker.shared.capture.NativeControllerFactory} singleton so a nested-display controller and
+	 * the default host controller coexist in one JVM. The caller owns the returned instance and must
+	 * {@link #close()} it.
+	 */
+	public static LinuxController forDisplay(String displayName) {
+		return new LinuxController(displayName);
+	}
+
+	/** The X11 display name this controller is bound to, or {@code null} for the default {@code $DISPLAY}. */
+	public String displayName() {
+		return displayName;
 	}
 
 	/** Pick the input backend from {@code botmaker.linux.input} (default {@code auto} → cursor-safe xsendevent). */
