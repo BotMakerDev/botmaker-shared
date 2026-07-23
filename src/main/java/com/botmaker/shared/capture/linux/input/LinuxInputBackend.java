@@ -37,6 +37,16 @@ public interface LinuxInputBackend extends AutoCloseable {
 	/** Position the (virtual or real) pointer at absolute screen coordinates. */
 	void move(int xAbs, int yAbs);
 
+	/**
+	 * Move the pointer by a relative delta. The default reads no position and can't help, so it declares itself
+	 * unsupported by returning {@code false}; a device-level backend that can inject a true relative motion
+	 * event (XTest) overrides it, returns {@code true}, and thereby works even under a pointer grab/warp
+	 * (mouselook), where reading an absolute position to add the delta to is unreliable.
+	 */
+	default boolean moveRelative(int dx, int dy) {
+		return false;
+	}
+
 	/** Press/release a mouse button at the current pointer position. 1=left, 2=middle, 3=right. */
 	void button(int button, boolean press);
 
@@ -60,6 +70,23 @@ public interface LinuxInputBackend extends AutoCloseable {
 
 	/** Scroll: {@code +} = up/away, {@code -} = down/toward. */
 	void scroll(int amount);
+
+	/**
+	 * Release every key and button this backend is currently holding down (and undo any temporary keymap
+	 * changes). Called from the typing path's {@code finally} and on teardown so an interrupted sequence can't
+	 * leave a modifier stuck — the classic cause of input "going insane" after a run of actions. Default:
+	 * nothing, for stateless backends that never hold anything across calls.
+	 */
+	default void releaseHeld() {}
+
+	/**
+	 * How long, in milliseconds, the typing loop should pause between successive characters so a fast
+	 * {@code typeText} doesn't outrun the target's input queue. Default {@code 0} (no pacing); a device-level
+	 * backend returns its configured inter-key delay.
+	 */
+	default int interKeyDelayMs() {
+		return 0;
+	}
 
 	/** Release any native resources (e.g. a uinput device). Default: nothing. */
 	@Override

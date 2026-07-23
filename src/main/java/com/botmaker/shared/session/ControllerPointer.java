@@ -1,6 +1,5 @@
 package com.botmaker.shared.session;
 
-import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.NativeController;
 
 import java.awt.Point;
@@ -11,8 +10,9 @@ import java.awt.Point;
  * the two is only <em>which</em> controller it wraps: on {@code :N} the controller's global cursor is the bot's
  * alone, so the very same device-level motion that is intrusive on {@code :0} is flawless in the background.
  *
- * <p>{@link #moveRelative} anchors on the read-back position and skips (rather than warping to the bare delta)
- * when the position is unreadable — Phase 4 replaces this with true relative injection for grab/mouselook.
+ * <p>{@link #moveRelative} delegates to {@link NativeController#mouseMoveRelative}: a device-level backend
+ * (XTest on {@code :N}) injects a true relative motion event that survives a game's pointer grab/warp
+ * (mouselook); other backends fall back to reading the position and warping by the delta.
  */
 final class ControllerPointer implements SessionPointer {
 
@@ -29,13 +29,7 @@ final class ControllerPointer implements SessionPointer {
 
 	@Override
 	public void moveRelative(int dx, int dy) {
-		Point p = controller.cursorPosition();
-		if (p == null) {
-			// Can't read where the pointer is, so a delta has no anchor — skip rather than warp to (dx,dy).
-			Diag.log("[Session] moveRelative: pointer position unreadable; delta (" + dx + "," + dy + ") skipped");
-			return;
-		}
-		controller.mouseMove(p.x + dx, p.y + dy);
+		controller.mouseMoveRelative(dx, dy);
 	}
 
 	@Override

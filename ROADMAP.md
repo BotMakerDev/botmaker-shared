@@ -8,6 +8,57 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — Bot-owned-display plan, Phase 4: input hardening (deterministic keys, no stuck input, mouselook)
+
+The device-level (XTest) injection the nested session pins was a naive warp-and-click: it dropped events
+toolkits sampled a frame late, silently swallowed any character the active layout didn't map to a keycode, and
+could leave a modifier stuck if a sequence was interrupted. Phase 4 makes it observable, total over Unicode,
+and self-healing — all within `capture.linux.input`, backend-agnostic where it can be, and fully unit-tested on
+this box (X11-only, no gamescope needed for any of it).
+
+**Done**
+
+- **Observable click timing** (`InputTiming`, immutable + tunable) — `XTestBackend.clickScreen` now runs
+  move → `XSync` (a real round-trip so the motion is applied server-side, not just flushed) →
+  `motionSettleMs` → press → `pressHoldMs` → release. Typing paces itself with `interKeyMs` between characters
+  (surfaced via `LinuxInputBackend.interKeyDelayMs()`), so a fast `typeText` can't outrun the target's queue.
+  Defaults 12/12/8 ms; `with*` for a target that needs longer holds.
+- **Deterministic Unicode keys** (`Keymap` + `KeymapOps`/`XlibKeymapOps`) — XTest injects *keycodes*, so a
+  keysym the layout maps to none (`XKeysymToKeycode → 0`, e.g. `é`, `€`, CJK) was undeliverable and silently
+  dropped. `Keymap` now **borrows a spare (unbound) keycode**, points it at the keysym via
+  `XChangeKeyboardMapping`, hands it to XTest, and **restores** the original mapping after the release. The
+  spare-selection + restore bookkeeping is behind a `KeymapOps` seam and unit-tested against an in-memory table
+  (`KeymapTest`, 6 cases: high-to-low spare pick, per-keysym idempotence, distinct spares, occupied-keycode
+  never disturbed, `restoreAll`, exhausted-keymap → drop). New X11 bindings: `XDisplayKeycodes`,
+  `XGetKeyboardMapping`, `XChangeKeyboardMapping`.
+- **No stuck input** — `XTestBackend` tracks every key/button it presses; `releaseHeld()` (new
+  `LinuxInputBackend` default) lets them all go and calls `Keymap.restoreAll()`. `LinuxController.typeVia` wraps
+  the whole string in `try/finally → releaseHeld()`, so an exception or interrupt mid-stroke can't leave a Shift
+  (or a borrowed-keycode layout change) hanging — the archetypal "typed fine then everything broke" failure.
+  `XTestBackend.close()` releases too.
+- **True relative motion (mouselook)** — `XTestBackend.moveRelative` injects a real
+  `XTestFakeRelativeMotionEvent`, added as `LinuxInputBackend.moveRelative(dx,dy) → boolean` (default `false` =
+  unsupported) and `NativeController.mouseMoveRelative` (default = portable read-back-then-warp).
+  `LinuxController` prefers the backend's device-relative injection and falls back to the warp;
+  `ControllerPointer.moveRelative` now delegates there (replacing its read-back+skip stub). Device-relative
+  motion survives a game's pointer grab/warp, where reading an absolute position to add a delta to is unreliable.
+
+**Verified** (unit + build): `KeymapTest` (6) + `InputTimingTest` (3) new; full shared suite **113 green, 0
+failures**; `mvn -pl botmaker-shared install` clean.
+
+**Deferred / next (Phase 4 remainder, needs a live grabbing target to verify honestly)**
+
+- **Grab-state detection / `RELATIVE_GRABBED` session mode.** The plan's `XIQueryPointer`-based auto-switch
+  (detect that a game has grabbed+warped the pointer, flip the session to relative, integrate deltas toward a
+  target, read the actual position after each event) is **not** built — it needs an XInput2 binding *and* a real
+  mouselook app to verify against, the same "can't confirm on this box" situation Phase 3 hit with gamescope.
+  The mechanism it depends on (true relative injection) is in place, so this is a self-contained follow-up.
+- **Live end-to-end typing/mouselook run** (the plan's Phase 4 exit): confirm deterministic Unicode typing into
+  a real toolkit and a mouselook app tracking a scripted path, on a nested `:N`. Logic is unit-covered; the
+  live pass remains.
+
+---
+
 ## 2026-07-23 — Bot-owned-display plan, Phase 3: gamescope backend (hardware 3D)
 
 The hardware-3D display backend, behind the *same* `DesktopSession` contract as Phase 2. Xephyr is

@@ -114,6 +114,19 @@ public interface NativeController {
 	void scroll(int amount);                      // + = up/away, - = down/toward
 
 	/**
+	 * Move the pointer by a relative delta. The portable default reads the current position and warps to
+	 * {@code pos + (dx, dy)}, skipping when the position can't be read (a delta has no anchor then). A backend
+	 * that can inject a genuine relative motion event overrides this so it also works under a pointer
+	 * grab/warp (mouselook), where the read-back is unreliable.
+	 */
+	default void mouseMoveRelative(int dx, int dy) {
+		Point p = cursorPosition();
+		if (p != null) {
+			mouseMove(p.x + dx, p.y + dy);
+		}
+	}
+
+	/**
 	 * The real pointer's current absolute screen position, or {@code null} if it can't be read. Callers must
 	 * treat {@code null} as "don't restore" rather than as an origin — a stale or invented coordinate would
 	 * park the cursor somewhere the user never left it.

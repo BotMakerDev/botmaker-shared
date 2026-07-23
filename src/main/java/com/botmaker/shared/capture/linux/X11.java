@@ -172,6 +172,23 @@ public interface X11 extends Library {
 	// the keycode has no symbol at that level.
 	com.sun.jna.NativeLong XKeycodeToKeysym(Pointer display, byte keycode, int index);
 
+	// The inclusive range of physical keycodes this server uses (always within 8..255). The spare-keycode
+	// rebind (see Keymap) searches this range for an unused code to borrow for an out-of-map character.
+	int XDisplayKeycodes(Pointer display, IntByReference minKeycodesReturn, IntByReference maxKeycodesReturn);
+
+	// Read the keysym table for {@code keycodeCount} keycodes starting at {@code firstKeycode}. Returns a
+	// freshly-allocated KeySym array of {@code keycodeCount * (*keysymsPerKeycodeReturn)} entries (each an
+	// unsigned long) that the caller must XFree. Used to snapshot a spare keycode's mapping before rebinding
+	// it, so it can be restored byte-for-byte afterwards.
+	Pointer XGetKeyboardMapping(Pointer display, byte firstKeycode, int keycodeCount,
+							   IntByReference keysymsPerKeycodeReturn);
+
+	// Install a new keysym table for {@code numCodes} keycodes starting at {@code firstKeycode}. {@code keysyms}
+	// is a row-major array of {@code numCodes * keysymsPerKeycode} KeySyms (unsigned long each). This is how a
+	// spare keycode is temporarily bound to a character the current layout can't produce, then restored.
+	int XChangeKeyboardMapping(Pointer display, int firstKeycode, int keysymsPerKeycode, Pointer keysyms,
+							  int numCodes);
+
 	// Atoms
 	Pointer XInternAtom(Pointer display, String atomName, boolean onlyIfExists);
 	int XGetAtomName(Pointer display, Pointer atom, PointerByReference nameReturn);

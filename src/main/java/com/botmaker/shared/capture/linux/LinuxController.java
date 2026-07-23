@@ -788,20 +788,36 @@ public class LinuxController implements NativeController, AutoCloseable {
 		typeVia(handleOf(window), text);
 	}
 
-	/** Type {@code text} into {@code window} (or the focused window when {@code null}), shifting uppercase. */
+	/**
+	 * Type {@code text} into {@code window} (or the focused window when {@code null}), shifting uppercase. The
+	 * whole sequence is wrapped so that however it ends — normal return, an exception mid-string, or an
+	 * interrupt — the backend releases anything it left held (a stuck Shift is the archetypal "typed fine for a
+	 * while then everything broke" failure). Characters the active layout can't map are still delivered by the
+	 * backend borrowing a spare keycode (see {@link com.botmaker.shared.capture.linux.input.Keymap}).
+	 */
 	private void typeVia(Pointer window, String text) {
-		for (int i = 0; i < text.length(); i++) {
-			char c = text.charAt(i);
-			// For Latin-1 the X keysym equals the code point; uppercase letters need Shift held.
-			boolean needShift = Character.isUpperCase(c);
-			if (needShift) {
-				keyVia(window, KEYSYM_SHIFT_L, true);
+		int perKey = inputBackend.interKeyDelayMs();
+		try {
+			for (int i = 0; i < text.length(); i++) {
+				char c = text.charAt(i);
+				// For Latin-1 the X keysym equals the code point; uppercase letters need Shift held.
+				boolean needShift = Character.isUpperCase(c);
+				if (needShift) {
+					keyVia(window, KEYSYM_SHIFT_L, true);
+				}
+				keyVia(window, c, true);
+				keyVia(window, c, false);
+				if (needShift) {
+					keyVia(window, KEYSYM_SHIFT_L, false);
+				}
+				if (perKey > 0 && i + 1 < text.length()) {
+					Thread.sleep(perKey);
+				}
 			}
-			keyVia(window, c, true);
-			keyVia(window, c, false);
-			if (needShift) {
-				keyVia(window, KEYSYM_SHIFT_L, false);
-			}
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		} finally {
+			inputBackend.releaseHeld();
 		}
 	}
 
@@ -870,6 +886,20 @@ public class LinuxController implements NativeController, AutoCloseable {
 		if (inputBackend != null) {
 			inputBackend.move(xAbs, yAbs);
 		}
+	}
+
+	/**
+	 * Move the pointer by a relative delta. Prefers the backend's true relative-motion injection (XTest can do
+	 * it), which keeps working under a game's pointer grab/warp (mouselook) where reading an absolute position
+	 * to add the delta to is unreliable; falls back to the portable read-back-then-warp when the backend can't.
+	 */
+	@Override
+	public void mouseMoveRelative(int dx, int dy) {
+		checkNotClosed();
+		if (inputBackend != null && inputBackend.moveRelative(dx, dy)) {
+			return;
+		}
+		NativeController.super.mouseMoveRelative(dx, dy);
 	}
 
 	@Override
