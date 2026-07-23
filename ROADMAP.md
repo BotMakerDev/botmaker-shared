@@ -8,6 +8,45 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — shared owns the launch stack, and a launcher stops counting as its games
+
+**Done**
+
+- **New `com.botmaker.shared.launch`.** The launch stack lived in the SDK, where Studio (which deliberately
+  does not depend on the SDK) could not reach it — so it had been copied instead: the SDK's `UriLauncher` and
+  Studio's `BrowserLauncher` each carried a javadoc naming the other, and Studio's `LaunchTargetNames`
+  re-derived by hand the spec grammar `LaunchTarget.parse` already had. shared is the common ancestor, so it
+  owns it now: `UriLauncher` (OS protocol handler, **keeping** the `rundll32 url.dll,FileProtocolHandler`
+  note that records why `explorer.exe` opens Documents for Epic's query string), `GameLauncher` (the
+  Steam/Epic/Heroic/Faugus protocol-then-CLI ladders, `exe`/`cli`/`kill`/`isProcessRunning`), `LaunchKind`
+  (the `PlatformId` pattern: persisted wire `id()` + `displayName()`, total `fromId` → `UNKNOWN`),
+  `LaunchSpec` (total parse of `<kind>:<token>`, plus `describe`/`shortLabel`/`runningToken`/`fileName` and
+  the `emu-app` split), `RunningProbe`, `EmulatorAppLauncher` (on shared's own `Platforms`/`AdbDevice`, not
+  the SDK's wrappers) and the `Launcher` facade. `Diag` replaces the SDK's `Debug` throughout.
+- **Fixed: a launcher that merely *knows about* a game no longer counts as running it.** Reported symptom —
+  a `heroic:` target refused to launch because it read as already running, and worked the moment the Heroic
+  launcher was quit. `commandLineMentions` matched any process carrying the token, and Heroic's own UI
+  carries every `AppName` in its library. `RunningProbe` now consults a deny-list per process first:
+  the launcher UIs (`heroic`, `EpicGamesLauncher`, `steam`, `steamwebhelper`, `faugus-launcher`, an Electron
+  shell hosting one) are skipped, while the wrappers a game genuinely runs under (`reaper`, `proton`,
+  `umu-run`, `wine`, `gogdl`) still count, and `legendary` counts only with the `launch` verb in its argv
+  (Heroic spawns it for library work too). Each skip is traced, so the next false positive is readable from
+  the console instead of found by quitting apps one at a time.
+- **Deny-list sees through wrapper scripts.** Found while testing: the JDK reports a script's
+  `ProcessHandle.Info.command()` as the *interpreter*, so a `bash`-wrapped `heroic` — which is the normal
+  Linux packaging shape (AUR/AppImage entry points, `flatpak run`) — slipped straight past the exclusion.
+  `programNames` now also reads the script name back out of argv when the command is a known interpreter.
+- Tests: `LaunchSpecTest` pins the persisted spec grammar (a round-trip contract — change an id and every
+  existing project's target stops resolving); `RunningProbeLauncherTest` stands up **real** processes under
+  the names in question, since a mocked process table would prove nothing about a deny-list that is entirely
+  about what the OS reports.
+
+**Deferred / next**
+
+- The rest of the `sdk/internal` sweep (`capture`, `opencv`, `config/ProjectDefaults`) — planned, not started.
+
+---
+
 ## 2026-07-22 — Real input that games accept, with the cursor put back
 
 **Done**
