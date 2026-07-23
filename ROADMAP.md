@@ -8,6 +8,36 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-23 — Bot-owned-display plan, Phase 0: nested-display GPU probe
+
+Groundwork for **flawless background input** (the game runs in its own nested display `:N`, whose global
+pointer is then exclusively the bot's — see `../.claude/plans/review-this-draft-plan-spicy-flask.md`). Phase 0
+is the per-machine go/no-go: can a nested **Xephyr** render hardware 3D, or is it software-only (so modern-3D
+targets need **gamescope**)?
+
+**Done**
+
+- **`session/GpuProbe`** — new `com.botmaker.shared.session` package. Spins up a throwaway Xephyr, queries
+  `glxinfo -B` and `vulkaninfo --summary` against it, classifies GL/Vulkan as HARDWARE / SOFTWARE
+  (llvmpipe/lavapipe/swrast) / UNAVAILABLE, checks whether `gamescope` is on `PATH`, and returns a `Result`
+  record (`recommendation()` one-liner + raw `detail()` evidence + `summary()` for a diagnostics panel /
+  `main()`). Best-effort and never-throws throughout, matching the discovery/probe-path house style — it's
+  meant to run in Studio's diagnostics panel where a crash is worse than "can't tell".
+- **Display allocation via `-displayfd 1`** (Xephyr picks a free number, writes it to stdout, we read it back)
+  — never scans `/tmp/.X11-unix`. This is the same race-free allocation Phase 2's supervisor needs, proven
+  here first.
+- **No new dependency.** Xephyr is just a nested X server and gamescope embeds Xwayland, so both are driven
+  through the existing JNA `libX11`/`libXtst` bindings pointed at `:N`; only process lifecycle
+  (`ProcessBuilder`, `-displayfd`) is new. Confirms the plan's "no new Maven module" premise.
+
+**This machine's verdict (recorded):** Xephyr available; OpenGL = **SOFTWARE** (`llvmpipe`); Vulkan reported
+HARDWARE (likely lavapipe miscounted — the Vulkan CPU heuristic wants calibration once real hardware/gamescope
+is present); gamescope **not installed**. ⇒ Here Xephyr is 2D-only; a modern-3D target would need gamescope.
+
+**Deferred / next (Phase 1):** display-name arg on `LinuxController` (`XOpenDisplay(name)` at ~`:58`) +
+`LinuxController.forDisplay(":9")`, bypass the `NativeControllerFactory.get()` singleton so `:0` and `:N`
+controllers coexist, and the `DesktopSession`/`Capability`/`HostSession` seam wrapping today's behaviour.
+
 ## 2026-07-23 — Heroic detection stops depending on a hash nothing carries
 
 **Done**
