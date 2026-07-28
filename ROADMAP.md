@@ -8,6 +8,26 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-28 — Bot-owned-display plan, Phase D: ranked window matching (`WindowMatch`)
+
+Live testing exposed a capture bug: pointing at "Firestone" selected a wiki tab / chat channel / launcher
+entry named after the game instead of the game itself, because both consumers (Studio's
+`TargetCapture.resolveWindow` and the SDK's `Window.find`) took the **first** window whose title merely
+*contained* the needle. On the pilot's `:0` path the wrong window's rect then became the Interact coordinate
+frame, so clicks also missed.
+
+**Done:**
+- New `com.botmaker.shared.capture.WindowMatch` — the single ranked matcher both consumers call (so they can't
+  drift). `best(Iterable<GenericWindow>, needle)` / `ranked(...)` score candidates best→worst: exact title,
+  suffix-stripped exact (drops a trailing ` - …`/` – …`/` — …`/`: …` score/level suffix), `startsWith`,
+  whole-word, plain substring; ties break by shortest title then largest on-screen area then input order.
+  Null/blank titles and null/zero-area rects are excluded; pure over the only two fields `GenericWindow` has
+  (title + rect — no PID/class). `WindowMatchTest` covers the Firestone case, tier ordering, suffix-strip,
+  tie-breaks and the exclusions.
+
+**Deferred / next:** Phase E — teach `NestedSession.commandFor` to launch store-launcher targets (Heroic/…)
+into `:N` (today it no-ops all but EXE/CLI, so a Heroic pilot silently falls back to the cursor-moving `:0`).
+
 ## 2026-07-28 — Bot-owned-display plan, Phase B: `ActiveSession` holder (SDK-reachable)
 
 The nested-session infrastructure had a Studio-side session holder (`PilotSession`) but nothing the **SDK bot
