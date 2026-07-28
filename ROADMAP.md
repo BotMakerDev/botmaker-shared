@@ -8,6 +8,39 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-28 — Bot-owned-display plan, Phase C: gamescope live harness
+
+The gamescope backend (`GamescopeDisplay`) was implemented and unit-tested but never live-run — its javadoc
+carried an "unverified on the dev box" note because this machine has no `gamescope` binary and only software GL.
+Phase C adds the missing live proof so a maintainer on a real GPU/gamescope box can verify the 3D backend
+end-to-end, reproducibly, instead of by hand.
+
+**Done:**
+- New `NestedSessionGamescopeLiveTest` — the gamescope counterpart to `NestedSessionLiveTest`. Same
+  background-input proof (bring up a private `:N`, launch a client into it, drive its pointer to `(640,360)`,
+  confirm the real `:0` cursor did **not** follow, capture a frame, then confirm `close()` reaps the display),
+  plus the one assertion unique to this backend: the session advertises `Capability.HARDWARE_GL` **and**
+  `Capability.VULKAN` (Xephyr's software path advertises neither). It exercises the standalone-host bring-up
+  path — gamescope's stderr `Starting Xwayland on :N` banner → `parseDisplayNumber` → `DisplayReadiness`.
+- **Opt-in and self-skipping**, exactly like the Xephyr suite: runs only with `-Dbotmaker.live=true` **and**
+  `gamescope` on `PATH` (via `Backend.GAMESCOPE.binaryName()`), else `assumeTrue`-skips. Verified locally it
+  skips (this box has no gamescope) while the pure `NestedSessionTest` stays green.
+- **Per-box argv escape hatch:** `-Dbotmaker.gamescope.args="gamescope --backend sdl -W 1280 -H 720"` overrides
+  the whole gamescope argv (via `Options.withGamescopeCommand`) so a desktop that isn't a DRM session can force
+  the nested SDL backend — the fallback the `GamescopeDisplay` bring-up note anticipated, with no code change.
+
+**Run it (real gamescope box):**
+```bash
+mvn -pl botmaker-shared test -Dtest=NestedSessionGamescopeLiveTest -Dbotmaker.live=true \
+    -Dsurefire.failIfNoSpecifiedTests=false
+# add -Dbotmaker.gamescope.args="…" if the default standalone bring-up is fragile on that box
+```
+
+**Deferred / next:** not wired into `session-live.yml` CI — GitHub runners have no GPU, so gamescope can't
+nest there (the Xephyr `NestedSessionLiveTest` remains the headless CI proof). This harness is the on-a-GPU-box
+complement, run manually. If a self-hosted GPU runner ever lands, add a `workflow_dispatch` job mirroring the
+Xephyr one but installing gamescope and selecting `NestedSessionGamescopeLiveTest`.
+
 ## 2026-07-28 — Bot-owned-display plan, Phase F (shared slice): `Backend.binaryName()`
 
 Studio's pilot UI now preselects background mode only when the backend's host binary is on `PATH`. Rather than
