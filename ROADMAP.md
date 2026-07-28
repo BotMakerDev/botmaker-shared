@@ -8,6 +8,15 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-28 — Bot-owned-display plan, Phase F (shared slice): `Backend.binaryName()`
+
+Studio's pilot UI now preselects background mode only when the backend's host binary is on `PATH`. Rather than
+let Studio hardcode the executable names (which would silently drift from what shared actually spawns),
+`NestedSession.Backend` now carries `binaryName()` — `XEPHYR → "Xephyr"`, `GAMESCOPE → "gamescope"` —
+single-sourced next to `NestedDisplay`/`GamescopeDisplay`, the code that runs them. Covered by
+`NestedSessionTest.backendNamesTheBinaryItSpawns`. (The Studio-side UX that consumes it is in
+`../botmaker-studio/ROADMAP.md`.)
+
 ## 2026-07-28 — Bot-owned-display plan, Phase E: launch store targets into `:N`, fail loudly
 
 Live testing with **Heroic → Firestone** showed the pilot still moved the real cursor: `NestedSession` refused

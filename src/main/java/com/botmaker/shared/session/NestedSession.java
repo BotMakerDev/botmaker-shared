@@ -424,9 +424,24 @@ public final class NestedSession implements DesktopSession {
 	/** Which display server hosts the nested session — the 2D vs. hardware-3D choice. */
 	public enum Backend {
 		/** Xephyr: cheap 2D host, software-rendered here. */
-		XEPHYR,
+		XEPHYR("Xephyr"),
 		/** gamescope: embedded Xwayland on the real GPU — for Proton/DXVK/Vulkan 3D targets. */
-		GAMESCOPE
+		GAMESCOPE("gamescope");
+
+		private final String binaryName;
+
+		Backend(String binaryName) {
+			this.binaryName = binaryName;
+		}
+
+		/**
+		 * The executable this backend spawns to host the nested display ({@code Xephyr} / {@code gamescope}).
+		 * Single-sourced here so a consumer probing {@code PATH} for availability can't drift from what
+		 * {@link NestedDisplay} / {@link GamescopeDisplay} actually run.
+		 */
+		public String binaryName() {
+			return binaryName;
+		}
 	}
 
 	/**

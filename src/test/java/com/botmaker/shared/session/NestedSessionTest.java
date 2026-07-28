@@ -69,6 +69,13 @@ class NestedSessionTest {
 	}
 
 	@Test
+	void backendNamesTheBinaryItSpawns() {
+		// The PATH probe in Studio's pilot UI keys off these — they must equal what NestedDisplay/GamescopeDisplay run.
+		assertEquals("Xephyr", NestedSession.Backend.XEPHYR.binaryName());
+		assertEquals("gamescope", NestedSession.Backend.GAMESCOPE.binaryName());
+	}
+
+	@Test
 	void backendPicksTheDisplayServer() {
 		NestedSession.Options xephyr = NestedSession.Options.xephyr(1280, 720);
 		assertEquals(NestedSession.Backend.XEPHYR, xephyr.backend());
