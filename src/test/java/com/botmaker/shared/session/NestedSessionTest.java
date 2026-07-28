@@ -22,18 +22,30 @@ class NestedSessionTest {
 
 	@Test
 	void exeAndCliLaunchAsOwnChildrenWithSplitArgs() {
-		assertEquals(List.of("/opt/game/run.sh"),
+		// A single-rung ladder: exe:/cli: already are the child process handed DISPLAY=:N.
+		assertEquals(List.of(List.of("/opt/game/run.sh")),
 			NestedSession.commandFor(LaunchSpec.parse("exe:/opt/game/run.sh")));
-		assertEquals(List.of("xterm", "-e", "sleep", "300"),
+		assertEquals(List.of(List.of("xterm", "-e", "sleep", "300")),
 			NestedSession.commandFor(LaunchSpec.parse("cli:xterm -e sleep 300")));
 	}
 
 	@Test
-	void storeLauncherKindsHaveNoNestedCommand() {
-		// steam:/heroic:/epic: hand off to a daemon on :0; they can't be given a private DISPLAY (deferred).
-		assertTrue(NestedSession.commandFor(LaunchSpec.parse("steam:570")).isEmpty());
-		assertTrue(NestedSession.commandFor(LaunchSpec.parse("heroic:AbC123")).isEmpty());
+	void storeLaunchersRunTheirChildLaunchableCliLadder() {
+		// Heroic: run the CLI form as our child (inheriting DISPLAY=:N), native binary then Flatpak — not the
+		// daemon-routed heroic:// URL, which a launcher already on :0 would swallow.
+		assertEquals(List.of(
+				List.of("heroic", "--no-gui", "launch", "AbC123"),
+				List.of("flatpak", "run", "com.heroicgameslauncher.hgl", "--no-gui", "launch", "AbC123")),
+			NestedSession.commandFor(LaunchSpec.parse("heroic:AbC123")));
+		assertEquals(List.of(List.of("steam", "-applaunch", "570")),
+			NestedSession.commandFor(LaunchSpec.parse("steam:570")));
+	}
+
+	@Test
+	void kindsWithNoChildLaunchFormHaveNoNestedCommand() {
+		// Epic is URL-only (no supported CLI); an emulator app runs over ADB, not on the host desktop.
 		assertTrue(NestedSession.commandFor(LaunchSpec.parse("epic:Fortnite")).isEmpty());
+		assertTrue(NestedSession.commandFor(LaunchSpec.parse("emu-app:com.foo@Main")).isEmpty());
 	}
 
 	@Test

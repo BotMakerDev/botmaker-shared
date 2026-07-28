@@ -7,6 +7,7 @@ import com.botmaker.shared.capture.linux.LinuxController;
 import com.botmaker.shared.capture.linux.X11;
 import com.botmaker.shared.capture.linux.X11Utils;
 import com.botmaker.shared.launch.GameLauncher;
+import com.botmaker.shared.launch.LaunchCommands;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.launch.Launcher;
 import com.sun.jna.Pointer;
@@ -36,10 +37,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>Two display backends sit behind one {@link SessionDisplay} seam, chosen by {@link Options}: {@link
  * NestedDisplay} (Xephyr, 2D — no {@link Capability#HARDWARE_GL}/{@link Capability#VULKAN}) and {@link
- * GamescopeDisplay} (gamescope, hardware 3D — adds both). The supervisor here is identical for both. Launch is
- * wired for the {@code exe:}/{@code cli:} kinds — the ones that can be handed a private {@code DISPLAY} in
- * their child environment; store-launcher kinds that hand off to a daemon already running on {@code :0} are
- * deferred.
+ * GamescopeDisplay} (gamescope, hardware 3D — adds both). The supervisor here is identical for both. Launch
+ * covers every kind with a <em>child-launchable</em> command (via {@link
+ * com.botmaker.shared.launch.LaunchCommands}): {@code exe:}/{@code cli:} directly, and the store launchers
+ * that expose a CLI form ({@code heroic:}/{@code steam:}/{@code faugus:}) run as our own child so they inherit
+ * {@code DISPLAY=:N} instead of the daemon-routed protocol URL, which a launcher already on {@code :0} would
+ * swallow. Kinds with no CLI form — {@code epic:} (URL-only) and {@code emu-app:} (ADB) — cannot map onto a
+ * private display and are refused (a loud failure, never a silent {@code :0} fallback).
  */
 public final class NestedSession implements DesktopSession {
 
@@ -207,37 +211,48 @@ public final class NestedSession implements DesktopSession {
 	/**
 	 * Launch {@code spec} into this nested display and attach to the window it produces. Any instance already
 	 * running on {@code :0} is force-stopped first (a game can't run in two places, and we want <em>ours</em>).
-	 * Only the kinds that accept a private {@code DISPLAY} in their child environment ({@code exe:}/{@code cli:})
-	 * are supported here; a store-launcher kind is logged and skipped (see the class scope note).
+	 * A kind with no child-launchable command ({@code epic:}/{@code emu-app:}) is refused; a store launcher with
+	 * a CLI ladder ({@code heroic:}/{@code steam:}/{@code faugus:}) has each form tried in turn until one maps a
+	 * window on {@code :N}. When none does, {@link #attached()} stays null — the caller must treat that as a loud
+	 * failure, not fall back to {@code :0}.
 	 */
 	@Override
 	public void launch(LaunchSpec spec) {
 		if (closed || spec == null) {
 			return;
 		}
-		List<String> command = commandFor(spec);
-		if (command.isEmpty()) {
+		List<List<String>> candidates = commandFor(spec);
+		if (candidates.isEmpty()) {
 			Diag.error("[Session] " + id + ": nested launch not supported for kind " + spec.kind()
-				+ " (" + spec.spec() + ") — needs a DISPLAY-in-env launch");
+				+ " (" + spec.spec() + ") — no child-launchable command (Epic is URL-only, emulator apps run over ADB)");
 			return;
 		}
 		stopHostInstance(spec);
 
-		Set<Long> before = windowIdsOnDisplay();
-		try {
-			gameProc = reaper.launch("app", command, sessionEnv(), ProcessBuilder.Redirect.DISCARD);
-		} catch (Exception e) {
-			Diag.error("[Session] " + id + ": launching " + spec.spec() + " failed: " + e.getMessage());
-			return;
+		for (List<String> command : candidates) {
+			Set<Long> before = windowIdsOnDisplay();
+			Process proc;
+			try {
+				proc = reaper.launch("app", command, sessionEnv(), ProcessBuilder.Redirect.DISCARD);
+			} catch (Exception e) {
+				Diag.error("[Session] " + id + ": launching `" + String.join(" ", command) + "` failed: "
+					+ e.getMessage() + " — trying the next launch form");
+				continue;
+			}
+			gameProc = proc;
+			GenericWindow target = awaitWindow(proc, before);
+			if (target != null) {
+				attach(target);
+				Diag.log("[Session] " + id + ": attached to '" + target.getTitle() + "' on " + display.displayName());
+				return;
+			}
+			Diag.error("[Session] " + id + ": `" + String.join(" ", command) + "` mapped no window on "
+				+ display.displayName() + " within " + WINDOW_TIMEOUT_MS + "ms — trying the next launch form");
 		}
-		GenericWindow target = awaitWindow(gameProc, before);
-		if (target == null) {
-			Diag.error("[Session] " + id + ": " + spec.spec() + " launched but no window appeared on "
-				+ display.displayName() + " within " + WINDOW_TIMEOUT_MS + "ms");
-			return;
-		}
-		attach(target);
-		Diag.log("[Session] " + id + ": attached to '" + target.getTitle() + "' on " + display.displayName());
+		// Every form ran but nothing appeared on :N. For a store launcher this is usually its own daemon,
+		// already running on :0 with a single-instance lock, swallowing our child and mapping the game there.
+		Diag.error("[Session] " + id + ": " + spec.spec() + " launched but no window appeared on "
+			+ display.displayName() + " — a host launcher daemon may be stealing it; close it and retry");
 	}
 
 	@Override
@@ -305,16 +320,23 @@ public final class NestedSession implements DesktopSession {
 		return env;
 	}
 
-	/** The argv to run {@code spec} as our own child, or empty for a kind we can't hand a private DISPLAY. */
-	static List<String> commandFor(LaunchSpec spec) {
-		return switch (spec.kind()) {
-			case EXE -> List.of(spec.token());
-			case CLI -> List.of(spec.commandTokens());
-			default -> List.of();
-		};
+	/**
+	 * The ordered ladder of child-launchable argvs for {@code spec} (most-preferred first), or empty for a kind
+	 * we can't hand a private {@code DISPLAY}. Single-sourced in {@link com.botmaker.shared.launch.LaunchCommands}
+	 * so the nested path and the on-host {@code :0} path can't drift on how a launcher is spelled.
+	 */
+	static List<List<String>> commandFor(LaunchSpec spec) {
+		return LaunchCommands.childLadder(spec);
 	}
 
-	/** Force-stop any incarnation of {@code spec} already running on the host, so ours is the only one. */
+	/**
+	 * Force-stop any incarnation of {@code spec} already running on the host, so ours is the only one. This
+	 * stops the <em>game</em> by name; it deliberately does not kill the user's launcher <em>daemon</em>
+	 * (Heroic/Steam), which would disrupt their whole session. The accepted caveat: a store launcher with a
+	 * single-instance lock (Heroic, Steam) can still intercept our child's CLI invocation and map the game on
+	 * {@code :0} — in which case no window appears on {@code :N} and {@link #launch} fails loudly, telling the
+	 * user to close the launcher and retry, rather than silently degrading to {@code :0}.
+	 */
 	private void stopHostInstance(LaunchSpec spec) {
 		if (!Launcher.isRunning(spec)) {
 			return;

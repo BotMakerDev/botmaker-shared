@@ -8,6 +8,35 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-28 — Bot-owned-display plan, Phase E: launch store targets into `:N`, fail loudly
+
+Live testing with **Heroic → Firestone** showed the pilot still moved the real cursor: `NestedSession` refused
+every store-launcher kind (`commandFor` handled only `exe:`/`cli:`), so a Heroic target never mapped on `:N`,
+the session silently closed, and the pilot fell back to the cursor-moving `:0` device controller. Heroic's
+`heroic://launch/<id>` URL is worse than useless here — it hands off to the Heroic daemon already running on
+`:0`, which ignores our private `DISPLAY`.
+
+**Done:**
+- New `com.botmaker.shared.launch.LaunchCommands` — the single source of the *child-launchable* argv ladders a
+  target runs under (native binary, then Flatpak). `heroic(id)` / `steam(id)` / `faugus(id)` return ordered
+  ladders; `childLadder(spec)` dispatches by kind (single-rung `exe:`/`cli:`, the store ladders for
+  heroic/steam/faugus, empty for `epic:` (URL-only) and `emu-app:` (ADB)). Both launch paths now draw from it
+  so they can't drift.
+- `GameLauncher.{heroic,steam,faugus}` CLI fallbacks now iterate `LaunchCommands.*` (replacing the inline
+  `tryStart(...)` ladders); `tryStart` takes a `List<String>` and a new `runFirst(ladder)` walks it.
+- `NestedSession.commandFor` returns `List<List<String>>` (the ladder) via `LaunchCommands.childLadder`;
+  `launch()` runs each rung as our own child (inheriting `DISPLAY=:N`), attaching to the first that maps a
+  window on `:N`. When none does (a launcher daemon's single-instance lock stole it to `:0`), `attached()`
+  stays null — a **loud** failure, never a silent `:0` fallback. `stopHostInstance` documents why it stops the
+  game but not the user's launcher daemon (too disruptive; the loud failure is the safety net).
+- Tests: new `LaunchCommandsTest` (ladders per kind, dispatch, empty kinds, blank-token rejection);
+  `NestedSessionTest` updated for the ladder shape (heroic/steam now *have* nested commands; epic/emulator
+  don't).
+
+**Deferred / next:** the Heroic/Steam single-instance daemon caveat is documented, not solved — if the user's
+launcher is already running it can still swallow the CLI invocation and map on `:0` (loud failure tells them to
+close it and retry). Studio Phase F surfaces/defaults the isolated-session control and a persistent status line.
+
 ## 2026-07-28 — Bot-owned-display plan, Phase D: ranked window matching (`WindowMatch`)
 
 Live testing exposed a capture bug: pointing at "Firestone" selected a wiki tab / chat channel / launcher

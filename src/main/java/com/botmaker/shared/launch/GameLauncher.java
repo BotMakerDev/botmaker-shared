@@ -78,13 +78,11 @@ public final class GameLauncher {
             Diag.log("[Game] launchSteam: opener invoked for " + uri);
             return;
         }
-        Diag.log("[Game] launchSteam: opener declined " + uri + ", falling back to `steam -applaunch " + id + "`");
-        try {
-            new ProcessBuilder("steam", "-applaunch", id).start();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to launch Steam game '" + id
-                    + "'. Is Steam installed? " + e.getMessage(), e);
+        Diag.log("[Game] launchSteam: opener declined " + uri + ", falling back to the Steam CLI");
+        if (runFirst(LaunchCommands.steam(id))) {
+            return;
         }
+        throw new RuntimeException("Failed to launch Steam game '" + id + "'. Is Steam installed?");
     }
 
     /**
@@ -125,10 +123,7 @@ public final class GameLauncher {
             return;
         }
         Diag.log("[Game] launchHeroic: opener declined " + uri + ", falling back to the Heroic CLI");
-        if (tryStart("heroic", "--no-gui", "launch", id)) {
-            return;
-        }
-        if (tryStart("flatpak", "run", "com.heroicgameslauncher.hgl", "--no-gui", "launch", id)) {
+        if (runFirst(LaunchCommands.heroic(id))) {
             return;
         }
         throw new RuntimeException("Failed to launch Heroic game '" + id
@@ -146,10 +141,7 @@ public final class GameLauncher {
     public static void faugus(String gameId) {
         String id = require(gameId, "gameId");
         Diag.log("[Game] launchFaugus " + id);
-        if (tryStart("faugus-launcher", "--game", id)) {
-            return;
-        }
-        if (tryStart("flatpak", "run", "io.github.Faugus.faugus-launcher", "--game", id)) {
+        if (runFirst(LaunchCommands.faugus(id))) {
             return;
         }
         throw new RuntimeException("Failed to launch Faugus game '" + id + "'. Is Faugus Launcher installed?");
@@ -215,14 +207,24 @@ public final class GameLauncher {
         }
     }
 
+    /** Runs each argv in {@code ladder} in order, stopping at the first that starts; false if none did. */
+    private static boolean runFirst(List<List<String>> ladder) {
+        for (List<String> command : ladder) {
+            if (tryStart(command)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Best-effort {@link ProcessBuilder#start()}; logs and returns false rather than throwing on failure. */
-    private static boolean tryStart(String... command) {
+    private static boolean tryStart(List<String> command) {
         try {
             new ProcessBuilder(command).start();
             Diag.log("[Game] ran: " + String.join(" ", command));
             return true;
         } catch (Exception e) {
-            Diag.log("[Game] command failed (" + command[0] + "): " + e.getMessage());
+            Diag.log("[Game] command failed (" + command.get(0) + "): " + e.getMessage());
             return false;
         }
     }
