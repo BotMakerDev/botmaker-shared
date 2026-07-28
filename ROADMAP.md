@@ -8,6 +8,25 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-28 — Bot-owned-display plan, Phase B: `ActiveSession` holder (SDK-reachable)
+
+The nested-session infrastructure had a Studio-side session holder (`PilotSession`) but nothing the **SDK bot
+runtime** could reach — a generated bot is a separate process from Studio. Phase B adds the process-wide twin.
+
+**Done**
+
+- `session.ActiveSession` — a tiny mutable singleton (the kind this module already keeps for
+  `NativeControllerFactory`) holding the `DesktopSession` a bot is driving: `set`/`get`/`isActive`/`clear`,
+  defaulting to `null` (no session → today's `:0` behaviour, unchanged). Lifecycle-agnostic: `clear()` detaches
+  but does **not** close; closing is the setter's job. This is what the SDK's `Mouse`/`Keyboard`/`Source`
+  consult (see the sdk Phase B entry) so a bot drives its private `:N` display with no call-site change.
+- `ActiveSessionTest` covers set/get/isActive and that `clear()` never closes.
+
+**Deferred / next** — Phase C: a gamescope-variant of `NestedSessionLiveTest` (opt-in, self-skipping off a GPU
+box). Longer: XI2 grab-state auto-switch for mouselook; store-launcher kinds into `:N`.
+
+---
+
 ## 2026-07-28 — Bot-owned-display plan, Phase 6: live proof, soak & CI
 
 Every prior phase deferred its *live* exit ("needs Xephyr, which CI does not provide"). A real X server turned
