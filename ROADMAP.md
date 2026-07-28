@@ -8,6 +8,47 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-28 — Bot-owned-display plan, Phase 6: live proof, soak & CI
+
+Every prior phase deferred its *live* exit ("needs Xephyr, which CI does not provide"). A real X server turned
+up on the dev box, so the whole premise is now proven **through our own `NestedSession` supervisor**, not just
+in unit fakes — and the proof is reproducible (guarded tests + an Xvfb CI job), replacing the old "manual run
+recorded in the ROADMAP" convention.
+
+**Done**
+
+- **The premise, proven live.** `NestedSessionLiveTest` (opt-in: `-Dbotmaker.live=true` + a real
+  `DISPLAY`/`Xephyr`/`openbox`, else self-skips): our supervisor allocates a private display via
+  `Xephyr -displayfd`, pins **XTest on `:N`**, brings up openbox, launches a client into `:N`, drives that
+  display's pointer to an exact target — and the real `:0` cursor does **not** follow it. Observed run:
+  `:N` pointer landed on (640,360) while `:0` stayed elsewhere; `close()` stopped the systemd slice with
+  **zero orphan Xephyr**. A stricter idle-box shell run (scratchpad `smoke.sh`) showed the real cursor
+  *perfectly still* (before==after); the committed assertion is the leak-proof "real cursor is not at the `:N`
+  target" so it's also robust on a live, in-use desktop (ambient hand movement) and deterministic under Xvfb.
+- **Distinct displays for concurrent sessions** — 3 sessions started together own 3 distinct `:N` (no
+  `-displayfd` collision).
+- **Soak & chaos** (`NestedSessionSoakTest`): repeated bring-up/teardown leaks nothing — after every cycle
+  **0 orphan Xephyr** and the JVM's `/proc/self/fd` count is flat (observed 57→57 over 5 cycles; the `:N`
+  controller + EWMH connections are actually closed). Scale to a 24h soak with `-Dbotmaker.soak.iterations=N`.
+  Health chaos: a self-closing client (`xmessage -timeout`) drives the session to `DEGRADED` (game dead,
+  display alive) with no fragile external kill; `close()` → `DEAD`.
+- **CI** — `.github/workflows/session-live.yml` runs the live suite headless under `Xvfb` (Xephyr nests inside
+  it) on changes to `session/` or `capture/linux/`. GitHub runners have no per-user systemd, so `SessionReaper`
+  exercises its **ProcessBuilder descendant-kill fallback** there; the `systemd --scope` path is exercised on
+  the real box. Plain `mvn test` stays clean (the live/soak tests skip without the opt-in flag — verified: a
+  normal build spawns no Xephyr).
+
+**Deferred / next**
+
+- **gamescope live exit** — the 3D path (`GamescopeDisplay`) still needs a GPU box; only the Xephyr (2D) backend
+  is proven live here. Same `NestedSessionLiveTest`, swap `Options.gamescope(...)`.
+- **CI package names unverified from here** — the workflow's apt list (esp. the `xmessage` provider) is
+  best-effort; the first CI run confirms. `xrestop` GPU/X-resource sampling from the plan is not wired (the
+  fd-count + orphan-count leak signals cover the JVM side).
+- **Longer real soak** — a genuine 24h `-Dbotmaker.soak.iterations` run per backend on a dedicated box.
+
+---
+
 ## 2026-07-23 — Bot-owned-display plan, Phase 4: input hardening (deterministic keys, no stuck input, mouselook)
 
 The device-level (XTest) injection the nested session pins was a naive warp-and-click: it dropped events

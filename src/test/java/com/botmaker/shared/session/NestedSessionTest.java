@@ -15,7 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Unit coverage for the parts of {@link NestedSession} that don't need a live X server: the launch-kind → argv
  * mapping (which kinds can be handed a private {@code DISPLAY}) and the immutable {@link NestedSession.Options}
  * builder. The end-to-end supervisor behaviour (Xephyr allocation, XTest isolation, tree reaping) is verified
- * by the manual live run recorded in the ROADMAP, not here — it needs Xephyr, which CI does not provide.
+ * by the guarded live suite — {@link NestedSessionLiveTest} and {@link NestedSessionSoakTest} — which runs on
+ * a real box and under {@code Xvfb} in CI ({@code .github/workflows/session-live.yml}), not by this pure unit.
  */
 class NestedSessionTest {
 
