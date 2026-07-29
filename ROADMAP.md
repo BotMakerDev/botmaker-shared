@@ -8,6 +8,29 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Bot-owned-display plan, Phase G: single-sourced backend choice (`SessionBackends`)
+
+Isolation had one backend knob (`botmaker.session.backend`, defaulting to Xephyr) that nothing set, so an
+isolated Heroic/Steam launch ran into **Xephyr's software GL** and SIGTRAPped (Electron/Chromium GPU process
+abort). The backend must instead be a function of *what* is launched, single-sourced so the SDK runtime and
+Studio can't drift.
+
+**Done:**
+- New `session.SessionBackends` (stateless): `preferredBackend(LaunchSpec)` — game kinds (`STEAM`/`EPIC`/
+  `HEROIC`/`FAUGUS`/`EXE`) → `GAMESCOPE` (a real GPU in the private display), `CLI`/`EMULATOR_APP`/`UNKNOWN`/
+  null → `XEPHYR`; `availableBackendFor(LaunchSpec)` — the preferred backend filtered by a `PATH` probe on its
+  `binaryName()`, **empty = required backend not installed** (the loud-failure signal, *no* silent Xephyr
+  fallback for a game); `isAvailable(Backend)`; `installHint(Backend)`. A package-visible
+  `availableBackendFor(spec, Predicate<String>)` overload is the testable seam.
+- `SessionBackendsTest` — kind→backend mapping, availability against a fake PATH, game-needs-gamescope-but-
+  missing → empty, install hints name the backend.
+
+**Consumed by:** the SDK's `SessionBootstrap` (same phase, sdk side) — backend/options now take the
+`LaunchSpec` and route through `SessionBackends`, with the system property kept only as an explicit override.
+
+**Deferred / next:** factor `NestedSessionLauncher.backendAvailable`'s duplicate PATH probe (Studio) onto
+`SessionBackends.isAvailable` in Phase J so the two share one copy.
+
 ## 2026-07-28 — Bot-owned-display plan, Phase C: gamescope live harness
 
 The gamescope backend (`GamescopeDisplay`) was implemented and unit-tested but never live-run — its javadoc
