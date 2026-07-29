@@ -6,6 +6,7 @@ import com.botmaker.shared.launch.LaunchSpec;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -70,6 +71,36 @@ public final class SessionBackends {
     /** Whether {@code backend}'s host binary ({@link NestedSession.Backend#binaryName()}) is on {@code PATH}. */
     public static boolean isAvailable(NestedSession.Backend backend) {
         return onPath(backend.binaryName());
+    }
+
+    /** The window manager to run inside a {@link NestedSession.Backend#XEPHYR} display, when it is installed. */
+    static final List<String> DEFAULT_XEPHYR_WM = List.of("openbox", "--sm-disable");
+
+    /**
+     * The window manager a nested display on {@code backend} should run, or an empty list for none — the single
+     * place the WM question is answered, so the SDK's bot runtime and Studio's launch surfaces can't each invent
+     * a different one.
+     *
+     * <p><b>Xephyr gets one; gamescope must not.</b> A bare Xephyr has no window manager at all, which means no
+     * EWMH: nothing answers {@code _NET_ACTIVE_WINDOW}, so no client ever takes input focus and nothing honours
+     * a fullscreen request — and focus is exactly what the session's window-targeted key injection depends on.
+     * openbox is the smallest thing that fixes that. gamescope, by contrast, <em>is</em> the window manager for
+     * its embedded Xwayland (it owns focus and forces its top-level fullscreen); a second WM inside it would
+     * fight the first for the manager selection.
+     *
+     * <p>An absent openbox is not an error: {@code NestedSession} degrades to a WM-less display with a trace,
+     * the same behaviour as before this default existed.
+     */
+    public static List<String> windowManagerFor(NestedSession.Backend backend) {
+        return windowManagerFor(backend, SessionBackends::onPath);
+    }
+
+    /** {@link #windowManagerFor(NestedSession.Backend)} against an injected {@code PATH} probe, for tests. */
+    static List<String> windowManagerFor(NestedSession.Backend backend, Predicate<String> binaryOnPath) {
+        if (backend != NestedSession.Backend.XEPHYR) {
+            return List.of();
+        }
+        return binaryOnPath.test(DEFAULT_XEPHYR_WM.get(0)) ? DEFAULT_XEPHYR_WM : List.of();
     }
 
     /**

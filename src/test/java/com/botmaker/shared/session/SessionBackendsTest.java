@@ -4,6 +4,7 @@ import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -62,6 +63,17 @@ class SessionBackendsTest {
         assertEquals(Optional.of(NestedSession.Backend.XEPHYR),
                 SessionBackends.availableBackendFor(spec(LaunchKind.CLI, "echo hi"), onlyXephyr).map(b -> b));
         assertFalse(SessionBackends.availableBackendFor(spec(LaunchKind.CLI, "echo hi"), onlyXephyr).isEmpty());
+    }
+
+    @Test
+    void xephyrGetsOpenboxWhenInstalledAndGamescopeNeverDoes() {
+        // A bare Xephyr has no EWMH, so nothing takes input focus — openbox is what makes key injection land.
+        assertEquals(List.of("openbox", "--sm-disable"),
+                SessionBackends.windowManagerFor(NestedSession.Backend.XEPHYR, onPath("openbox")));
+        // Absent openbox is a soft degrade to WM-less, not a failure.
+        assertTrue(SessionBackends.windowManagerFor(NestedSession.Backend.XEPHYR, onPath()).isEmpty());
+        // gamescope IS the window manager for its Xwayland; a second one would fight it for the selection.
+        assertTrue(SessionBackends.windowManagerFor(NestedSession.Backend.GAMESCOPE, onPath("openbox")).isEmpty());
     }
 
     @Test

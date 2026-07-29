@@ -8,6 +8,46 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Isolated-launch fixes, Phase 2: window-manager policy, gamescope argv — and the first live
+gamescope run
+
+**Done:**
+- **A window manager is now part of the backend's definition, in one place.** `SessionBackends.windowManagerFor(
+  backend)`: Xephyr → `openbox --sm-disable` when it's on `PATH`, gamescope → never. Rationale, and the reason
+  this was a real defect: production never configured a WM at all (only the live/soak tests did), and a bare
+  Xephyr has **no EWMH** — nothing answers `_NET_ACTIVE_WINDOW`, so no client takes input focus and nothing
+  honours a fullscreen request, while the session's window-targeted key injection depends on exactly that focus.
+  gamescope is the opposite case: it *is* the window manager for its embedded Xwayland, so a nested openbox
+  would fight it for the manager selection — `NestedSession.windowManagerCommandFor` refuses one there whoever
+  asks. `Options` now distinguishes *unstated* (use the backend policy) from `withoutWindowManager()`
+  (explicitly none); an absent openbox still degrades softly to WM-less.
+- **gamescope argv** carries the project resolution on both axes — `-W/-H` (the output window) and `-w/-h` (the
+  internal resolution apps see) — plus `--force-windows-fullscreen` so the game fills the display the capture
+  and click coordinates assume. The window stays **visible** by design; `--backend headless` is documented on
+  `GamescopeDisplay.defaultCommand` as the override for an invisible run.
+- `NestedSessionLiveTest` now exercises the *default* WM rather than passing openbox explicitly. Live run on
+  this box: openbox comes up and claims each `:N` ("window manager is up"), including for the concurrent
+  sessions that previously ran WM-less. Both live tests pass.
+
+**Live gamescope run — first ever on real hardware, and it found two defects.** The backend starts cleanly
+(`:1` up at 1280x720, xmessage maps, `attached to 'xmessage'`), but:
+
+1. **`capture()` kills the process.** `X_GetImage` answers **BadMatch** on a gamescope Xwayland window, and
+   nothing in shared installs an `XSetErrorHandler`, so Xlib's default handler calls `exit(1)` — the JVM dies
+   with no exception, no stack, no `hs_err`. Two defects in one: gamescope's windows are composited so the
+   XComposite/XGetImage route doesn't apply to them, **and** no X error should ever be able to kill a bot.
+   The X-error-handler half is not gamescope-specific — an ordinary race (a window closing between enumerate
+   and capture) can take a bot down on `:0` today.
+2. **Pointer reads on gamescope are offset and lag.** Measured with plain `xdotool` against a hand-started
+   gamescope, with a window mapped: a warp is applied a frame late (an immediate read returns the *old*
+   position), and a settled read is a **constant +2,+2** off the requested point (640,360→642,362;
+   200,150→202,152; 1000,600→1002,602). Relative motion is exact. With *no* window mapped, only the first warp
+   takes effect at all. `NestedSessionGamescopeLiveTest` now polls for the settle and asserts a 4px tolerance;
+   whether the 2px is in the write (clicks land 2px off) or only in the read is not yet established.
+
+**Deferred / next:** the two findings above, before gamescope-by-default can be trusted for games — an X error
+handler that logs instead of exiting, and a capture path for gamescope's composited windows.
+
 ## 2026-07-29 — Isolated-launch fixes, Phase 1: the Heroic argv, and refusing a launch that can't work
 
 A live isolated launch of a Heroic game failed with "didn't map a window there" and a `heroic` SIGTRAP

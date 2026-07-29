@@ -64,14 +64,32 @@ class NestedSessionGamescopeLiveTest {
 				assertNotNull(session.attached(), "a window should have appeared on " + nested);
 
 				// Drive :N's private pointer to a distinctive target and confirm the injection landed there.
+				//
+				// Unlike Xephyr, gamescope's pointer is compositor-mediated, and the first live run on a real box
+				// pinned down two measured consequences (see the ROADMAP entry for the session, both reproduced
+				// with plain xdotool against a hand-started gamescope):
+				//   * the warp is applied a frame later, so reading it back in the same breath returns the OLD
+				//     position — hence the settle loop rather than an immediate read;
+				//   * a settled read comes back a constant +2,+2 off the requested point while gamescope is
+				//     compositing its own cursor over a mapped window (640,360 → 642,362; 200,150 → 202,152 …),
+				//     so this asserts a tolerance rather than equality. Relative motion is exact.
 				Point target = new Point(640, 360);
 				session.pointer().moveAbsolute(target.x, target.y);
-				Point onNested = session.pointer().position();
+				Point onNested = awaitPointerNear(session, target, POINTER_TOLERANCE_PX, 2_000);
 				assertNotNull(onNested, "should be able to read the :N pointer");
-				assertEquals(target, onNested, "the :N pointer should be exactly where our injection put it");
+				assertTrue(near(onNested, target, POINTER_TOLERANCE_PX),
+					"the :N pointer should have landed within " + POINTER_TOLERANCE_PX + "px of " + target
+						+ ", was " + onNested);
 				session.pointer().click(1);
 
 				// Capture flows through the :N-bound controller.
+				//
+				// KNOWN FAILURE, first live gamescope run: this call does not merely return null — the X server
+				// answers X_GetImage with BadMatch, and because nothing installs an XSetErrorHandler, Xlib's
+				// default handler calls exit(1) and takes the whole JVM (a bot!) with it. Two separate defects,
+				// both scheduled next: gamescope's Xwayland needs a capture path that works (its windows are
+				// composited, so the XComposite/XGetImage route this uses doesn't apply), and no X error should
+				// ever be able to kill the process.
 				assertNotNull(session.capture(), "capturing the attached :N window should yield a frame");
 
 				// The isolation assertion: our injection reached :N (above) but did NOT leak to the real display.
@@ -92,6 +110,32 @@ class NestedSessionGamescopeLiveTest {
 	}
 
 	// --- guards & helpers ---
+
+	/** How far a settled gamescope pointer read may sit from the requested point (measured: a constant 2px). */
+	private static final int POINTER_TOLERANCE_PX = 4;
+
+	/** Poll the {@code :N} pointer until it is within {@code tolerance} of {@code target}, or time out. */
+	private static Point awaitPointerNear(NestedSession session, Point target, int tolerance, long timeoutMs) {
+		long deadline = System.currentTimeMillis() + timeoutMs;
+		Point last = null;
+		while (System.currentTimeMillis() < deadline) {
+			last = session.pointer().position();
+			if (last != null && near(last, target, tolerance)) {
+				return last;
+			}
+			try {
+				Thread.sleep(50);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				break;
+			}
+		}
+		return last;
+	}
+
+	private static boolean near(Point actual, Point target, int tolerance) {
+		return Math.abs(actual.x - target.x) <= tolerance && Math.abs(actual.y - target.y) <= tolerance;
+	}
 
 	/** Opt-in (so a plain {@code mvn test} never spins up gamescope) and only where the live stack is present. */
 	private static void assumeLive() {

@@ -81,11 +81,28 @@ final class GamescopeDisplay implements SessionDisplay {
 		return true; // gamescope's embedded Xwayland renders on the real GPU — the whole reason to use it.
 	}
 
-	/** The default standalone gamescope argv for a {@code width}x{@code height} host (no {@code --} child). */
+	/**
+	 * The default standalone gamescope argv for a {@code width}x{@code height} host (no {@code --} child).
+	 *
+	 * <p>{@code -W/-H} are the output (the nested window on the real desktop) and {@code -w/-h} the internal
+	 * resolution apps see; both are the project's authored resolution, so what the bot captures is 1:1 with what
+	 * its templates were made at — no upscaler in between. {@code --force-windows-fullscreen} makes the game
+	 * fill the display rather than open some default-sized window in a corner of it, which is what the capture
+	 * and the click coordinates assume.
+	 *
+	 * <p>The nested window is <b>visible</b> on purpose: a background session you cannot look at is impossible
+	 * to debug, and seeing the bot play is half the point. For a genuinely invisible run, override this argv
+	 * (via {@link NestedSession.Options#withGamescopeCommand}) with {@code --backend headless} — gamescope still
+	 * hosts a GPU-backed Xwayland with no output window. That path is documented, not verified: whether an
+	 * X11 window capture of a headless gamescope reads real pixels is exactly the sort of thing to confirm on a
+	 * live box before relying on it.
+	 */
 	static List<String> defaultCommand(int width, int height) {
-		// -W/-H set the nested output size; no child command, so gamescope stays up hosting its Xwayland for
-		// apps we launch afterwards with DISPLAY=:N. A caller can override this whole argv via Options.
-		return List.of("gamescope", "-W", Integer.toString(width), "-H", Integer.toString(height));
+		String w = Integer.toString(width);
+		String h = Integer.toString(height);
+		// No child command, so gamescope stays up hosting its Xwayland for apps we launch afterwards with
+		// DISPLAY=:N. A caller can override this whole argv via Options.
+		return List.of("gamescope", "-W", w, "-H", h, "-w", w, "-h", h, "--force-windows-fullscreen");
 	}
 
 	/**

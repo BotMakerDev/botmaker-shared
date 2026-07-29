@@ -71,6 +71,24 @@ class NestedSessionTest {
 	}
 
 	@Test
+	void theWindowManagerIsResolvedFromTheBackendUnlessStated() {
+		// Stated wins, whatever the backend policy would have been.
+		NestedSession.Options stated = NestedSession.Options.xephyr(800, 600).withWindowManager("i3");
+		assertEquals(List.of("i3"), NestedSession.windowManagerCommandFor(stated));
+		// Stated "none" is an opt-out of the Xephyr default, not an absence of an opinion.
+		assertTrue(NestedSession.windowManagerCommandFor(
+			NestedSession.Options.xephyr(800, 600).withoutWindowManager()).isEmpty());
+		// Unstated defers to the backend policy — which for gamescope is always none.
+		assertTrue(NestedSession.windowManagerCommandFor(NestedSession.Options.gamescope(1280, 720)).isEmpty());
+		// …and it refuses one even when asked: gamescope already manages its Xwayland.
+		assertTrue(NestedSession.windowManagerCommandFor(
+			NestedSession.Options.gamescope(1280, 720).withWindowManager("openbox")).isEmpty());
+		// Unstated on Xephyr is whatever SessionBackends says for this machine (openbox when installed).
+		assertEquals(SessionBackends.windowManagerFor(NestedSession.Backend.XEPHYR),
+			NestedSession.windowManagerCommandFor(NestedSession.Options.xephyr(800, 600)));
+	}
+
+	@Test
 	void optionsAreImmutableAndCarryTheirConfig() {
 		NestedSession.Options base = NestedSession.Options.xephyr(1280, 720);
 		assertEquals(1280, base.width());
@@ -104,8 +122,12 @@ class NestedSessionTest {
 
 		NestedSession.Options gs = NestedSession.Options.gamescope(1920, 1080);
 		assertEquals(NestedSession.Backend.GAMESCOPE, gs.backend());
-		// Default gamescope argv carries the requested size and is standalone (no "--" child).
-		assertEquals(List.of("gamescope", "-W", "1920", "-H", "1080"), gs.displayServerCommand());
+		// Default gamescope argv is standalone (no "--" child) and carries the requested size twice: the output
+		// window (-W/-H) and the internal resolution apps see (-w/-h), so capture is 1:1 with the templates.
+		// --force-windows-fullscreen makes the game fill the display the click coordinates are computed against.
+		assertEquals(List.of("gamescope", "-W", "1920", "-H", "1080", "-w", "1920", "-h", "1080",
+				"--force-windows-fullscreen"),
+			gs.displayServerCommand());
 		assertTrue(gs.displayServerCommand().stream().noneMatch("--"::equals));
 
 		// An explicit override wins over the default argv.

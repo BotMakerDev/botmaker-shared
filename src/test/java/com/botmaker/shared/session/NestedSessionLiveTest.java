@@ -42,8 +42,9 @@ class NestedSessionLiveTest {
 		try {
 			assertNotNull(hostRead.cursorPosition(), "should be able to read the real cursor on " + hostDisplay);
 
-			NestedSession session = NestedSession.start(
-				NestedSession.Options.xephyr(1280, 720).withWindowManager("openbox", "--sm-disable"));
+			// No explicit window manager: a Xephyr session runs the backend default (openbox when installed),
+			// which is what makes the display carry EWMH — and therefore focus — at all.
+			NestedSession session = NestedSession.start(NestedSession.Options.xephyr(1280, 720));
 			String nested = session.displayName();
 			try {
 				assertNotEquals(hostDisplay, nested, "the nested display must not be the real one");

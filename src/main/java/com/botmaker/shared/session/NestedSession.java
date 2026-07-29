@@ -146,11 +146,12 @@ public final class NestedSession implements DesktopSession {
 		reaper.reap();
 	}
 
-	/** Launch the configured window manager (if any) into the nested display and wait, best-effort, for it. */
+	/** Launch the resolved window manager (if any) into the nested display and wait, best-effort, for it. */
 	private void startWindowManager() {
-		List<String> wm = options.windowManagerCommand();
+		List<String> wm = windowManagerCommandFor(options);
 		if (wm.isEmpty()) {
-			Diag.log("[Session] " + id + ": no window manager configured — running WM-less");
+			Diag.log("[Session] " + id + ": no window manager " + (options.backend() == Backend.GAMESCOPE
+				? "(gamescope manages its own Xwayland)" : "— running WM-less"));
 			return;
 		}
 		try {
@@ -348,6 +349,25 @@ public final class NestedSession implements DesktopSession {
 	}
 
 	/**
+	 * The window manager to actually run for {@code options}: what the caller asked for when it said anything at
+	 * all (including {@link Options#withoutWindowManager() "none"}), else the backend's policy from
+	 * {@link SessionBackends#windowManagerFor}. A window manager on a gamescope session is refused whoever asked
+	 * for it — gamescope already manages its Xwayland, and a second manager would fight it for the selection.
+	 */
+	static List<String> windowManagerCommandFor(Options options) {
+		if (options.backend() == Backend.GAMESCOPE) {
+			if (options.hasExplicitWindowManager() && !options.windowManagerCommand().isEmpty()) {
+				Diag.error("[Session] ignoring window manager `" + String.join(" ", options.windowManagerCommand())
+					+ "` — gamescope is the window manager for its own Xwayland");
+			}
+			return List.of();
+		}
+		return options.hasExplicitWindowManager()
+			? options.windowManagerCommand()
+			: SessionBackends.windowManagerFor(options.backend());
+	}
+
+	/**
 	 * How long to wait for {@code spec}'s window: an explicit {@link Options#windowTimeoutMs()} when one is set,
 	 * else {@link #LAUNCHER_WINDOW_TIMEOUT_MS} for a kind whose launch is routed through a store launcher (we're
 	 * waiting on the game it starts, not on the process we spawned) and {@link #WINDOW_TIMEOUT_MS} otherwise —
@@ -499,25 +519,42 @@ public final class NestedSession implements DesktopSession {
 			this.backend = backend;
 			this.width = width;
 			this.height = height;
-			this.windowManagerCommand = List.copyOf(wm);
+			// null = "not stated, use the backend's default policy"; empty = "explicitly none".
+			this.windowManagerCommand = wm == null ? null : List.copyOf(wm);
 			this.extraEnv = Map.copyOf(extraEnv);
 			this.gamescopeCommand = gamescopeCommand == null ? List.of() : List.copyOf(gamescopeCommand);
 			this.windowTimeoutMs = Math.max(0, windowTimeoutMs);
 		}
 
-		/** A 2D Xephyr session at {@code width}x{@code height}, WM-less, no extra env. */
+		/**
+		 * A 2D Xephyr session at {@code width}x{@code height}, no extra env, running the backend's default
+		 * window manager ({@link SessionBackends#windowManagerFor} — openbox when it's installed, since a bare
+		 * Xephyr has no EWMH and therefore no input focus to inject keys into).
+		 */
 		public static Options xephyr(int width, int height) {
-			return new Options(Backend.XEPHYR, width, height, List.of(), Map.of(), List.of(), 0);
+			return new Options(Backend.XEPHYR, width, height, null, Map.of(), List.of(), 0);
 		}
 
-		/** A hardware-3D gamescope session at {@code width}x{@code height}, WM-less, no extra env. */
+		/**
+		 * A hardware-3D gamescope session at {@code width}x{@code height}, no extra env. Always WM-less:
+		 * gamescope is itself the window manager for its embedded Xwayland.
+		 */
 		public static Options gamescope(int width, int height) {
-			return new Options(Backend.GAMESCOPE, width, height, List.of(), Map.of(), List.of(), 0);
+			return new Options(Backend.GAMESCOPE, width, height, null, Map.of(), List.of(), 0);
 		}
 
-		/** This session, but running {@code command} as its window manager (e.g. {@code "openbox"}). */
+		/**
+		 * This session, but running {@code command} as its window manager (e.g. {@code "openbox"}) instead of the
+		 * backend default. Passing no arguments means <em>explicitly none</em>, which is how a caller opts out of
+		 * the Xephyr default.
+		 */
 		public Options withWindowManager(String... command) {
 			return new Options(backend, width, height, List.of(command), extraEnv, gamescopeCommand, windowTimeoutMs);
+		}
+
+		/** This session, but with no window manager at all — the explicit opt-out of the backend default. */
+		public Options withoutWindowManager() {
+			return withWindowManager();
 		}
 
 		/** This session, but with {@code env} overlaid on every child's environment (in addition to DISPLAY). */
@@ -547,7 +584,15 @@ public final class NestedSession implements DesktopSession {
 		public Backend backend() { return backend; }
 		public int width() { return width; }
 		public int height() { return height; }
-		public List<String> windowManagerCommand() { return windowManagerCommand; }
+		/** The <em>explicit</em> window-manager argv, or empty when none was stated (or none was wanted). */
+		public List<String> windowManagerCommand() {
+			return windowManagerCommand == null ? List.of() : windowManagerCommand;
+		}
+
+		/** Whether a caller stated a window manager (including {@link #withoutWindowManager()}'s "none"). */
+		boolean hasExplicitWindowManager() {
+			return windowManagerCommand != null;
+		}
 		public Map<String, String> extraEnv() { return extraEnv; }
 
 		/** The explicit window-wait budget in ms, or {@code 0} to use the per-kind default. */
