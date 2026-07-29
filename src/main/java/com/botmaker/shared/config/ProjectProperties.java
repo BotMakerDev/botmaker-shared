@@ -28,6 +28,10 @@ import java.util.Properties;
  *       grammar ({@code steam:<appId>}, {@code emu-app:<pkg>@<instance>}, …); read raw here</li>
  *   <li>{@link #KEY_DEBUG} — {@code true}/{@code false} (default on): the initial state of the bot's debug
  *       output switch</li>
+ *   <li>{@link #KEY_SESSION_ISOLATED} — {@code true}/{@code false} (<b>default true</b>): whether the bot runs
+ *       on a private nested display instead of the shared {@code :0}</li>
+ *   <li>{@link #KEY_SESSION_BACKEND} — {@code gamescope} | {@code xephyr}: an explicit backend override for the
+ *       nested display; normally unset, letting the launch kind pick (see {@code session.SessionBackends})</li>
  * </ul>
  */
 public final class ProjectProperties {
@@ -43,11 +47,24 @@ public final class ProjectProperties {
     public static final String KEY_CAPTURE_HEIGHT = "capture.height";
     public static final String KEY_LAUNCH_TARGET = "launch.target";
     public static final String KEY_DEBUG = "debug";
+    public static final String KEY_SESSION_ISOLATED = "session.isolated";
+    public static final String KEY_SESSION_BACKEND = "session.backend";
 
     private static volatile Properties cached;
     private static volatile boolean loaded;
 
     private ProjectProperties() {}
+
+    /**
+     * Test seam: inject the parsed properties directly, bypassing the one-time classpath load — mirrors
+     * {@code NativeControllerFactory.setForTesting}. Pass {@code null} to reset back to the classpath source.
+     */
+    static void setForTesting(Properties p) {
+        synchronized (ProjectProperties.class) {
+            cached = p;
+            loaded = p != null;
+        }
+    }
 
     private static Properties props() {
         if (!loaded) {
@@ -91,7 +108,32 @@ public final class ProjectProperties {
      * off), or {@code null} when the key is absent/unparseable so the caller keeps its own default.
      */
     public static Boolean debug() {
-        String spec = get(KEY_DEBUG);
+        return parseBool(KEY_DEBUG);
+    }
+
+    /**
+     * Whether the bot runs isolated on a private nested display. Unlike the other accessors this one has a
+     * baked-in <b>default of {@code true}</b>: an absent or unparseable {@code session.isolated} key yields
+     * {@link Boolean#TRUE}, so background isolation is the default everywhere and only an explicit
+     * {@code session.isolated=false} opts back to the shared {@code :0}. Never {@code null}.
+     */
+    public static Boolean sessionIsolated() {
+        Boolean parsed = parseBool(KEY_SESSION_ISOLATED);
+        return parsed == null ? Boolean.TRUE : parsed;
+    }
+
+    /** The explicit backend override ({@code gamescope}/{@code xephyr}), or {@code null} to let the kind pick. */
+    public static String sessionBackend() {
+        return get(KEY_SESSION_BACKEND);
+    }
+
+    /**
+     * Parses {@code key} as a boolean: {@code true}/{@code 1}/{@code yes}/{@code on} → {@link Boolean#TRUE};
+     * {@code false}/{@code 0}/{@code no}/{@code off} → {@link Boolean#FALSE}; absent or unrecognised →
+     * {@code null} (the caller supplies its own default).
+     */
+    private static Boolean parseBool(String key) {
+        String spec = get(key);
         if (spec == null) {
             return null;
         }

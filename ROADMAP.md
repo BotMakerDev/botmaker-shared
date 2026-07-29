@@ -8,6 +8,24 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Bot-owned-display plan, Phase H: `session.isolated` project setting (default true)
+
+Isolation was gated on a system property nothing set, so it was reachable only from BotPilot. Make it a
+persisted, single-sourced project setting so *every* launch path agrees, defaulting on with a real opt-out.
+
+**Done:**
+- `ProjectProperties`: new keys `KEY_SESSION_ISOLATED = "session.isolated"` and `KEY_SESSION_BACKEND =
+  "session.backend"`. `sessionIsolated() → Boolean` has a baked-in **default of true** (absent/unparseable →
+  `TRUE`; only an explicit `false`/`0`/`no`/`off` opts out); `sessionBackend()` returns the raw override or
+  null. Factored the boolean parse `debug()` open-coded into a private `parseBool(key)` now shared by both.
+- Added a package-private `setForTesting(Properties)` seam (mirrors `NativeControllerFactory.setForTesting`)
+  so the accessors are testable without a classpath resource.
+- `ProjectPropertiesTest` — default-true, explicit-false, unparseable→true, raw backend, and that `debug()`
+  still parses.
+
+**Consumed by:** the SDK's `ProjectDefaults.sessionIsolated()` / `SessionBootstrap.isolationRequested()`
+(same phase, sdk side).
+
 ## 2026-07-29 — Bot-owned-display plan, Phase G: single-sourced backend choice (`SessionBackends`)
 
 Isolation had one backend knob (`botmaker.session.backend`, defaulting to Xephyr) that nothing set, so an
