@@ -4,6 +4,7 @@ import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.linux.input.LinuxInputBackend;
+import com.botmaker.shared.capture.linux.input.PointerWarp;
 import com.botmaker.shared.capture.linux.input.UinputBackend;
 import com.botmaker.shared.capture.linux.input.XSendEventBackend;
 import com.botmaker.shared.capture.linux.input.XTestBackend;
@@ -43,6 +44,13 @@ import java.util.List;
  */
 public class LinuxController implements NativeController, AutoCloseable {
 
+	static {
+		// Before the first X call in this process. Xlib's default error handler exits(1) on any protocol error,
+		// so without this a BadMatch from a capture race kills the bot outright — see X11ErrorTrap. Studio
+		// installs it earlier still (before JavaFX/GDK initializes); this covers everyone else.
+		X11ErrorTrap.install();
+	}
+
 	private final Pointer display;
 	private final boolean x11Available;
 	/** Not final: {@link #useReliableInput()} can swap it for a cursor-moving backend at runtime. */
@@ -51,6 +59,9 @@ public class LinuxController implements NativeController, AutoCloseable {
 
 	/** The X11 display this controller drives — {@code null} for the default {@code $DISPLAY}, or a name like {@code ":9"}. */
 	private final String displayName;
+
+	/** How this display reads an absolute warp; every XTest backend this controller builds is given it. */
+	private final PointerWarp warp;
 
 	/** Opens the default display named by {@code $DISPLAY} — the host session. */
 	public LinuxController() {
@@ -77,6 +88,18 @@ public class LinuxController implements NativeController, AutoCloseable {
 	 * {@code backendChoice} falls back to the property, i.e. exactly {@link #LinuxController(String)}.
 	 */
 	public LinuxController(String displayName, String backendChoice) {
+		this(displayName, backendChoice, PointerWarp.ROOT_ABSOLUTE);
+	}
+
+	/**
+	 * {@link #LinuxController(String, String)} with the server's warp convention pinned. Only a nested display
+	 * needs this: gamescope's Xwayland reads an injected absolute warp as <em>window-relative</em>, so a
+	 * controller bound to a gamescope {@code :N} passes {@link PointerWarp#FOCUS_RELATIVE} and its XTest backend
+	 * corrects for the focused window's origin. A real server, Xvfb and Xephyr are all
+	 * {@link PointerWarp#ROOT_ABSOLUTE} — the default. The policy itself lives in
+	 * {@code SessionBackends.pointerWarpFor(...)}, not here.
+	 */
+	public LinuxController(String displayName, String backendChoice, PointerWarp warp) {
 		// Try to open the named X11 display (null → default $DISPLAY).
 		Pointer disp = null;
 		boolean available = false;
@@ -99,9 +122,10 @@ public class LinuxController implements NativeController, AutoCloseable {
 		}
 
 		this.displayName = displayName;
+		this.warp = warp == null ? PointerWarp.ROOT_ABSOLUTE : warp;
 		this.display = disp;
 		this.x11Available = available;
-		this.inputBackend = available ? selectBackend(disp, backendChoice) : null;
+		this.inputBackend = available ? selectBackend(disp, backendChoice, warp) : null;
 	}
 
 	/**
@@ -120,7 +144,16 @@ public class LinuxController implements NativeController, AutoCloseable {
 	 * {@link #close()} it.
 	 */
 	public static LinuxController forDisplay(String displayName, String backendChoice) {
-		return new LinuxController(displayName, backendChoice);
+		return new LinuxController(displayName, backendChoice, PointerWarp.ROOT_ABSOLUTE);
+	}
+
+	/**
+	 * {@link #forDisplay(String, String)} with the server's warp convention pinned — see
+	 * {@link #LinuxController(String, String, PointerWarp)}. The caller owns the returned instance and must
+	 * {@link #close()} it.
+	 */
+	public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp) {
+		return new LinuxController(displayName, backendChoice, warp);
 	}
 
 	/** The X11 display name this controller is bound to, or {@code null} for the default {@code $DISPLAY}. */
@@ -133,7 +166,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 	 * {@code "xtest"}); otherwise the choice comes from {@code botmaker.linux.input} / {@code BOTMAKER_LINUX_INPUT}
 	 * (default {@code auto} → cursor-safe xsendevent).
 	 */
-	private static LinuxInputBackend selectBackend(Pointer display, String forced) {
+	private static LinuxInputBackend selectBackend(Pointer display, String forced, PointerWarp warp) {
 		String choice;
 		if (forced != null && !forced.isBlank()) {
 			choice = forced.trim().toLowerCase();
@@ -146,14 +179,14 @@ public class LinuxController implements NativeController, AutoCloseable {
 		LinuxInputBackend backend;
 		switch (choice) {
 			case "xtest":
-				backend = new XTestBackend(display);
+				backend = new XTestBackend(display, warp);
 				break;
 			case "xdotool": {
 				LinuxInputBackend x = XdotoolBackend.tryCreate(display);
 				if (x == null) {
 					Diag.error("[Linux] xdotool not found on PATH (install it: "
 						+ "dnf install xdotool / apt install xdotool); falling back to in-process XTest.");
-					backend = new XTestBackend(display);
+					backend = new XTestBackend(display, warp);
 				} else {
 					backend = x;
 				}
@@ -443,13 +476,21 @@ public class LinuxController implements NativeController, AutoCloseable {
 			// for the foreground window. For a background/occluded window it returns the window sitting in
 			// front, which is exactly what made every window look identical. So gate root-crop on foreground.
 			if (isForeground(x11Window)) {
-				image = X11.INSTANCE.XGetImage(display, X11.INSTANCE.XDefaultRootWindow(display),
-						rect.x, rect.y, rect.width, rect.height,
-						new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
-				BufferedImage rootCrop = decode(image);
-				if (image != null) { image.destroyImage(); image = null; }
-				if (rootCrop != null && !isAllBlack(rootCrop)) {
-					return rootCrop;
+				// Clamped to the root: XGetImage answers BadMatch — which Xlib's default handler turns into a
+				// process exit — for any rect that isn't wholly inside the drawable. A window hanging off the
+				// screen edge is enough to trigger it, and gamescope guarantees it (it places the focus window
+				// at (2,2) at full screen size, so the window's rect is 2px past the root on both axes).
+				Rectangle rootRect = X11Utils.getWindowGeometry(display, X11.INSTANCE.XDefaultRootWindow(display));
+				Rectangle crop = rootRect == null ? rect : rect.intersection(rootRect);
+				if (crop.width > 0 && crop.height > 0) {
+					image = X11.INSTANCE.XGetImage(display, X11.INSTANCE.XDefaultRootWindow(display),
+							crop.x, crop.y, crop.width, crop.height,
+							new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
+					BufferedImage rootCrop = decode(image);
+					if (image != null) { image.destroyImage(); image = null; }
+					if (rootCrop != null && !isAllBlack(rootCrop)) {
+						return rootCrop;
+					}
 				}
 			}
 
@@ -1038,7 +1079,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			Diag.log("[Linux] xdotool not on PATH (install it: dnf install xdotool / apt install xdotool); "
 				+ "trying in-process XTest.");
 			try {
-				escalated = new XTestBackend(display);
+				escalated = new XTestBackend(display, warp);
 			} catch (Exception | UnsatisfiedLinkError e) {
 				Diag.error("[Linux] XTest unavailable (" + e.getMessage() + ").");
 			}

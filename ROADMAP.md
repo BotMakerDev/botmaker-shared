@@ -8,6 +8,53 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Isolated-launch fixes, Phase 2b: no X error can kill a bot, and gamescope clicks land on target
+
+The two defects the first live gamescope run found (previous entry), both root-caused with purpose-built JNA
+probes against a real gamescope rather than reasoned about.
+
+**Done:**
+- **`X11ErrorSilencer` → `X11ErrorTrap`, installed process-wide from `LinuxController`'s static block.** Xlib's
+  *default* error handler prints the protocol error and then calls `exit(1)` — no exception, no stack trace, no
+  `hs_err`; the JVM just vanishes. That is what killed the live run, and it is not gamescope-specific: a window
+  unmapping between enumeration and capture does the same thing on `:0` today. The trap logs each distinct
+  `(error, request, minor)` triple **once** through `Diag` (with Xlib's own `XGetErrorText` wording) and returns,
+  so the failing call simply yields null and the caller's fallback ladder continues. The old class swallowed
+  every error unconditionally, which is precisely why the fatal `BadMatch` stayed invisible until it was fatal.
+  Studio still installs it before `Application.launch` (GDK complains if `XSetErrorHandler` is called after its
+  error trap is pushed); the static block covers every bot process with nobody opting in.
+- **The `BadMatch` itself: `captureWindow`'s root-crop rung asked for an out-of-bounds rect.** `X_GetImage`
+  answers `BadMatch` for any rectangle not wholly inside the drawable, and gamescope places its focus window at
+  root `(2,2)` at full screen size — so the window's rect is guaranteed 2px past the root on both axes. The crop
+  is now `rect.intersection(rootRect)`, skipped when empty. With the rect fixed *and* the trap installed,
+  `session.capture()` returns a real frame on gamescope through the XComposite pixmap rung; no new capture path
+  was needed. (A `BadMatch` on request 73 is still logged once per run and is now correctly harmless.)
+- **`X11.XErrorEvent` / `XGetErrorText` bound properly.** Worth recording because hand-decoding the struct got it
+  wrong first: Xlib's field order is `type, display, resourceid, serial, error_code, request_code, minor_code` —
+  `resourceid` comes **before** `serial`, so reading `error_code` at the "obvious" offset yields serial-number
+  bytes, i.e. plausible-looking nonsense (error 9/22/85, `request=0`, which is impossible).
+- **The gamescope +2,+2 pointer offset is in the WRITE, not the read — clicks were landing 2px off target.**
+  Settled by having a probe create its own X window, select `ButtonPressMask` and read `x_root`/`y_root` out of
+  the `ButtonPress` the server actually delivered: a warp to `(202,152)` produced a press at `(204,154)`. The
+  read-back was truthful all along. Cause: gamescope's Xwayland routes injected motion through the **focused
+  surface**, so `XTestFakeMotionEvent` coordinates land window-relative.
+- **Fix: `PointerWarp` (`ROOT_ABSOLUTE` | `FOCUS_RELATIVE`), chosen once in
+  `SessionBackends.pointerWarpFor(backend)` and threaded `NestedSession` → `LinuxController` → `XTestBackend`.**
+  On `FOCUS_RELATIVE`, `move` subtracts the focused window's root origin (read live via `XGetInputFocus` +
+  geometry — one round trip on a path that already pays an `XSync` and a settle sleep). Derived from live
+  geometry rather than hardcoded "+2", so it self-cancels if gamescope stops insetting; degrades to the
+  uncorrected warp on any read failure, never to no motion. An enum rather than a boolean per the repo's
+  closed-set rule — neither case is "broken", each is correct for its server. Validated at four points with
+  `delta=(0,0)`, in both the fullscreen-forced and plain gamescope configurations.
+- **Tests:** `SessionBackendsTest` covers the warp policy; `NestedSessionGamescopeLiveTest` no longer carries a
+  KNOWN FAILURE — its `capture()` assertion is restored and the pointer assertion tightened from a 4px tolerance
+  to **exact equality** (the poll loop remains, but only for gamescope's one-frame settle). Both live suites
+  (gamescope and Xephyr) pass on this box.
+
+**Deferred / next:** Phase 3 — the `api.Session` SDK facade and the default-on isolation setting.
+
+---
+
 ## 2026-07-29 — Isolated-launch fixes, Phase 2: window-manager policy, gamescope argv — and the first live
 gamescope run
 

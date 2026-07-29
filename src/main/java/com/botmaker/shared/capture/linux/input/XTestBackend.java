@@ -5,7 +5,10 @@ import com.botmaker.shared.capture.linux.X11;
 import com.botmaker.shared.capture.linux.X11Utils;
 import com.botmaker.shared.capture.linux.XTest;
 import com.sun.jna.Pointer;
+import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.PointerByReference;
 
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -29,13 +32,20 @@ import java.util.Set;
  *       (called from the typing path's {@code finally} and on {@link #close()}) guarantees nothing is left
  *       held down if a sequence is interrupted mid-stroke — the classic "went insane after N actions" cause.</li>
  * </ul>
- * It does <b>not</b> restore the cursor position afterwards (on Wayland the prior position can't be read — see
+ * <p><b>Warp coordinates are not universal.</b> {@link #move} injects through {@link PointerWarp}: on a normal
+ * server the target goes in as-is, while on gamescope's Xwayland — which reads injected motion as
+ * <em>window-relative</em> — the focused window's origin is subtracted first, so a bot's root-absolute click
+ * target still lands on the pixel it matched. See {@link PointerWarp} for the measurements.
+ *
+ * <p>It does <b>not</b> restore the cursor position afterwards (on Wayland the prior position can't be read — see
  * {@link com.botmaker.shared.capture.linux.LinuxController}).
  */
 public final class XTestBackend implements LinuxInputBackend {
 
 	private final Pointer display;
 	private final InputTiming timing;
+	/** How this server reads warp coordinates — {@link PointerWarp#FOCUS_RELATIVE} needs a correction. */
+	private final PointerWarp warp;
 
 	/** Lazily built (needs the range/row-width read once); {@code null} until the first out-of-map character. */
 	private Keymap keymap;
@@ -45,12 +55,17 @@ public final class XTestBackend implements LinuxInputBackend {
 	private final Set<Integer> heldButtons = new LinkedHashSet<>();
 
 	public XTestBackend(Pointer display) {
-		this(display, InputTiming.DEFAULT);
+		this(display, InputTiming.DEFAULT, PointerWarp.ROOT_ABSOLUTE);
 	}
 
-	public XTestBackend(Pointer display, InputTiming timing) {
+	public XTestBackend(Pointer display, PointerWarp warp) {
+		this(display, InputTiming.DEFAULT, warp);
+	}
+
+	public XTestBackend(Pointer display, InputTiming timing, PointerWarp warp) {
 		this.display = display;
 		this.timing = timing == null ? InputTiming.DEFAULT : timing;
+		this.warp = warp == null ? PointerWarp.ROOT_ABSOLUTE : warp;
 	}
 
 	@Override
@@ -87,8 +102,40 @@ public final class XTestBackend implements LinuxInputBackend {
 
 	@Override
 	public void move(int xAbs, int yAbs) {
-		XTest.INSTANCE.XTestFakeMotionEvent(display, -1, xAbs, yAbs, 0);
+		Point origin = warpOrigin();
+		XTest.INSTANCE.XTestFakeMotionEvent(display, -1, xAbs - origin.x, yAbs - origin.y, 0);
 		X11.INSTANCE.XFlush(display);
+	}
+
+	/**
+	 * The correction to apply to a root-absolute target before injecting it. Zero on a normal X server; on a
+	 * {@link PointerWarp#FOCUS_RELATIVE} one (gamescope) it is the focused window's root origin, read live on
+	 * every move — focus can change under us, the read is one round trip, and every click already pays an
+	 * {@code XSync} plus a settle sleep, so this is not on any hot path worth caching.
+	 */
+	private Point warpOrigin() {
+		if (warp != PointerWarp.FOCUS_RELATIVE) {
+			return noCorrection();
+		}
+		try {
+			PointerByReference focus = new PointerByReference();
+			IntByReference revertTo = new IntByReference();
+			X11.INSTANCE.XGetInputFocus(display, focus, revertTo);
+			Pointer focused = focus.getValue();
+			// None (0) / PointerRoot (1) are not windows — nothing to be relative to.
+			if (focused == null || Pointer.nativeValue(focused) <= 1) {
+				return noCorrection();
+			}
+			Rectangle geometry = X11Utils.getWindowGeometry(display, focused);
+			return geometry == null ? noCorrection() : new Point(geometry.x, geometry.y);
+		} catch (Throwable t) {
+			// A failed read must degrade to the uncorrected warp, never to no motion at all.
+			return noCorrection();
+		}
+	}
+
+	private static Point noCorrection() {
+		return new Point(0, 0);
 	}
 
 	@Override

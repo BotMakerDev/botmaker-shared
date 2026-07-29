@@ -70,26 +70,25 @@ class NestedSessionGamescopeLiveTest {
 				// with plain xdotool against a hand-started gamescope):
 				//   * the warp is applied a frame later, so reading it back in the same breath returns the OLD
 				//     position — hence the settle loop rather than an immediate read;
-				//   * a settled read comes back a constant +2,+2 off the requested point while gamescope is
-				//     compositing its own cursor over a mapped window (640,360 → 642,362; 200,150 → 202,152 …),
-				//     so this asserts a tolerance rather than equality. Relative motion is exact.
+				//   * a settled read came back a constant +2,+2 off the requested point. That turned out to be in
+				//     the WRITE, not the read: gamescope reads an injected absolute warp as window-relative, and
+				//     its focus window sits at root (2,2), so clicks genuinely landed 2px off. The XTest backend
+				//     now subtracts the focus origin (PointerWarp.FOCUS_RELATIVE), which is why this asserts the
+				//     exact point — the tolerance is kept only to absorb the one-frame settle, not an offset.
 				Point target = new Point(640, 360);
 				session.pointer().moveAbsolute(target.x, target.y);
-				Point onNested = awaitPointerNear(session, target, POINTER_TOLERANCE_PX, 2_000);
+				Point onNested = awaitPointerNear(session, target, 0, 2_000);
 				assertNotNull(onNested, "should be able to read the :N pointer");
-				assertTrue(near(onNested, target, POINTER_TOLERANCE_PX),
-					"the :N pointer should have landed within " + POINTER_TOLERANCE_PX + "px of " + target
-						+ ", was " + onNested);
+				assertEquals(target, onNested,
+					"the :N pointer should have landed exactly on " + target + " once the focus-relative warp "
+						+ "correction is applied, was " + onNested);
 				session.pointer().click(1);
 
-				// Capture flows through the :N-bound controller.
-				//
-				// KNOWN FAILURE, first live gamescope run: this call does not merely return null — the X server
-				// answers X_GetImage with BadMatch, and because nothing installs an XSetErrorHandler, Xlib's
-				// default handler calls exit(1) and takes the whole JVM (a bot!) with it. Two separate defects,
-				// both scheduled next: gamescope's Xwayland needs a capture path that works (its windows are
-				// composited, so the XComposite/XGetImage route this uses doesn't apply), and no X error should
-				// ever be able to kill the process.
+				// Capture flows through the :N-bound controller. This used to take the whole JVM down: the
+				// capture ladder's root-crop rung asked for a rect hanging 2px off the root (gamescope's focus
+				// window is at (2,2) at full screen size), X_GetImage answered BadMatch, and Xlib's default
+				// error handler exit(1)'d the process. The rect is now clamped to the root, and X11ErrorTrap
+				// makes any future protocol error non-fatal — the XComposite pixmap rung then returns a frame.
 				assertNotNull(session.capture(), "capturing the attached :N window should yield a frame");
 
 				// The isolation assertion: our injection reached :N (above) but did NOT leak to the real display.
@@ -111,10 +110,10 @@ class NestedSessionGamescopeLiveTest {
 
 	// --- guards & helpers ---
 
-	/** How far a settled gamescope pointer read may sit from the requested point (measured: a constant 2px). */
-	private static final int POINTER_TOLERANCE_PX = 4;
-
-	/** Poll the {@code :N} pointer until it is within {@code tolerance} of {@code target}, or time out. */
+	/**
+	 * Poll the {@code :N} pointer until it is within {@code tolerance} of {@code target}, or time out. The
+	 * polling is for gamescope's one-frame settle, not for an offset — pass {@code 0} for an exact landing.
+	 */
 	private static Point awaitPointerNear(NestedSession session, Point target, int tolerance, long timeoutMs) {
 		long deadline = System.currentTimeMillis() + timeoutMs;
 		Point last = null;

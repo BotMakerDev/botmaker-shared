@@ -153,15 +153,40 @@ public interface X11 extends Library {
 	// only inspects at map time — notably _NET_WM_WINDOW_TYPE (see X11Utils.promoteAboveFullscreen).
 	int XUnmapWindow(Pointer display, Pointer window);
 
-	// Install a process-wide Xlib error handler; returns the previous one. The default Xlib handler prints
-	// non-fatal protocol errors (BadMatch/BadWindow/BadDrawable — e.g. XGetImage racing a window unmap) to
-	// stderr; a no-op handler swallows that benign noise. See X11ErrorSilencer.
+	// Install a process-wide Xlib error handler; returns the previous one. This is not a nicety: Xlib's DEFAULT
+	// handler prints the protocol error and then calls exit(1) — a BadMatch from XGetImage takes the whole JVM
+	// down with no exception, no stack trace and no hs_err file. Every process that talks X11 through this
+	// binding must install one; see X11ErrorTrap, which LinuxController installs on class load.
 	Pointer XSetErrorHandler(XErrorHandler handler);
 
-	/** Callback matching Xlib's {@code int (*)(Display*, XErrorEvent*)}. Args ignored when silencing. */
+	/** Callback matching Xlib's {@code int (*)(Display*, XErrorEvent*)}. The return value is ignored by Xlib. */
 	interface XErrorHandler extends Callback {
-		int invoke(Pointer display, Pointer errorEvent);
+		int invoke(Pointer display, XErrorEvent errorEvent);
 	}
+
+	/**
+	 * Xlib's {@code XErrorEvent}. Field order is the one in {@code Xlib.h} — {@code resourceid} comes
+	 * <em>before</em> {@code serial}, which is easy to get wrong (reading {@code error_code} at the "obvious"
+	 * offset yields serial-number bytes, i.e. plausible-looking nonsense).
+	 */
+	class XErrorEvent extends Structure {
+		public int type;
+		public Pointer display;               // Display* the error came from
+		public com.sun.jna.NativeLong resourceid; // XID of the resource that failed
+		public com.sun.jna.NativeLong serial;     // serial of the failed request
+		public byte error_code;               // BadMatch (8), BadWindow (3), … — see XGetErrorText
+		public byte request_code;             // major opcode of the failed request (73 = X_GetImage)
+		public byte minor_code;               // extension minor opcode, 0 for core requests
+
+		@Override
+		protected List<String> getFieldOrder() {
+			return Arrays.asList("type", "display", "resourceid", "serial", "error_code", "request_code",
+				"minor_code");
+		}
+	}
+
+	// Decode an error_code into human text ("BadMatch (invalid parameter attributes)"), written into buffer.
+	int XGetErrorText(Pointer display, int code, byte[] bufferReturn, int bufferLength);
 
 	// Keyboard: map an X keysym to a physical keycode for XTest injection
 	byte XKeysymToKeycode(Pointer display, long keysym);

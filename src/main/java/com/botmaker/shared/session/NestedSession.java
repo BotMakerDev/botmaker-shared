@@ -108,8 +108,11 @@ public final class NestedSession implements DesktopSession {
 		try {
 			display = startDisplay(reaper, options);
 			// Pin XTest: on a private display device-level input is both accepted and non-intrusive, and the
-			// process-wide botmaker.linux.input property (which steers :0) must not decide :N's backend.
-			controller = LinuxController.forDisplay(display.displayName(), "xtest");
+			// process-wide botmaker.linux.input property (which steers :0) must not decide :N's backend. The
+			// warp convention comes with the backend — gamescope's Xwayland reads an absolute warp as
+			// window-relative, so its clicks need the focus origin subtracted (SessionBackends.pointerWarpFor).
+			controller = LinuxController.forDisplay(display.displayName(), "xtest",
+				SessionBackends.pointerWarpFor(options.backend()));
 			ewmh = X11.INSTANCE.XOpenDisplay(display.displayName());
 			if (ewmh == null) {
 				throw new SessionStartException("could not open a second connection to " + display.displayName());

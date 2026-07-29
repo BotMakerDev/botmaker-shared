@@ -1,5 +1,6 @@
 package com.botmaker.shared.session;
 
+import com.botmaker.shared.capture.linux.input.PointerWarp;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 
@@ -101,6 +102,22 @@ public final class SessionBackends {
             return List.of();
         }
         return binaryOnPath.test(DEFAULT_XEPHYR_WM.get(0)) ? DEFAULT_XEPHYR_WM : List.of();
+    }
+
+    /**
+     * How a display on {@code backend} interprets an absolute pointer warp — the same single-sourcing rule as
+     * {@link #windowManagerFor(NestedSession.Backend)}: the quirk is a property of the backend, so it is decided
+     * once here rather than rediscovered by the SDK and Studio.
+     *
+     * <p>gamescope's embedded Xwayland routes injected motion through the focused surface, so an
+     * {@code XTestFakeMotionEvent} lands <em>window-relative</em>; measured here, its focus window sits at root
+     * {@code (2,2)} and every click landed 2px off target until the origin was subtracted. Xephyr — like every
+     * real X server — is plain {@link PointerWarp#ROOT_ABSOLUTE}. See {@link PointerWarp} for the measurements.
+     */
+    public static PointerWarp pointerWarpFor(NestedSession.Backend backend) {
+        return backend == NestedSession.Backend.GAMESCOPE
+                ? PointerWarp.FOCUS_RELATIVE
+                : PointerWarp.ROOT_ABSOLUTE;
     }
 
     /**

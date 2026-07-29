@@ -1,5 +1,6 @@
 package com.botmaker.shared.session;
 
+import com.botmaker.shared.capture.linux.input.PointerWarp;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import org.junit.jupiter.api.Test;
@@ -74,6 +75,15 @@ class SessionBackendsTest {
         assertTrue(SessionBackends.windowManagerFor(NestedSession.Backend.XEPHYR, onPath()).isEmpty());
         // gamescope IS the window manager for its Xwayland; a second one would fight it for the selection.
         assertTrue(SessionBackends.windowManagerFor(NestedSession.Backend.GAMESCOPE, onPath("openbox")).isEmpty());
+    }
+
+    @Test
+    void onlyGamescopeNeedsTheFocusRelativeWarpCorrection() {
+        // gamescope's Xwayland routes injected motion through the focused surface, so a root-absolute target
+        // lands offset by the focus window's origin (measured: (2,2), i.e. every click 2px off). Xephyr — like
+        // every real X server — honours the root-absolute contract and must not be "corrected".
+        assertEquals(PointerWarp.FOCUS_RELATIVE, SessionBackends.pointerWarpFor(NestedSession.Backend.GAMESCOPE));
+        assertEquals(PointerWarp.ROOT_ABSOLUTE, SessionBackends.pointerWarpFor(NestedSession.Backend.XEPHYR));
     }
 
     @Test
