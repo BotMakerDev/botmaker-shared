@@ -91,6 +91,26 @@ public final class LaunchIsolation {
 	}
 
 	/**
+	 * The rungs of {@code spec}'s ladder that can actually be run on this machine, in preference order — what a
+	 * caller should try, rather than the whole ladder.
+	 *
+	 * <p>The difference is visible in a log: Heroic is Flatpak-only on a typical Linux box, so a session would
+	 * spawn the missing native {@code heroic} first, watch it exit immediately, announce that it "mapped no
+	 * window within 120000ms" (it had not waited at all) and only then reach the form that works. Nothing broke,
+	 * but the trace described a timeout that never happened — and on a slower ladder it would be a real wait.
+	 */
+	public static List<List<String>> runnableLadder(LaunchSpec spec) {
+		return runnableLadder(spec, Executables::exists);
+	}
+
+	/** {@link #runnableLadder(LaunchSpec)} against an injected probe. */
+	static List<List<String>> runnableLadder(LaunchSpec spec, Predicate<String> installed) {
+		return LaunchCommands.childLadder(spec).stream()
+				.filter(rung -> !rung.isEmpty() && installed.test(rung.get(0)))
+				.toList();
+	}
+
+	/**
 	 * {@link #check(LaunchSpec)} against injected probes — the testable seam, so the whole ladder→installed→
 	 * portal decision is asserted without a real {@code PATH} or process table.
 	 *

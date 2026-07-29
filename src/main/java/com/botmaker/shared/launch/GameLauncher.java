@@ -3,7 +3,10 @@ package com.botmaker.shared.launch;
 import com.botmaker.shared.Diag;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Brings a game up on the host: the protocol-URL-then-CLI ladders for each store launcher, plus plain process
@@ -149,27 +152,60 @@ public final class GameLauncher {
     }
 
     /**
-     * Force-terminates every process whose executable matches {@code processName} — the "close the game" half
-     * of a restart routine. Windows {@code taskkill /F /IM}, Linux/macOS {@code pkill -f}. Never throws when
-     * there is simply no such process (that is a success for a kill); a genuinely un-runnable killer command is
-     * logged, not raised, so a restart loop keeps going.
+     * Force-terminates the processes running {@code processName} — the "close the game" half of a restart
+     * routine. Never throws when there is simply no such process (that is a success for a kill).
+     *
+     * <p><b>It cannot kill us, and it cannot kill the user's launcher.</b> This was a {@code pkill -f <name>}
+     * (and a {@code taskkill /F /IM}), which matches a raw substring of every command line on the machine — so
+     * it also matched two things it must never touch. A launcher's UI carries its whole library in its argv, so
+     * killing "the game" by app id killed the user's Heroic with it; and our own JVM matched whenever the target
+     * appeared in its command line, which is how a live bring-up {@code pkill}ed the process performing it
+     * (observed: the launch died at exactly this call). Going through
+     * {@link RunningProbe#processesRunning} fixes both: it is the same match the "is it running?" question
+     * uses, launcher deny-list and all, and this method additionally spares <em>our own</em> process, its
+     * ancestors and its descendants.
      *
      * @throws IllegalArgumentException if {@code processName} is null/blank
      */
     public static void kill(String processName) {
         String name = require(processName, "processName");
-        String[] command = isWindows()
-                ? new String[]{"taskkill", "/F", "/IM", name}
-                : new String[]{"pkill", "-f", name};
-        Diag.log("[Game] kill " + name + " → " + String.join(" ", command));
-        try {
-            int code = new ProcessBuilder(command).inheritIO().start().waitFor();
-            // taskkill=128 / pkill=1 both mean "no matching process" — expected, not a failure.
-            Diag.log("[Game] kill " + name + ": exit " + code
-                    + (code == 0 ? " (terminated)" : " (nothing to kill / already gone)"));
-        } catch (Exception e) {
-            Diag.log("[Game] kill " + name + " failed to invoke: " + e.getMessage());
+        Set<Long> ours = ownProcessTree();
+        List<ProcessHandle> targets = RunningProbe.processesRunning(name).stream()
+                .filter(p -> !ours.contains(p.pid()))
+                .toList();
+        Diag.log("[Game] kill " + name + ": " + targets.size() + " process(es)");
+        for (ProcessHandle target : targets) {
+            try {
+                boolean signalled = target.destroy();
+                Diag.log("[Game] kill " + name + ": pid " + target.pid()
+                        + (signalled ? " terminated" : " would not take a signal"));
+            } catch (Exception e) {
+                Diag.log("[Game] kill " + name + ": pid " + target.pid() + " failed: " + e.getMessage());
+            }
         }
+    }
+
+    /**
+     * This process, everything it spawned, and everything that spawned it — the pids a by-name kill must never
+     * match. Descendants are included because a launcher we started is <em>our</em> incarnation of the target,
+     * not the host one we are trying to clear out of the way.
+     */
+    private static Set<Long> ownProcessTree() {
+        ProcessHandle self = ProcessHandle.current();
+        Set<Long> pids = new HashSet<>();
+        pids.add(self.pid());
+        try {
+            self.descendants().forEach(p -> pids.add(p.pid()));
+            for (Optional<ProcessHandle> parent = self.parent(); parent.isPresent(); parent = parent.get().parent()) {
+                if (!pids.add(parent.get().pid())) {
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            // A partial tree still protects the pid that matters most — our own.
+            Diag.log("[Game] could not walk our own process tree: " + e.getMessage());
+        }
+        return pids;
     }
 
     /**

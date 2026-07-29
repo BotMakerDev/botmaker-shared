@@ -230,9 +230,59 @@ public final class NestedSession implements DesktopSession {
 		this.attached = window;
 	}
 
+	/**
+	 * The window this session drives — <b>re-resolved when the one we attached to has gone</b>.
+	 *
+	 * <p><b>Why this can't be a plain field read.</b> A launcher chain does not map the game's window first. A
+	 * live Heroic run mapped a {@code ProtonFixes} setup dialog, which the attach (correctly, at the time) took;
+	 * the dialog then closed, the game's own window appeared beside it, and the session was left holding a
+	 * destroyed window — {@code capture()} returned {@code null} for the rest of the run and every keystroke went
+	 * to a window that no longer existed, while the game sat there perfectly capturable. The session reported
+	 * {@code HEALTHY} throughout, because it <em>was</em>: only the attachment had rotted.
+	 *
+	 * <p>The recovery is one cheap round trip ({@code XGetWindowAttributes} on the current window) and, when it
+	 * fails, the same "most recently mapped top-level" rule the initial attach uses. Deliberately narrow: it only
+	 * ever <em>replaces</em> a window that has died, so a session that never attached stays unattached (a failed
+	 * launch must not look like a successful one), and a live attachment is never second-guessed.
+	 */
 	@Override
 	public GenericWindow attached() {
-		return attached;
+		GenericWindow current = attached;
+		if (current == null || closed || isViewable(current)) {
+			return current;
+		}
+		GenericWindow replacement = newestWindow();
+		if (replacement == null) {
+			// Between windows — the game may be mid-transition. Keep the old reference so the session still
+			// reads as attached; this call's capture/input simply finds nothing, and the next one retries.
+			return current;
+		}
+		attached = replacement;
+		Diag.log("[Session] " + id + ": re-attached to '" + replacement.getTitle() + "' on "
+			+ display.displayName() + " (the previous window was destroyed)");
+		return replacement;
+	}
+
+	/** Whether {@code window} still exists and is mapped on the nested display. */
+	private boolean isViewable(GenericWindow window) {
+		try {
+			return X11Utils.isWindowViewable(ewmhDisplay, (Pointer) window.getNativeHandle());
+		} catch (Exception e) {
+			return false;
+		}
+	}
+
+	/** The most recently mapped top-level on the nested display, or {@code null} when there is none. */
+	private GenericWindow newestWindow() {
+		GenericWindow newest = null;
+		try {
+			for (GenericWindow w : controller.getAllWindows()) {
+				newest = w;
+			}
+		} catch (Exception e) {
+			Diag.log("[Session] " + id + ": could not re-scan " + display.displayName() + ": " + e.getMessage());
+		}
+		return newest;
 	}
 
 	/**
@@ -257,7 +307,9 @@ public final class NestedSession implements DesktopSession {
 			Diag.error("[Session] " + id + ": " + verdict.reason());
 			return;
 		}
-		List<List<String>> candidates = commandFor(spec);
+		// Only the forms that exist here: the ladder's missing rungs would each be spawned, exit at once, and be
+		// reported as a window timeout they never waited for.
+		List<List<String>> candidates = LaunchIsolation.runnableLadder(spec);
 		stopHostInstance(spec);
 
 		long windowTimeoutMs = windowTimeoutFor(spec, options);
@@ -289,7 +341,9 @@ public final class NestedSession implements DesktopSession {
 
 	@Override
 	public BufferedImage capture() {
-		GenericWindow target = attached;
+		// Through attached(), not the field: a destroyed window otherwise captures null forever while the game
+		// is running and capturable one window over.
+		GenericWindow target = attached();
 		return target == null ? null : controller.captureWindow(target);
 	}
 
@@ -362,15 +416,6 @@ public final class NestedSession implements DesktopSession {
 		env.put("WAYLAND_DISPLAY", "");
 		env.putAll(options.extraEnv());
 		return env;
-	}
-
-	/**
-	 * The ordered ladder of child-launchable argvs for {@code spec} (most-preferred first), or empty for a kind
-	 * we can't hand a private {@code DISPLAY}. Single-sourced in {@link com.botmaker.shared.launch.LaunchCommands}
-	 * so the nested path and the on-host {@code :0} path can't drift on how a launcher is spelled.
-	 */
-	static List<List<String>> commandFor(LaunchSpec spec) {
-		return LaunchCommands.childLadder(spec);
 	}
 
 	/**

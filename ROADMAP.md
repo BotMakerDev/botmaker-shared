@@ -8,6 +8,56 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Phase 9: live verification — a real game runs and is captured inside the private session
+
+The end-to-end result the previous phases were building toward, measured rather than argued: **Firestone,
+launched through Flatpak Heroic into a private gamescope display, renders there and `session.capture()` returns
+its frame.** Every process that escaped to `:0` in Phase 5 now carries the private display:
+
+```
+pv-adverb                    DISPLAY=:1     (was :0)
+wineserver                   DISPLAY=:1     (was :0)
+umu.exe                      DISPLAY=:1     (was :0)
+steam-runtime-launch-client  DISPLAY=:1
+Firestone.exe                DISPLAY=:1
+```
+
+The only `:0` processes left were the harness JVM (correctly — it lives on the host) and unrelated desktop apps.
+Refusal path: with Heroic open, the launch is declined in **0.22s** with the exact wording, having spawned
+nothing — against ~2 minutes and a coredump before this work. Both live suites green (openbox under Xephyr,
+gamescope refusing a WM), teardown leak-free.
+
+**Three defects the live run found, all fixed**
+
+- **`GameLauncher.kill` killed the process performing the launch.** It was `pkill -f <token>`, a raw substring
+  match over every command line on the machine — and the harness JVM's own argv carried the app id, so the
+  bring-up SIGKILLed itself mid-launch (exit 144, twice, before the cause was clear). The same match also hits
+  the user's Heroic, whose argv carries its whole library. It now goes through the new
+  `RunningProbe.processesRunning` — the *same* observation the "is it running?" question uses, launcher
+  deny-list included — and additionally spares our own process, its ancestors and its descendants.
+  `GameLauncherKillTest` pins both halves with real processes (`setsid --fork` is load-bearing in the negative
+  case: plain `setsid` doesn't fork from a JVM child, so the "unrelated" process would still be ours).
+- **The session attached to a window that then died, and never noticed.** A launcher chain does not map the game
+  first: the attach took Heroic's `ProtonFixes` dialog, the dialog closed, Firestone opened beside it — and the
+  session held a destroyed window, returning `null` from `capture()` for the rest of the run while reporting
+  `HEALTHY` (it *was* healthy; only the attachment had rotted). `attached()` now re-resolves through one cheap
+  `XGetWindowAttributes`, replacing a **dead** window only — a session that never attached stays unattached, so
+  a failed launch can't masquerade as a successful one. Live: `re-attached to 'Firestone'`, then 7/7 captures,
+  zero nulls.
+- **Missing ladder rungs were spawned anyway.** Heroic is Flatpak-only on a typical box, so the session ran the
+  absent native `heroic`, watched it exit at once, and logged that it "mapped no window within 120000ms" — a
+  timeout it never waited for. `LaunchIsolation.runnableLadder` filters to the forms that exist.
+  `NestedSession.commandFor` was a delegate nothing called after that and is gone.
+
+**Open — teardown still SIGTRAPs Electron.** Every live run leaves a 5–16 MB `heroic` coredump at *close*
+(`coredumpctl`: 19:30, 19:32, 19:38). The launch itself is fine and teardown is complete and leak-free, but the
+signature is identical to the original bug report, so it reads worse than it is. Likely cause: the reaper stops
+the whole slice at once, so gamescope dies while Heroic is still connected to it and Chromium aborts on the
+broken X connection. Proposed fix: stop the `app` scope first, give it a moment, then the rest — untested.
+Also cosmetic: emptied `botmaker-sess-*.slice` units linger until the next `start()` sweeps them.
+
+---
+
 ## 2026-07-29 — Phase 7: ask whether a target *can* be isolated, before spending anything on it
 
 Phase 6 made isolation hold for a Flatpak launcher; this phase makes the cases where it still can't hold say so

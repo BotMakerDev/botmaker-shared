@@ -120,18 +120,38 @@ public final class RunningProbe {
      * inspect — on Windows that means same-user processes, which is the case for a game the user launched.
      */
     public static boolean commandLineMentions(String token) {
+        return !processesRunning(token).isEmpty();
+    }
+
+    /**
+     * The live processes that are evidence of {@code token} running — the same observation
+     * {@link #commandLineMentions} reports, but as the processes themselves, so a caller that wants to
+     * <em>stop</em> the target acts on exactly what the caller that merely <em>asks</em> would have counted.
+     *
+     * <p>That symmetry is the point. Stopping used to be a {@code pkill -f <token>}, which matches on a raw
+     * substring of every command line: it has no idea that a launcher's UI carries the whole library in its
+     * argv (so it would kill the user's Heroic, which {@link #LAUNCHER_EXECUTABLES} exists to prevent), and no
+     * idea which processes are <em>ours</em>. Measured: a JVM whose own argv named the target — a bot passed
+     * its launch spec on the command line — {@code pkill}ed itself mid-launch.
+     *
+     * <p>Excludes only this process, exactly as the boolean form does; a caller that must also spare its own
+     * children (see {@code GameLauncher.kill}) filters them, because for an {@code exe:}/{@code cli:} target
+     * our own child <em>is</em> the running game and must still count as running.
+     */
+    public static List<ProcessHandle> processesRunning(String token) {
         if (token == null || token.isBlank()) {
-            return false;
+            return List.of();
         }
         String needle = token.trim().toLowerCase(Locale.ROOT);
         long self = ProcessHandle.current().pid();
         try {
             return ProcessHandle.allProcesses()
                     .filter(p -> p.pid() != self)
-                    .anyMatch(p -> mentions(p, needle));
+                    .filter(p -> mentions(p, needle))
+                    .toList();
         } catch (Exception e) {
             Diag.log("[Target] process scan for '" + token + "' failed: " + e.getMessage());
-            return false;
+            return List.of();
         }
     }
 
