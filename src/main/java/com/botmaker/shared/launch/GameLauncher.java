@@ -107,8 +107,9 @@ public final class GameLauncher {
     }
 
     /**
-     * Launches a Heroic Games Launcher title by its {@code AppName}. Opens {@code heroic://launch/<appName>},
-     * then falls back to {@code heroic --no-gui launch <appName>} and its Flatpak form (Heroic's most common
+     * Launches a Heroic Games Launcher title by its {@code AppName}. Opens {@code heroic://launch/<appName>}
+     * through the desktop's URL handler, then falls back to running Heroic ourselves with the same URL in its
+     * argv ({@link LaunchCommands#heroic}) — the native binary, then its Flatpak form (Heroic's most common
      * Linux install shape).
      *
      * @throws IllegalArgumentException if {@code appName} is null/blank

@@ -177,8 +177,13 @@ public final class RunningProbe {
     /**
      * The names this process could reasonably be called: its executable, plus the script it is interpreting
      * when the executable is a shell (see {@link #INTERPRETERS}). Lower-cased, {@code .exe} stripped.
+     *
+     * <p>Package-visible because {@link HostLauncherProbe} asks the <em>opposite</em> question of the same
+     * process table ("is the launcher UI itself up?"), and the packaging shapes a launcher comes in — a wrapper
+     * script, an Electron shell, {@code flatpak run} — must be read the same way by both or the two answers
+     * contradict each other.
      */
-    private static List<String> programNames(ProcessHandle.Info info) {
+    static List<String> programNames(ProcessHandle.Info info) {
         String exe = baseName(info.command().orElse(null));
         if (exe == null) {
             return List.of();

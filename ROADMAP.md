@@ -8,6 +8,39 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Isolated-launch fixes, Phase 1: the Heroic argv, and refusing a launch that can't work
+
+A live isolated launch of a Heroic game failed with "didn't map a window there" and a `heroic` SIGTRAP
+coredump. The journal plus Heroic's own log identified three separate faults, all fixed here.
+
+**Done:**
+- **`LaunchCommands.heroic` — the command line was never valid.** We emitted `--no-gui launch <id>`; Heroic has
+  no `launch` subcommand (its `app.asar` reads `--no-gui` plus a `heroic://` URL out of `process.argv`, and its
+  own Steam-shortcut generator writes `--no-gui --no-sandbox "heroic://launch?appName=…&runner=…"`). Heroic
+  booted its full frontend with the window hidden, launched nothing, and we timed out waiting for a window that
+  was never coming. Now: `heroic --no-gui --no-sandbox heroic://launch/<id>`, then the Flatpak form. Note this
+  is *not* the `xdg-open` handoff `GameLauncher.heroic` tries first — as our own child, Heroic inherits `:N`.
+- **`LaunchCommands.steam`** gained the missing Flatpak rung (`flatpak run com.valvesoftware.Steam -applaunch`),
+  so the two store ladders have the same shape.
+- **New `HostLauncherProbe`** — the mirror image of `RunningProbe`'s launcher deny-list: is the launcher *UI*
+  itself up? These launchers are single-instance, so with one open our child forwards its request to the copy
+  on `:0` and the game starts on the real desktop. `NestedSession.launch` now refuses such a launch immediately
+  with `refusalMessage(kind)` instead of burning the window budget and then reaping a half-booted Electron —
+  which is exactly what produced the coredump. Both probes read the process table through the now
+  package-visible `RunningProbe.programNames`, so a wrapper script / Electron shell / `flatpak run` child is
+  recognised identically by the two.
+- **Per-kind window budget.** `WINDOW_TIMEOUT_MS` (20 s) still applies to `exe:`/`cli:` — those *are* the
+  process we spawned — but a store kind gets `LAUNCHER_WINDOW_TIMEOUT_MS` (120 s), because the window we're
+  waiting for is the game's, after a Proton prefix and (first run) a winetricks/umu download.
+  `Options.withWindowTimeout(ms)` overrides both; `NestedSession.windowTimeoutFor(spec, options)` is the pure,
+  tested policy.
+- Tests: rewritten `LaunchCommandsTest` ladders, new `HostLauncherProbeTest` (real processes, as
+  `RunningProbeLauncherTest` does), `NestedSessionTest` cases for the timeout policy and the override.
+
+**Deferred / next:** Phase 2 — window-manager policy (openbox by default on Xephyr, never on gamescope, since
+gamescope *is* the WM for its Xwayland) and the gamescope argv (project-resolution nested window,
+`--force-windows-fullscreen`, `--backend headless` documented as the invisible-run override).
+
 ## 2026-07-29 — Bot-owned-display plan, Phase H: `session.isolated` project setting (default true)
 
 Isolation was gated on a system property nothing set, so it was reachable only from BotPilot. Make it a

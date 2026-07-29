@@ -7,6 +7,7 @@ import com.botmaker.shared.capture.linux.LinuxController;
 import com.botmaker.shared.capture.linux.X11;
 import com.botmaker.shared.capture.linux.X11Utils;
 import com.botmaker.shared.launch.GameLauncher;
+import com.botmaker.shared.launch.HostLauncherProbe;
 import com.botmaker.shared.launch.LaunchCommands;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.launch.Launcher;
@@ -51,7 +52,15 @@ public final class NestedSession implements DesktopSession {
 	private static final AtomicInteger SEQ = new AtomicInteger();
 
 	/** How long to wait for a launched game's window to appear on the nested display before giving up the attach. */
-	private static final long WINDOW_TIMEOUT_MS = 20_000;
+	static final long WINDOW_TIMEOUT_MS = 20_000;
+	/**
+	 * The same budget for a <em>store launcher</em> kind, where the window we're waiting for is the game's and
+	 * not the process we spawned. Heroic/Steam boot their own runtime, then a Proton prefix, then (first run)
+	 * download winetricks/umu before the game ever maps — minutes, not seconds. Timing those out at the
+	 * {@link #WINDOW_TIMEOUT_MS} budget meant reaping a launcher that was still working, which is how a
+	 * perfectly healthy Heroic ended up producing a SIGTRAP coredump.
+	 */
+	static final long LAUNCHER_WINDOW_TIMEOUT_MS = 120_000;
 	/** How long to wait for an optional window manager to claim the display; a WM-less session proceeds anyway. */
 	private static final long WM_TIMEOUT_MS = 5_000;
 	private static final long POLL_MS = 150;
@@ -211,10 +220,11 @@ public final class NestedSession implements DesktopSession {
 	/**
 	 * Launch {@code spec} into this nested display and attach to the window it produces. Any instance already
 	 * running on {@code :0} is force-stopped first (a game can't run in two places, and we want <em>ours</em>).
-	 * A kind with no child-launchable command ({@code epic:}/{@code emu-app:}) is refused; a store launcher with
-	 * a CLI ladder ({@code heroic:}/{@code steam:}/{@code faugus:}) has each form tried in turn until one maps a
-	 * window on {@code :N}. When none does, {@link #attached()} stays null — the caller must treat that as a loud
-	 * failure, not fall back to {@code :0}.
+	 * A kind with no child-launchable command ({@code epic:}/{@code emu-app:}) is refused, as is a store kind
+	 * whose launcher UI is already open on the host ({@link HostLauncherProbe} — it would forward our request to
+	 * that copy and start the game on {@code :0}). Otherwise each form of the ladder is tried in turn until one
+	 * maps a window on {@code :N}, within {@link #windowTimeoutFor the kind's window budget}. When none does,
+	 * {@link #attached()} stays null — the caller must treat that as a loud failure, not fall back to {@code :0}.
 	 */
 	@Override
 	public void launch(LaunchSpec spec) {
@@ -227,8 +237,16 @@ public final class NestedSession implements DesktopSession {
 				+ " (" + spec.spec() + ") — no child-launchable command (Epic is URL-only, emulator apps run over ADB)");
 			return;
 		}
+		if (HostLauncherProbe.isRunning(spec)) {
+			// Single-instance: our child would forward the request to the copy on :0 and exit, mapping the game
+			// on the real desktop. Refuse now rather than burning the window budget and reaping a launcher that
+			// was never going to draw here.
+			Diag.error("[Session] " + id + ": " + HostLauncherProbe.refusalMessage(spec.kind()));
+			return;
+		}
 		stopHostInstance(spec);
 
+		long windowTimeoutMs = windowTimeoutFor(spec, options);
 		for (List<String> command : candidates) {
 			Set<Long> before = windowIdsOnDisplay();
 			Process proc;
@@ -240,14 +258,14 @@ public final class NestedSession implements DesktopSession {
 				continue;
 			}
 			gameProc = proc;
-			GenericWindow target = awaitWindow(proc, before);
+			GenericWindow target = awaitWindow(proc, before, windowTimeoutMs);
 			if (target != null) {
 				attach(target);
 				Diag.log("[Session] " + id + ": attached to '" + target.getTitle() + "' on " + display.displayName());
 				return;
 			}
 			Diag.error("[Session] " + id + ": `" + String.join(" ", command) + "` mapped no window on "
-				+ display.displayName() + " within " + WINDOW_TIMEOUT_MS + "ms — trying the next launch form");
+				+ display.displayName() + " within " + windowTimeoutMs + "ms — trying the next launch form");
 		}
 		// Every form ran but nothing appeared on :N. For a store launcher this is usually its own daemon,
 		// already running on :0 with a single-instance lock, swallowing our child and mapping the game there.
@@ -330,12 +348,27 @@ public final class NestedSession implements DesktopSession {
 	}
 
 	/**
+	 * How long to wait for {@code spec}'s window: an explicit {@link Options#windowTimeoutMs()} when one is set,
+	 * else {@link #LAUNCHER_WINDOW_TIMEOUT_MS} for a kind whose launch is routed through a store launcher (we're
+	 * waiting on the game it starts, not on the process we spawned) and {@link #WINDOW_TIMEOUT_MS} otherwise —
+	 * an {@code exe:}/{@code cli:} target <em>is</em> the process we spawned, so a window that hasn't appeared in
+	 * twenty seconds isn't coming.
+	 */
+	static long windowTimeoutFor(LaunchSpec spec, Options options) {
+		long explicit = options == null ? 0L : options.windowTimeoutMs();
+		if (explicit > 0) {
+			return explicit;
+		}
+		return spec != null && HostLauncherProbe.routesThroughDaemon(spec.kind())
+			? LAUNCHER_WINDOW_TIMEOUT_MS
+			: WINDOW_TIMEOUT_MS;
+	}
+
+	/**
 	 * Force-stop any incarnation of {@code spec} already running on the host, so ours is the only one. This
 	 * stops the <em>game</em> by name; it deliberately does not kill the user's launcher <em>daemon</em>
-	 * (Heroic/Steam), which would disrupt their whole session. The accepted caveat: a store launcher with a
-	 * single-instance lock (Heroic, Steam) can still intercept our child's CLI invocation and map the game on
-	 * {@code :0} — in which case no window appears on {@code :N} and {@link #launch} fails loudly, telling the
-	 * user to close the launcher and retry, rather than silently degrading to {@code :0}.
+	 * (Heroic/Steam), which would disrupt their whole session. That a running daemon would swallow our launch
+	 * entirely is handled one step earlier, by {@link HostLauncherProbe} refusing the launch outright.
 	 */
 	private void stopHostInstance(LaunchSpec spec) {
 		if (!Launcher.isRunning(spec)) {
@@ -365,8 +398,8 @@ public final class NestedSession implements DesktopSession {
 	 * {@code before} (covers apps/WMs that don't set {@code _NET_WM_PID}, and WM-less displays with no client
 	 * list); else {@code null} on timeout.
 	 */
-	private GenericWindow awaitWindow(Process proc, Set<Long> before) {
-		long deadline = System.currentTimeMillis() + WINDOW_TIMEOUT_MS;
+	private GenericWindow awaitWindow(Process proc, Set<Long> before, long timeoutMs) {
+		long deadline = System.currentTimeMillis() + timeoutMs;
 		while (System.currentTimeMillis() < deadline) {
 			Set<Long> pids = subtreePids(proc);
 			GenericWindow newest = null;
@@ -459,35 +492,47 @@ public final class NestedSession implements DesktopSession {
 		private final List<String> windowManagerCommand;
 		private final Map<String, String> extraEnv;
 		private final List<String> gamescopeCommand;
+		private final long windowTimeoutMs;
 
 		private Options(Backend backend, int width, int height, List<String> wm,
-						Map<String, String> extraEnv, List<String> gamescopeCommand) {
+						Map<String, String> extraEnv, List<String> gamescopeCommand, long windowTimeoutMs) {
 			this.backend = backend;
 			this.width = width;
 			this.height = height;
 			this.windowManagerCommand = List.copyOf(wm);
 			this.extraEnv = Map.copyOf(extraEnv);
 			this.gamescopeCommand = gamescopeCommand == null ? List.of() : List.copyOf(gamescopeCommand);
+			this.windowTimeoutMs = Math.max(0, windowTimeoutMs);
 		}
 
 		/** A 2D Xephyr session at {@code width}x{@code height}, WM-less, no extra env. */
 		public static Options xephyr(int width, int height) {
-			return new Options(Backend.XEPHYR, width, height, List.of(), Map.of(), List.of());
+			return new Options(Backend.XEPHYR, width, height, List.of(), Map.of(), List.of(), 0);
 		}
 
 		/** A hardware-3D gamescope session at {@code width}x{@code height}, WM-less, no extra env. */
 		public static Options gamescope(int width, int height) {
-			return new Options(Backend.GAMESCOPE, width, height, List.of(), Map.of(), List.of());
+			return new Options(Backend.GAMESCOPE, width, height, List.of(), Map.of(), List.of(), 0);
 		}
 
 		/** This session, but running {@code command} as its window manager (e.g. {@code "openbox"}). */
 		public Options withWindowManager(String... command) {
-			return new Options(backend, width, height, List.of(command), extraEnv, gamescopeCommand);
+			return new Options(backend, width, height, List.of(command), extraEnv, gamescopeCommand, windowTimeoutMs);
 		}
 
 		/** This session, but with {@code env} overlaid on every child's environment (in addition to DISPLAY). */
 		public Options withExtraEnv(Map<String, String> env) {
-			return new Options(backend, width, height, windowManagerCommand, env, gamescopeCommand);
+			return new Options(backend, width, height, windowManagerCommand, env, gamescopeCommand, windowTimeoutMs);
+		}
+
+		/**
+		 * This session, but waiting {@code millis} for the launched target's window instead of the per-kind
+		 * default ({@link #windowTimeoutFor}). Zero or negative restores the default. The knob exists because
+		 * "how long can this game take to draw the first time" is a property of the user's machine — a cold
+		 * Proton prefix on a slow disk — not something this class can know.
+		 */
+		public Options withWindowTimeout(long millis) {
+			return new Options(backend, width, height, windowManagerCommand, extraEnv, gamescopeCommand, millis);
 		}
 
 		/**
@@ -496,7 +541,7 @@ public final class NestedSession implements DesktopSession {
 		 * touching {@link GamescopeDisplay}.
 		 */
 		public Options withGamescopeCommand(String... command) {
-			return new Options(backend, width, height, windowManagerCommand, extraEnv, List.of(command));
+			return new Options(backend, width, height, windowManagerCommand, extraEnv, List.of(command), windowTimeoutMs);
 		}
 
 		public Backend backend() { return backend; }
@@ -504,6 +549,9 @@ public final class NestedSession implements DesktopSession {
 		public int height() { return height; }
 		public List<String> windowManagerCommand() { return windowManagerCommand; }
 		public Map<String, String> extraEnv() { return extraEnv; }
+
+		/** The explicit window-wait budget in ms, or {@code 0} to use the per-kind default. */
+		public long windowTimeoutMs() { return windowTimeoutMs; }
 
 		/** The gamescope argv to launch: an explicit override if set, else {@link GamescopeDisplay#defaultCommand}. */
 		public List<String> displayServerCommand() {

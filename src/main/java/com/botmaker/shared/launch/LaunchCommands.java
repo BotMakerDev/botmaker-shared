@@ -25,18 +25,34 @@ public final class LaunchCommands {
 
     private LaunchCommands() {}
 
-    /** Heroic's CLI ladder: the native binary, then the common Flatpak install. */
+    /**
+     * Heroic's CLI ladder: the native binary, then the common Flatpak install.
+     *
+     * <p><b>The launch request is the protocol URL, passed as an argument.</b> Heroic has no {@code launch}
+     * subcommand — its whole CLI surface is {@code --no-gui} plus a {@code heroic://} URL it reads out of
+     * {@code process.argv} (its own Steam-shortcut generator writes exactly
+     * {@code --no-gui --no-sandbox "heroic://launch?appName=…&runner=…"}). The earlier spelling
+     * {@code --no-gui launch <id>} was silently ignored: Heroic booted its full frontend with the window hidden,
+     * launched nothing, and a nested session then timed out waiting for a window that was never coming.
+     *
+     * <p>This is <em>not</em> the same as handing the URL to {@code xdg-open} ({@link GameLauncher#heroic}'s
+     * first rung): the opener routes it to whatever Heroic is already on {@code :0}, whereas here Heroic is our
+     * own child and inherits our {@code DISPLAY}. {@code --no-sandbox} matches Heroic's own non-Windows argv.
+     */
     public static List<List<String>> heroic(String appName) {
         String id = require(appName);
+        String uri = "heroic://launch/" + id;
         return List.of(
-                List.of("heroic", "--no-gui", "launch", id),
-                List.of("flatpak", "run", "com.heroicgameslauncher.hgl", "--no-gui", "launch", id));
+                List.of("heroic", "--no-gui", "--no-sandbox", uri),
+                List.of("flatpak", "run", "com.heroicgameslauncher.hgl", "--no-gui", "--no-sandbox", uri));
     }
 
-    /** Steam's CLI form: {@code steam -applaunch <appId>} (requires {@code steam} on {@code PATH}). */
+    /** Steam's CLI ladder: {@code steam -applaunch <appId>}, then the Flatpak install's form. */
     public static List<List<String>> steam(String appId) {
         String id = require(appId);
-        return List.of(List.of("steam", "-applaunch", id));
+        return List.of(
+                List.of("steam", "-applaunch", id),
+                List.of("flatpak", "run", "com.valvesoftware.Steam", "-applaunch", id));
     }
 
     /** Faugus's CLI ladder: the native launcher, then its Flatpak form. */

@@ -16,16 +16,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LaunchCommandsTest {
 
     @Test
-    void heroicLaddersNativeThenFlatpak() {
+    void heroicPassesTheProtocolUrlAsAnArgument() {
+        // Heroic has no `launch` subcommand: the request IS the heroic:// URL in argv. The old
+        // `--no-gui launch <id>` spelling booted a hidden, idle Heroic that launched nothing.
         assertEquals(List.of(
-                List.of("heroic", "--no-gui", "launch", "AbC123"),
-                List.of("flatpak", "run", "com.heroicgameslauncher.hgl", "--no-gui", "launch", "AbC123")),
+                List.of("heroic", "--no-gui", "--no-sandbox", "heroic://launch/AbC123"),
+                List.of("flatpak", "run", "com.heroicgameslauncher.hgl",
+                        "--no-gui", "--no-sandbox", "heroic://launch/AbC123")),
             LaunchCommands.heroic("AbC123"));
     }
 
     @Test
-    void steamHasTheApplaunchCliForm() {
-        assertEquals(List.of(List.of("steam", "-applaunch", "570")), LaunchCommands.steam("570"));
+    void steamLaddersNativeThenFlatpak() {
+        assertEquals(List.of(
+                List.of("steam", "-applaunch", "570"),
+                List.of("flatpak", "run", "com.valvesoftware.Steam", "-applaunch", "570")),
+            LaunchCommands.steam("570"));
     }
 
     @Test

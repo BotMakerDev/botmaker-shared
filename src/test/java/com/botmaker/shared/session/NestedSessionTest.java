@@ -1,5 +1,6 @@
 package com.botmaker.shared.session;
 
+import com.botmaker.shared.launch.LaunchCommands;
 import com.botmaker.shared.launch.LaunchSpec;
 import org.junit.jupiter.api.Test;
 
@@ -31,14 +32,35 @@ class NestedSessionTest {
 
 	@Test
 	void storeLaunchersRunTheirChildLaunchableCliLadder() {
-		// Heroic: run the CLI form as our child (inheriting DISPLAY=:N), native binary then Flatpak — not the
-		// daemon-routed heroic:// URL, which a launcher already on :0 would swallow.
-		assertEquals(List.of(
-				List.of("heroic", "--no-gui", "launch", "AbC123"),
-				List.of("flatpak", "run", "com.heroicgameslauncher.hgl", "--no-gui", "launch", "AbC123")),
-			NestedSession.commandFor(LaunchSpec.parse("heroic:AbC123")));
-		assertEquals(List.of(List.of("steam", "-applaunch", "570")),
-			NestedSession.commandFor(LaunchSpec.parse("steam:570")));
+		// Heroic: run the CLI form as our child (inheriting DISPLAY=:N) — the heroic:// URL is Heroic's own
+		// argv, not a handoff to the desktop's URL opener, which a launcher already on :0 would swallow.
+		assertEquals(LaunchCommands.heroic("AbC123"), NestedSession.commandFor(LaunchSpec.parse("heroic:AbC123")));
+		assertEquals(LaunchCommands.steam("570"), NestedSession.commandFor(LaunchSpec.parse("steam:570")));
+	}
+
+	@Test
+	void storeKindsGetTheLongWindowBudgetAndOwnChildrenTheShortOne() {
+		NestedSession.Options options = NestedSession.Options.gamescope(1280, 720);
+		// A launcher kind: we're waiting on the game Heroic/Steam starts, which can take minutes on a cold prefix.
+		assertEquals(NestedSession.LAUNCHER_WINDOW_TIMEOUT_MS,
+			NestedSession.windowTimeoutFor(LaunchSpec.parse("heroic:AbC123"), options));
+		assertEquals(NestedSession.LAUNCHER_WINDOW_TIMEOUT_MS,
+			NestedSession.windowTimeoutFor(LaunchSpec.parse("steam:570"), options));
+		// exe:/cli: ARE the process we spawned — no window in 20s means no window.
+		assertEquals(NestedSession.WINDOW_TIMEOUT_MS,
+			NestedSession.windowTimeoutFor(LaunchSpec.parse("exe:/opt/game/run.sh"), options));
+		assertEquals(NestedSession.WINDOW_TIMEOUT_MS, NestedSession.windowTimeoutFor(null, options));
+	}
+
+	@Test
+	void anExplicitWindowTimeoutOverridesThePerKindDefault() {
+		NestedSession.Options tuned = NestedSession.Options.gamescope(1280, 720).withWindowTimeout(300_000);
+		assertEquals(300_000, tuned.windowTimeoutMs());
+		assertEquals(300_000, NestedSession.windowTimeoutFor(LaunchSpec.parse("exe:/opt/game/run.sh"), tuned));
+		// Zero/negative means "no override" rather than "wait for nothing".
+		assertEquals(0, tuned.withWindowTimeout(-1).windowTimeoutMs());
+		assertEquals(NestedSession.WINDOW_TIMEOUT_MS,
+			NestedSession.windowTimeoutFor(LaunchSpec.parse("exe:/opt/game/run.sh"), tuned.withWindowTimeout(0)));
 	}
 
 	@Test
