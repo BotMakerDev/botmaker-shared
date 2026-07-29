@@ -498,6 +498,37 @@ public final class NestedSession implements DesktopSession {
 		public String binaryName() {
 			return binaryName;
 		}
+
+		/**
+		 * The stable lowercase wire id ({@code "xephyr"} / {@code "gamescope"}) — what the project file's
+		 * {@code session.backend} key holds and what a generated bot passes to {@code Session.useBackend}. Kept
+		 * distinct from {@link #binaryName()} on purpose: that one is capitalised {@code Xephyr} because it is
+		 * the executable's actual name, and persisting a value that has to match an executable's spelling is how
+		 * a rename breaks stored configs.
+		 */
+		public String id() {
+			return name().toLowerCase(java.util.Locale.ROOT);
+		}
+
+		/**
+		 * Parses a backend {@link #id()} — total, and empty for anything that isn't one, which includes
+		 * {@code null}, blank and the explicit {@code "auto"}. Empty therefore means <em>"no override, choose by
+		 * launch kind"</em> ({@link SessionBackends#preferredBackend}), never a silent fallback to a particular
+		 * backend: mapping an unrecognised value onto Xephyr is exactly the software-GL crash the kind-driven
+		 * choice exists to avoid.
+		 */
+		public static java.util.Optional<Backend> fromId(String id) {
+			if (id == null || id.isBlank()) {
+				return java.util.Optional.empty();
+			}
+			String normalized = id.trim().toLowerCase(java.util.Locale.ROOT);
+			for (Backend backend : values()) {
+				if (backend.id().equals(normalized)) {
+					return java.util.Optional.of(backend);
+				}
+			}
+			return java.util.Optional.empty();
+		}
 	}
 
 	/**

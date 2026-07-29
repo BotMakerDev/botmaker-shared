@@ -8,6 +8,19 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Isolated-launch fixes, Phase 3 (shared's share): `NestedSession.Backend.fromId`
+
+**Done:** `Backend` gains a stable lowercase `id()` and a **total** `fromId(String)` → `Optional<Backend>`, empty
+for `null`, blank, `"auto"` and anything unrecognised. It lives here because both the SDK (`Session.useBackend`,
+the `session.backend` key) and Studio (its backend combo) parse the same names, and the single-sourcing rule
+says the shared type owns what its consumers would otherwise each rebuild — they already had. `id()` is kept
+distinct from `binaryName()` deliberately: the latter is capitalised `Xephyr` because it must match the
+executable, and persisting a value that has to track an executable's spelling is how a rename breaks stored
+configs. Empty means "no override, choose by launch kind", never a fallback to a particular backend — the
+SDK-side bug this enabled is recorded in `botmaker-sdk/ROADMAP.md`.
+
+---
+
 ## 2026-07-29 — Isolated-launch fixes, Phase 2b: no X error can kill a bot, and gamescope clicks land on target
 
 The two defects the first live gamescope run found (previous entry), both root-caused with purpose-built JNA
