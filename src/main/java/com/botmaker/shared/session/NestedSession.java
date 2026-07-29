@@ -74,19 +74,22 @@ public final class NestedSession implements DesktopSession {
 	private final ControllerPointer pointer;
 	private final ControllerKeyboard keyboard;
 	private final Options options;
+	/** This session's own D-Bus bus (and Flatpak portal), or {@code null} when one couldn't be started. */
+	private final SessionBus bus;
 
 	private volatile GenericWindow attached;
 	private volatile Process gameProc;
 	private volatile boolean closed;
 
 	private NestedSession(String id, SessionReaper reaper, SessionDisplay display,
-						  LinuxController controller, Pointer ewmhDisplay, Options options) {
+						  LinuxController controller, Pointer ewmhDisplay, Options options, SessionBus bus) {
 		this.id = id;
 		this.reaper = reaper;
 		this.display = display;
 		this.controller = controller;
 		this.ewmhDisplay = ewmhDisplay;
 		this.options = options;
+		this.bus = bus;
 		this.pointer = new ControllerPointer(controller);
 		this.keyboard = new ControllerKeyboard(controller, this::attached);
 	}
@@ -105,8 +108,14 @@ public final class NestedSession implements DesktopSession {
 		SessionDisplay display = null;
 		LinuxController controller = null;
 		Pointer ewmh = null;
+		SessionBus bus = null;
 		try {
 			display = startDisplay(reaper, options);
+			// The bus comes up *after* the display and is given it, because the whole point is that the Flatpak
+			// portal this bus activates inherits the private DISPLAY — see SessionBus.
+			bus = SessionBackends.usesPrivateBus(options)
+				? SessionBus.start(reaper, id, Map.of("DISPLAY", display.displayName()))
+				: null;
 			// Pin XTest: on a private display device-level input is both accepted and non-intrusive, and the
 			// process-wide botmaker.linux.input property (which steers :0) must not decide :N's backend. The
 			// warp convention comes with the backend — gamescope's Xwayland reads an absolute warp as
@@ -117,14 +126,14 @@ public final class NestedSession implements DesktopSession {
 			if (ewmh == null) {
 				throw new SessionStartException("could not open a second connection to " + display.displayName());
 			}
-			NestedSession session = new NestedSession(id, reaper, display, controller, ewmh, options);
+			NestedSession session = new NestedSession(id, reaper, display, controller, ewmh, options, bus);
 			session.startWindowManager();
 			return session;
 		} catch (SessionStartException e) {
-			cleanupFailedStart(reaper, controller, ewmh);
+			cleanupFailedStart(reaper, controller, ewmh, bus);
 			throw e;
 		} catch (Exception e) {
-			cleanupFailedStart(reaper, controller, ewmh);
+			cleanupFailedStart(reaper, controller, ewmh, bus);
 			throw new SessionStartException("nested session start failed: " + e.getMessage(), e);
 		}
 	}
@@ -139,7 +148,11 @@ public final class NestedSession implements DesktopSession {
 	}
 
 	/** Reap a half-built session's resources in the reverse order they were acquired. */
-	private static void cleanupFailedStart(SessionReaper reaper, LinuxController controller, Pointer ewmh) {
+	private static void cleanupFailedStart(SessionReaper reaper, LinuxController controller, Pointer ewmh,
+										   SessionBus bus) {
+		if (bus != null) {
+			try { bus.close(); } catch (Throwable ignored) { }
+		}
 		if (ewmh != null) {
 			try { X11.INSTANCE.XCloseDisplay(ewmh); } catch (Throwable ignored) { }
 		}
@@ -309,6 +322,10 @@ public final class NestedSession implements DesktopSession {
 		closed = true;
 		try { controller.close(); } catch (Throwable t) { Diag.error("[Session] " + id + ": controller close: " + t.getMessage()); }
 		try { X11.INSTANCE.XCloseDisplay(ewmhDisplay); } catch (Throwable t) { Diag.error("[Session] " + id + ": ewmh close: " + t.getMessage()); }
+		// The bus daemon itself belongs to the reaper (it is in the slice); this only drops its generated files.
+		if (bus != null) {
+			try { bus.close(); } catch (Throwable t) { Diag.error("[Session] " + id + ": bus close: " + t.getMessage()); }
+		}
 		reaper.reap();
 		Diag.log("[Session] " + id + ": closed");
 	}
@@ -338,6 +355,14 @@ public final class NestedSession implements DesktopSession {
 	private Map<String, String> sessionEnv() {
 		Map<String, String> env = new LinkedHashMap<>();
 		env.put("DISPLAY", display.displayName());
+		if (bus != null) {
+			// The session's own bus — and with it its own Flatpak portal, so a launcher that re-spawns its game
+			// through the portal lands back on :N instead of the host's :0. See SessionBus for the measurements.
+			env.put("DBUS_SESSION_BUS_ADDRESS", bus.address());
+		}
+		// A Wayland-capable client offered both will usually prefer Wayland — and the host compositor is exactly
+		// what this session exists to stay out of. Blanking it forces the private X display.
+		env.put("WAYLAND_DISPLAY", "");
 		env.putAll(options.extraEnv());
 		return env;
 	}
@@ -547,9 +572,11 @@ public final class NestedSession implements DesktopSession {
 		private final Map<String, String> extraEnv;
 		private final List<String> gamescopeCommand;
 		private final long windowTimeoutMs;
+		private final boolean privateBus;
 
 		private Options(Backend backend, int width, int height, List<String> wm,
-						Map<String, String> extraEnv, List<String> gamescopeCommand, long windowTimeoutMs) {
+						Map<String, String> extraEnv, List<String> gamescopeCommand, long windowTimeoutMs,
+						boolean privateBus) {
 			this.backend = backend;
 			this.width = width;
 			this.height = height;
@@ -558,6 +585,7 @@ public final class NestedSession implements DesktopSession {
 			this.extraEnv = Map.copyOf(extraEnv);
 			this.gamescopeCommand = gamescopeCommand == null ? List.of() : List.copyOf(gamescopeCommand);
 			this.windowTimeoutMs = Math.max(0, windowTimeoutMs);
+			this.privateBus = privateBus;
 		}
 
 		/**
@@ -566,7 +594,7 @@ public final class NestedSession implements DesktopSession {
 		 * Xephyr has no EWMH and therefore no input focus to inject keys into).
 		 */
 		public static Options xephyr(int width, int height) {
-			return new Options(Backend.XEPHYR, width, height, null, Map.of(), List.of(), 0);
+			return new Options(Backend.XEPHYR, width, height, null, Map.of(), List.of(), 0, true);
 		}
 
 		/**
@@ -574,7 +602,7 @@ public final class NestedSession implements DesktopSession {
 		 * gamescope is itself the window manager for its embedded Xwayland.
 		 */
 		public static Options gamescope(int width, int height) {
-			return new Options(Backend.GAMESCOPE, width, height, null, Map.of(), List.of(), 0);
+			return new Options(Backend.GAMESCOPE, width, height, null, Map.of(), List.of(), 0, true);
 		}
 
 		/**
@@ -583,7 +611,7 @@ public final class NestedSession implements DesktopSession {
 		 * the Xephyr default.
 		 */
 		public Options withWindowManager(String... command) {
-			return new Options(backend, width, height, List.of(command), extraEnv, gamescopeCommand, windowTimeoutMs);
+			return new Options(backend, width, height, List.of(command), extraEnv, gamescopeCommand, windowTimeoutMs, privateBus);
 		}
 
 		/** This session, but with no window manager at all — the explicit opt-out of the backend default. */
@@ -593,7 +621,7 @@ public final class NestedSession implements DesktopSession {
 
 		/** This session, but with {@code env} overlaid on every child's environment (in addition to DISPLAY). */
 		public Options withExtraEnv(Map<String, String> env) {
-			return new Options(backend, width, height, windowManagerCommand, env, gamescopeCommand, windowTimeoutMs);
+			return new Options(backend, width, height, windowManagerCommand, env, gamescopeCommand, windowTimeoutMs, privateBus);
 		}
 
 		/**
@@ -603,7 +631,7 @@ public final class NestedSession implements DesktopSession {
 		 * Proton prefix on a slow disk — not something this class can know.
 		 */
 		public Options withWindowTimeout(long millis) {
-			return new Options(backend, width, height, windowManagerCommand, extraEnv, gamescopeCommand, millis);
+			return new Options(backend, width, height, windowManagerCommand, extraEnv, gamescopeCommand, millis, privateBus);
 		}
 
 		/**
@@ -612,7 +640,7 @@ public final class NestedSession implements DesktopSession {
 		 * touching {@link GamescopeDisplay}.
 		 */
 		public Options withGamescopeCommand(String... command) {
-			return new Options(backend, width, height, windowManagerCommand, extraEnv, List.of(command), windowTimeoutMs);
+			return new Options(backend, width, height, windowManagerCommand, extraEnv, List.of(command), windowTimeoutMs, privateBus);
 		}
 
 		public Backend backend() { return backend; }
@@ -631,6 +659,20 @@ public final class NestedSession implements DesktopSession {
 
 		/** The explicit window-wait budget in ms, or {@code 0} to use the per-kind default. */
 		public long windowTimeoutMs() { return windowTimeoutMs; }
+
+		/** Whether this session brings up its own D-Bus bus and Flatpak portal — see {@link SessionBus}. */
+		public boolean privateBus() { return privateBus; }
+
+		/**
+		 * This session, but sharing the host's D-Bus session bus instead of owning one. The opt-out exists to be
+		 * bisected with, not used: without a private bus a Flatpak launcher's game is spawned by the <em>host's</em>
+		 * Flatpak portal and lands on {@code :0}, and a launcher already running on the desktop will swallow the
+		 * launch. Display isolation still holds for anything that stays in our process tree.
+		 */
+		public Options withoutPrivateBus() {
+			return new Options(backend, width, height, windowManagerCommand, extraEnv, gamescopeCommand,
+				windowTimeoutMs, false);
+		}
 
 		/** The gamescope argv to launch: an explicit override if set, else {@link GamescopeDisplay#defaultCommand}. */
 		public List<String> displayServerCommand() {

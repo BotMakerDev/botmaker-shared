@@ -121,6 +121,22 @@ public final class SessionBackends {
     }
 
     /**
+     * Whether a session started with these {@code options} should own a private D-Bus session bus. Policy lives
+     * here for the same reason the window-manager and pointer-warp answers do: one place, so the SDK's bot
+     * runtime and Studio's launch surfaces can't drift.
+     *
+     * <p><b>On for every backend.</b> This is not a display-backend property — it is what stops a *launcher*
+     * from escaping the session, and both Xephyr and gamescope sessions launch launchers. A private bus gives
+     * the session its own Flatpak portal (so a portal re-spawn inherits the private {@code DISPLAY} instead of
+     * the host's {@code :0}) and hides the host's launcher instance from a single-instance check. The switch is
+     * kept because a bus is the one part of bring-up that can be turned off without losing the display
+     * isolation, which makes it the natural thing to bisect when a launcher misbehaves.
+     */
+    public static boolean usesPrivateBus(NestedSession.Options options) {
+        return options == null || options.privateBus();
+    }
+
+    /**
      * A one-line, user-facing hint for making {@code backend} available — shown when a launch needs it but it
      * isn't installed. gamescope carries the "real GPU in the private display" rationale (the reason a game
      * can't just fall back to Xephyr); Xephyr the equivalent 2D note.

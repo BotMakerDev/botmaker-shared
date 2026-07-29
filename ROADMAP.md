@@ -8,6 +8,59 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Phase 6: the session owns a D-Bus bus (and its own Flatpak portal), not just a display
+
+**The defect this fixes is the one that invalidated the whole isolation model.** Phase 5's live run showed the
+Heroic argv fix working and the game starting — on `:0`. Handing a launcher `DISPLAY=:N` only confines its
+*descendants*, and a Flatpak launcher's game usually isn't one: Heroic runs it through umu, which re-enters the
+host with `steam-runtime-launch-client --bus-name=org.freedesktop.portal.Flatpak`. `flatpak-portal` is a
+**D-Bus-activated service of the host session** whose own environment holds `DISPLAY=:0`, and it spawns the
+container from *its* environment. Measured process by process:
+
+```
+steam-runtime-launch-client  DISPLAY=:3   <- still ours
+pv-adverb                    DISPLAY=:0   <- escaped
+proton / wineserver          DISPLAY=:0
+```
+
+`--pass-env-matching=*` does not save it. The lesson generalises past Heroic: **passing an environment variable
+is cooperative, and any layer that re-spawns through a portal, a D-Bus activation or a single-instance daemon
+resets it.**
+
+**Done:**
+- **New `SessionBus`** — a private `dbus-daemon --session` started through the session's `SessionReaper` (so it
+  joins the slice and is reaped with everything else, no new teardown path), given the private `DISPLAY` in its
+  own environment. The portal *it* activates therefore inherits `:N`, and so does the container that portal
+  spawns. Modelled on `NestedDisplay`: launch, poll an output file for the address, guard against a partial
+  write (`guid=` is the completeness marker, written last).
+- **The crux is one omitted line.** The stock
+  `/usr/share/dbus-1/services/org.freedesktop.portal.Flatpak.service` carries `SystemdService=`, which defers
+  activation to the user-global `flatpak-portal.service` — the very portal already holding `DISPLAY=:0`. We
+  generate our own service file with the same `Name=`/`Exec=` (read out of the stock file, so no distro path is
+  hardcoded) and **no** `SystemdService=`. Without that omission the class is a silent no-op, which is why
+  `SessionBusTest` asserts on it directly.
+- **Proven live before the code was written.** A hand-built private bus produced a second `flatpak-portal` on it
+  carrying `DISPLAY=:9`, and re-running the exact Heroic chain then showed `pv-adverb` and `wineserver` on `:9`
+  — the two processes that had escaped. This was verified first precisely because the whole design rests on it.
+- **`sessionEnv()` gains `DBUS_SESSION_BUS_ADDRESS`** and blanks `WAYLAND_DISPLAY` (a Wayland-capable client
+  offered both prefers Wayland — i.e. the host compositor this session exists to stay out of).
+- **`SessionBackends.usesPrivateBus(options)`** holds the policy, next to `windowManagerFor`/`pointerWarpFor`.
+  On for **both** backends: this is a property of confining *launchers*, not of the display server.
+  `Options.withoutPrivateBus()` is a bisect handle, documented as such.
+- **A private bus is genuinely private**, and that is mostly the point: it also hides the host's launcher
+  instance from a single-instance check, which was the original "close Heroic and try again" failure. Host
+  session services (notifications, secret store) are not reachable from it — acceptable for a launcher that
+  keeps its own credentials, and verified live (Heroic enumerated all 426 games and launched normally).
+  **There is deliberately no `xdg-dbus-proxy` bridge**: `dbus-daemon` cannot forward unknown names upstream, so
+  a hybrid "our portal, the host's everything else" bus is not expressible — it is one bus or the other.
+- Best-effort by contract: no `dbus-daemon`, or no address, degrades to a display-only session with a `Diag`
+  trace, exactly as before.
+
+**Deferred / next:** Phase 7 (isolatability probe + honest refusal), then Phase 9's live end-to-end. Also
+recorded: splitting the session stack into its own `botmaker-session` module once the contract settles.
+
+---
+
 ## 2026-07-29 — Isolated-launch fixes, Phase 3 (shared's share): `NestedSession.Backend.fromId`
 
 **Done:** `Backend` gains a stable lowercase `id()` and a **total** `fromId(String)` → `Optional<Backend>`, empty

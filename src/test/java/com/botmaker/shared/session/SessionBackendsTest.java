@@ -87,6 +87,19 @@ class SessionBackendsTest {
     }
 
     @Test
+    void everyBackendGetsAPrivateBusUnlessExplicitlyOptedOut() {
+        // Not a display-backend property: the private bus is what stops a *launcher* escaping the session (its
+        // own Flatpak portal, and no host instance for a single-instance check to find), and both backends run
+        // launchers. On by default for both; only the explicit bisect opt-out turns it off.
+        assertTrue(SessionBackends.usesPrivateBus(NestedSession.Options.gamescope(1280, 720)));
+        assertTrue(SessionBackends.usesPrivateBus(NestedSession.Options.xephyr(1280, 720)));
+        assertFalse(SessionBackends.usesPrivateBus(
+                NestedSession.Options.gamescope(1280, 720).withoutPrivateBus()));
+        // A null options is the "nothing stated" case and must not silently drop the protection.
+        assertTrue(SessionBackends.usesPrivateBus(null));
+    }
+
+    @Test
     void installHintNamesTheBackend() {
         assertTrue(SessionBackends.installHint(NestedSession.Backend.GAMESCOPE).toLowerCase().contains("gamescope"));
         assertTrue(SessionBackends.installHint(NestedSession.Backend.XEPHYR).toLowerCase().contains("xephyr"));
