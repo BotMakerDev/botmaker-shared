@@ -9,6 +9,7 @@ import com.botmaker.shared.capture.linux.X11Utils;
 import com.botmaker.shared.launch.GameLauncher;
 import com.botmaker.shared.launch.HostLauncherProbe;
 import com.botmaker.shared.launch.LaunchCommands;
+import com.botmaker.shared.launch.LaunchIsolation;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.launch.Launcher;
 import com.sun.jna.Pointer;
@@ -237,9 +238,9 @@ public final class NestedSession implements DesktopSession {
 	/**
 	 * Launch {@code spec} into this nested display and attach to the window it produces. Any instance already
 	 * running on {@code :0} is force-stopped first (a game can't run in two places, and we want <em>ours</em>).
-	 * A kind with no child-launchable command ({@code epic:}/{@code emu-app:}) is refused, as is a store kind
-	 * whose launcher UI is already open on the host ({@link HostLauncherProbe} — it would forward our request to
-	 * that copy and start the game on {@code :0}). Otherwise each form of the ladder is tried in turn until one
+	 * Whether the target can be confined at all is asked once, up front, by {@link LaunchIsolation} — no
+	 * child-launchable command, a host launcher already open, or a Flatpak-only target with no private bus to
+	 * own its portal all refuse here with that check's wording. Otherwise each form of the ladder is tried until one
 	 * maps a window on {@code :N}, within {@link #windowTimeoutFor the kind's window budget}. When none does,
 	 * {@link #attached()} stays null — the caller must treat that as a loud failure, not fall back to {@code :0}.
 	 */
@@ -248,19 +249,15 @@ public final class NestedSession implements DesktopSession {
 		if (closed || spec == null) {
 			return;
 		}
+		// One up-front question — "can this be confined at all?" — instead of three separate guards that each
+		// answered part of it. A refusal here costs nothing; discovering the same thing after the launch costs
+		// the whole window budget and reaps a half-booted launcher (the Electron SIGTRAP).
+		LaunchIsolation.Verdict verdict = LaunchIsolation.check(spec);
+		if (!verdict.isolatable()) {
+			Diag.error("[Session] " + id + ": " + verdict.reason());
+			return;
+		}
 		List<List<String>> candidates = commandFor(spec);
-		if (candidates.isEmpty()) {
-			Diag.error("[Session] " + id + ": nested launch not supported for kind " + spec.kind()
-				+ " (" + spec.spec() + ") — no child-launchable command (Epic is URL-only, emulator apps run over ADB)");
-			return;
-		}
-		if (HostLauncherProbe.isRunning(spec)) {
-			// Single-instance: our child would forward the request to the copy on :0 and exit, mapping the game
-			// on the real desktop. Refuse now rather than burning the window budget and reaping a launcher that
-			// was never going to draw here.
-			Diag.error("[Session] " + id + ": " + HostLauncherProbe.refusalMessage(spec.kind()));
-			return;
-		}
 		stopHostInstance(spec);
 
 		long windowTimeoutMs = windowTimeoutFor(spec, options);
@@ -284,10 +281,10 @@ public final class NestedSession implements DesktopSession {
 			Diag.error("[Session] " + id + ": `" + String.join(" ", command) + "` mapped no window on "
 				+ display.displayName() + " within " + windowTimeoutMs + "ms — trying the next launch form");
 		}
-		// Every form ran but nothing appeared on :N. For a store launcher this is usually its own daemon,
-		// already running on :0 with a single-instance lock, swallowing our child and mapping the game there.
+		// Every form ran but nothing appeared on :N. The up-front probe already ruled out what it can see, so
+		// rather than guess, ask what the process table says actually happened.
 		Diag.error("[Session] " + id + ": " + spec.spec() + " launched but no window appeared on "
-			+ display.displayName() + " — a host launcher daemon may be stealing it; close it and retry");
+			+ display.displayName() + ". " + LaunchIsolation.noWindowDiagnosis(spec));
 	}
 
 	@Override

@@ -1,12 +1,10 @@
 package com.botmaker.shared.session;
 
+import com.botmaker.shared.Executables;
 import com.botmaker.shared.capture.linux.input.PointerWarp;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 
-import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -150,17 +148,8 @@ public final class SessionBackends {
         };
     }
 
-    /** Best-effort {@code PATH} probe for an executable named {@code binary}; false when {@code PATH} is unset. */
+    /** Best-effort {@code PATH} probe; single-sourced in {@link Executables} (three copies had drifted). */
     private static boolean onPath(String binary) {
-        String path = System.getenv("PATH");
-        if (path == null || path.isBlank()) {
-            return false;
-        }
-        for (String dir : path.split(File.pathSeparator)) {
-            if (!dir.isBlank() && Files.isExecutable(Path.of(dir, binary))) {
-                return true;
-            }
-        }
-        return false;
+        return Executables.onPath(binary);
     }
 }

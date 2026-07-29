@@ -8,6 +8,50 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-29 — Phase 7: ask whether a target *can* be isolated, before spending anything on it
+
+Phase 6 made isolation hold for a Flatpak launcher; this phase makes the cases where it still can't hold say so
+**up front, in their own words**. Until now every one of them looked identical from the outside: the private
+display sat empty for the whole window budget (up to two minutes for a store launcher), the half-booted child
+was reaped — which is how an Electron launcher dies with a `SIGTRAP` coredump — and the user got a single
+guess ("a host launcher daemon may be stealing it") as the explanation.
+
+**Done**
+
+- **`launch/LaunchIsolation`** — one question, `check(spec)` → `Verdict(blocker, command, reason)`, asked before
+  bring-up. The `Blocker` enum names the four distinguishable causes rather than collapsing them into a
+  timeout: `NO_CHILD_COMMAND` (`epic:` hands its launch to a URL opener, `emu-app:` runs over ADB — nothing to
+  give a `DISPLAY` to), `HOST_LAUNCHER_OPEN` (single-instance UI already on `:0`), `PORTAL_WOULD_ESCAPE` (only
+  the Flatpak rung is installed and there is no `dbus-daemon` to own its portal — the Phase 6 failure mode when
+  Phase 6's mechanism is unavailable), `NOT_INSTALLED`. The reason is a finished sentence a caller surfaces
+  verbatim, so the SDK, Studio and the session itself cannot word the same refusal three ways.
+  `HOST_LAUNCHER_OPEN` reuses `HostLauncherProbe.refusalMessage` rather than restating it.
+- **`LaunchIsolation.noWindowDiagnosis(spec)`** — the backstop for what a probe can't see, and it *observes*
+  instead of guessing: a process carrying the target's own launch identity (`RunningProbe.commandLineMentions`)
+  means the game is running **somewhere else** — it escaped to the desktop; nothing running means it never got
+  that far. Two different actions, previously offered to the user as one "or".
+- **Consumers now refuse rather than launch.** `NestedSession.launch` replaces its two ad-hoc guards with the
+  single verdict (and its post-mortem with the diagnosis); the SDK's `SessionBootstrap.launchIsolated` declines
+  to `:0` with the reason before spawning anything; Studio's `BackgroundLauncher.start` reports it immediately.
+- **`Executables` (new, module root)** — `onPath(name)` and `exists(argv0)`. There were three private copies of
+  the `PATH` walk (`SessionBackends`, `SpectacleCapture`, and a fourth about to be written here) and they had
+  already drifted. The split matters: an `exe:` target is routinely an absolute path, and searching `PATH` for
+  `/opt/game/game.x86_64` answers a confident, wrong "no". `SessionBus` now takes the daemon name from
+  `LaunchIsolation.PRIVATE_BUS_BINARY`, so "can we isolate a Flatpak target?" and "what do we spawn?" cannot
+  drift onto different binaries.
+
+**Verified** — `LaunchIsolationTest` (8 cases, injected `PATH`/process probes; the flatpak-with/without-bus
+pair is the one that pins Phase 6's mechanism to the refusal). Both live suites still green, no leaks. Run
+against this box: `heroic:` → `HOST_LAUNCHER_OPEN` instantly (Heroic was open — the original bug report, now a
+sentence instead of a coredump); Heroic is Flatpak-only here, so its isolatability rests entirely on the
+`dbus-daemon` Phase 6 uses.
+
+**Deferred / next** — the `HOST_LAUNCHER_OPEN` refusal is deliberately kept even though a private bus should
+hide the host instance from a single-instance check. That it does is a live-verification result and isn't one
+yet; until it is, "close it and retry" beats re-running the launch that produced the coredump.
+
+---
+
 ## 2026-07-29 — Phase 6: the session owns a D-Bus bus (and its own Flatpak portal), not just a display
 
 **The defect this fixes is the one that invalidated the whole isolation model.** Phase 5's live run showed the

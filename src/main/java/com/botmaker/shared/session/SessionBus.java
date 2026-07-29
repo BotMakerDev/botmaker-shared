@@ -1,6 +1,7 @@
 package com.botmaker.shared.session;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.launch.LaunchIsolation;
 
 import java.io.File;
 import java.lang.ProcessBuilder.Redirect;
@@ -98,7 +99,7 @@ final class SessionBus implements AutoCloseable {
 			// --print-address writes the address to stdout; --nofork keeps the process in our reap group (a
 			// forking daemon would escape the scope and outlive the session).
 			Process daemon = reaper.launch("dbus",
-				List.of("dbus-daemon", "--config-file=" + config, "--print-address", "--nofork"),
+				List.of(LaunchIsolation.PRIVATE_BUS_BINARY, "--config-file=" + config, "--print-address", "--nofork"),
 				sessionEnv,
 				Redirect.appendTo(out));
 			String address = awaitAddress(out, daemon);

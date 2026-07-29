@@ -1,9 +1,9 @@
 package com.botmaker.shared.capture;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.Executables;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -19,7 +19,7 @@ public final class SpectacleCapture implements CaptureBackend {
 
     /** True when running under Wayland with the {@code spectacle} binary on PATH. */
     static boolean isAvailable() {
-        return System.getenv("WAYLAND_DISPLAY") != null && isOnPath("spectacle");
+        return System.getenv("WAYLAND_DISPLAY") != null && Executables.onPath("spectacle");
     }
 
     @Override
@@ -47,19 +47,5 @@ public final class SpectacleCapture implements CaptureBackend {
         }
         // Fall back to XWayland via Robot rather than returning null.
         return new RobotCapture().captureDesktop();
-    }
-
-    private static boolean isOnPath(String executable) {
-        String path = System.getenv("PATH");
-        if (path == null) {
-            return false;
-        }
-        for (String dir : path.split(File.pathSeparator)) {
-            File candidate = new File(dir, executable);
-            if (candidate.isFile() && candidate.canExecute()) {
-                return true;
-            }
-        }
-        return false;
     }
 }
