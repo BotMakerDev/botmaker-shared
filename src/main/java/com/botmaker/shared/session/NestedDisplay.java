@@ -62,6 +62,11 @@ final class NestedDisplay implements SessionDisplay {
 	}
 
 	@Override
+	public long serverPid() {
+		return server.pid();
+	}
+
+	@Override
 	public boolean hardwareAccelerated() {
 		return false; // Xephyr here is glamor-over-whatever-the-host-has; treated as the 2D backend.
 	}

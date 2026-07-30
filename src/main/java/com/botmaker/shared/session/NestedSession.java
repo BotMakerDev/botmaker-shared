@@ -83,6 +83,19 @@ public final class NestedSession implements DesktopSession {
 	private static final long MEMBER_SHUTDOWN_MS = 20_000;
 	/** The reaper role the game is launched under — everything else in the group is session infrastructure. */
 	private static final String APP_ROLE = "app";
+	/**
+	 * Set to {@code false} to leave the display server's host window visible for the whole bring-up (the old
+	 * behaviour). The escape hatch exists because minimizing it is a host-WM-mediated operation on a window we
+	 * don't own: if a compositor ever throttles an iconified server's frames, capture would stall, and that is
+	 * far worse than the black flash this hides.
+	 */
+	public static final String HIDE_UNTIL_READY_PROPERTY = "botmaker.session.hideuntilready";
+	/**
+	 * How long to keep looking for the server's window on the host desktop. Generous because the search runs off
+	 * the start path and the thing it is hiding lasts up to {@link #LAUNCHER_WINDOW_TIMEOUT_MS}: gamescope's output
+	 * window showed up more than 3s after its Xwayland was connectable, which a tighter budget simply missed.
+	 */
+	private static final long HOST_WINDOW_FIND_MS = 15_000;
 
 	private final String id;
 	private final SessionReaper reaper;
@@ -97,6 +110,10 @@ public final class NestedSession implements DesktopSession {
 	private final SessionBus bus;
 
 	private final SessionAttachment attachment;
+	/** The server's window on the host desktop while it is being kept out of sight, or {@code null}. */
+	private volatile SessionHostWindow hostWindow;
+	/** Set once the session has something to show, so a search still in flight knows not to hide anything. */
+	private volatile boolean revealRequested;
 	private volatile Process gameProc;
 	private volatile boolean closed;
 
@@ -161,6 +178,7 @@ public final class NestedSession implements DesktopSession {
 			// must be free to collect anything it left behind.
 			LIVE.add(id);
 			session.startWindowManager();
+			session.hideUntilItHasSomethingToShow();
 			return session;
 		} catch (SessionStartException e) {
 			cleanupFailedStart(reaper, controller, ewmh, bus);
@@ -193,6 +211,61 @@ public final class NestedSession implements DesktopSession {
 			try { controller.close(); } catch (Throwable ignored) { }
 		}
 		reaper.reap();
+	}
+
+	/**
+	 * Minimize the display server's own window on the host desktop until this session has a window of its own to
+	 * put in it. The server maps that window the moment it starts and nothing draws into it until the game (or the
+	 * launcher) appears on {@code :N} — which for a store launcher is up to
+	 * {@link #LAUNCHER_WINDOW_TIMEOUT_MS two minutes} of black rectangle on the user's real desktop.
+	 *
+	 * <p>Best-effort and silent when the window can't be identified (see {@link SessionHostWindow#find}): that
+	 * case is exactly today's behaviour. Skipped entirely when {@link #HIDE_UNTIL_READY_PROPERTY} is {@code false}.
+	 */
+	private void hideUntilItHasSomethingToShow() {
+		if (!Boolean.parseBoolean(System.getProperty(HIDE_UNTIL_READY_PROPERTY, "true"))) {
+			return;
+		}
+		// Off the start path: the window can take seconds to appear (gamescope publishes its output window well
+		// after its Xwayland accepts connections — measured at more than 3s on the dev box), and a cosmetic
+		// nicety must never delay the launch it is hiding.
+		Thread hider = new Thread(this::findAndHideHostWindow, "session-host-window-hider-" + id);
+		hider.setDaemon(true);
+		hider.start();
+	}
+
+	private void findAndHideHostWindow() {
+		SessionHostWindow window = SessionHostWindow.find(display.serverPid(), options.backend().binaryName(),
+			HOST_WINDOW_FIND_MS);
+		if (window == null) {
+			Diag.log("[Session] " + id + ": no host window found for " + options.backend().binaryName()
+				+ " — leaving bring-up visible");
+			return;
+		}
+		hostWindow = window;
+		// Two guards against hiding a window that has something real in it — an empty session is the only thing
+		// worth hiding. The second one is what makes this safe on gamescope, whose host window isn't even mapped
+		// until a client maps something on its Xwayland (measured: no WM_STATE, absent from _NET_CLIENT_LIST while
+		// empty) — so by the time we can find it there is already content, and hiding it would hide the launcher.
+		if (revealRequested || SessionHostWindow.anythingMappedOn(display.displayName())) {
+			return;
+		}
+		window.hide();
+		if (revealRequested) {
+			window.reveal();   // ...or in the instant between the check and the hide
+		}
+	}
+
+	/**
+	 * Stop hiding the host window — and, if the search hasn't finished yet, don't start. Idempotent:
+	 * {@link SessionHostWindow#reveal} only fires once, so the per-attach call site stays unconditional.
+	 */
+	private void revealHostWindow() {
+		revealRequested = true;
+		SessionHostWindow window = hostWindow;
+		if (window != null) {
+			window.reveal();
+		}
 	}
 
 	/** Launch the resolved window manager (if any) into the nested display and wait, best-effort, for it. */
@@ -260,6 +333,10 @@ public final class NestedSession implements DesktopSession {
 	@Override
 	public void attach(GenericWindow window) {
 		attachment.attach(window);
+		if (window != null) {
+			// There is something in the session now, so the host window is worth looking at.
+			revealHostWindow();
+		}
 	}
 
 	/**
@@ -286,6 +363,17 @@ public final class NestedSession implements DesktopSession {
 		if (closed || spec == null) {
 			return;
 		}
+		try {
+			launchAndAttach(spec);
+		} finally {
+			// However that went, stop hiding the host window. A launch that produced nothing is much easier to
+			// understand as an empty display than as a window the user can't find, and a minimized window is
+			// exactly what nobody thinks to look for.
+			revealHostWindow();
+		}
+	}
+
+	private void launchAndAttach(LaunchSpec spec) {
 		// One up-front question — "can this be confined at all?" — instead of three separate guards that each
 		// answered part of it. A refusal here costs nothing; discovering the same thing after the launch costs
 		// the whole window budget and reaps a half-booted launcher (the Electron SIGTRAP).
@@ -399,6 +487,11 @@ public final class NestedSession implements DesktopSession {
 		// cannot reach, so a survivor here is a real orphan.
 		Diag.error("[Session] " + id + ": " + survivors.size() + " session process(es) survived SIGKILL: "
 			+ survivors.stream().map(SessionMembers::describe).reduce((a, b) -> a + ", " + b).orElse(""));
+	}
+
+	/** The pid rooting this session's display-server tree — see {@link SessionDisplay#serverPid()}. */
+	long serverPid() {
+		return display.serverPid();
 	}
 
 	/** The nested display this session drives, e.g. {@code ":9"} — for diagnostics and tests. */

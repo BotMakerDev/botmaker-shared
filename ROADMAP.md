@@ -8,6 +8,53 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 11 (step 4): don't show the session's window until there is something in it
+
+Reported from a live run: *"would be cool to not show the window until the real process is ran, sometimes I have
+black flashes — not saying to not show the launcher at all"*. Xephyr maps its output window on `:0` the instant it
+starts and nothing is drawn into it until a client maps something on `:N`; for a store launcher that is up to two
+minutes of black rectangle on the user's real desktop.
+
+### Done
+
+- **`SessionHostWindow`** — finds the display server's own window on the host desktop and minimizes it until the
+  session has content, restoring it on the first window to appear on `:N`. That trigger is the launcher-friendly
+  one: `awaitWindow` returns the *first* new top-level, launcher UI included, so the launcher is shown as soon as
+  it maps and only the empty stretch is hidden. `XIconifyWindow` (ICCCM `WM_CHANGE_STATE`) rather than
+  `XUnmapWindow`, so the host WM stays in charge and a plain `XMapWindow` undoes it.
+- **The search runs off the start path**, in a daemon thread with a 15s budget, because gamescope publishes its
+  output window *seconds* after its Xwayland accepts connections — a 3s in-line probe simply missed it, and a
+  cosmetic nicety must never delay the launch it is hiding. `revealRequested` + `anythingMappedOn` make a search
+  still in flight decline to hide a session that has meanwhile filled up.
+- **Two false-positive guards, both from live misfires of my own first cut.** Matching a window whose *title*
+  mentions the server binary would minimize a terminal running `gamescope …`, so the fallback is `WM_CLASS` only
+  (pid first, always); and two windows of that class with no pid to separate them ⇒ minimize neither, since the
+  other one is another session's server. Xephyr sets no `_NET_WM_PID`, so the class path is the real one for it.
+- **`SessionDisplay.serverPid()`** — both backends already held the `Process`; the host-window search needs the
+  pid tree (`systemd-run --scope` sits between us and the server, so descendants count).
+- Escape hatch `-Dbotmaker.session.hideuntilready=false`, because this is a host-WM-mediated operation on a window
+  we don't own and a compositor that throttled an iconified server's frames would turn a cosmetic flash into a
+  stalled capture.
+
+### Measured live on the dev box (Fedora/KDE X11), both backends
+
+- **The gate holds: capture keeps producing frames while the host window is iconified**, on Xephyr *and* gamescope
+  (two frames a second apart, window confirmed non-viewable on `:0` in between). This was the condition the step
+  was allowed to land under.
+- **gamescope needs none of this, and now provably doesn't get it.** With no client on its Xwayland its host window
+  is not mapped at all — no `WM_STATE`, absent from `_NET_CLIENT_LIST` — and it appears the instant a client maps
+  something. So there is no empty black window to hide; the black flash a gamescope user sees is the gap between
+  its window being mapped and its first rendered frame, which iconifying cannot help. `anythingMappedOn` is what
+  keeps us from minimizing a window that already has the launcher in it.
+- **"Mapped" alone was not a usable emptiness test**: an empty Xephyr+openbox display already carries a viewable
+  window — openbox's 1x1 support window parked at `-100,-100` — so the first version of the check called every
+  session occupied and quietly did nothing. Content now means viewable *and* bigger than a pixel.
+- `SessionHostWindowLiveTest` (opt-in, `-Dbotmaker.live=true`, `-Dbotmaker.live.backend=xephyr|gamescope`) asserts
+  all of it against X state rather than log lines: an empty session's window is not viewable, an occupied one's is,
+  and capture answers twice while it is hidden. Reactor green: shared 202 (8 skipped live), sdk 114, studio 352.
+
+---
+
 ## 2026-07-30 — Phase 11 (step 3): a bot joins the session instead of starting a rival one
 
 The workflow the last two steps were clearing the way for: launch the game once ("▶ Launch now"), watch it, then

@@ -152,6 +152,10 @@ public interface X11 extends Library {
 	// Unmap (hide) a window. Paired with XChangeProperty + XMapWindow to force a WM to re-read a property it
 	// only inspects at map time — notably _NET_WM_WINDOW_TYPE (see X11Utils.promoteAboveFullscreen).
 	int XUnmapWindow(Pointer display, Pointer window);
+	// Minimize a top-level: sends the ICCCM WM_CHANGE_STATE(IconicState) message the WM acts on (a bare
+	// XUnmapWindow would instead take the window away from the WM's management). XMapWindow above undoes it.
+	// screenNumber is the window's screen (XDefaultScreen for a single-screen display).
+	int XIconifyWindow(Pointer display, Pointer window, int screenNumber);
 
 	// Install a process-wide Xlib error handler; returns the previous one. This is not a nicety: Xlib's DEFAULT
 	// handler prints the protocol error and then calls exit(1) — a BadMatch from XGetImage takes the whole JVM

@@ -27,6 +27,14 @@ interface SessionDisplay {
 	boolean alive();
 
 	/**
+	 * The pid of the process this session launched to get the server up — under the systemd strategy that is the
+	 * {@code systemd-run --scope} wrapper rather than the server itself, so treat it as the <em>root</em> of the
+	 * server's tree, not the server. {@link SessionHostWindow} uses it to find the output window the server maps
+	 * on the host desktop (matching {@code _NET_WM_PID} against the pid or any of its descendants).
+	 */
+	long serverPid();
+
+	/**
 	 * Whether games in this display get a real GPU (vs. a software rasteriser). Xephyr is 2D-only here;
 	 * gamescope carries hardware GL/Vulkan. Drives {@link Capability#HARDWARE_GL}/{@link Capability#VULKAN}.
 	 */

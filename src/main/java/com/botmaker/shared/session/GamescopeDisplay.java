@@ -77,6 +77,11 @@ final class GamescopeDisplay implements SessionDisplay {
 	}
 
 	@Override
+	public long serverPid() {
+		return server.pid();
+	}
+
+	@Override
 	public boolean hardwareAccelerated() {
 		return true; // gamescope's embedded Xwayland renders on the real GPU — the whole reason to use it.
 	}
@@ -91,7 +96,10 @@ final class GamescopeDisplay implements SessionDisplay {
 	 * and the click coordinates assume.
 	 *
 	 * <p>The nested window is <b>visible</b> on purpose: a background session you cannot look at is impossible
-	 * to debug, and seeing the bot play is half the point. For a genuinely invisible run, override this argv
+	 * to debug, and seeing the bot play is half the point. It is not visible <em>immediately</em>, though:
+	 * gamescope maps its output window the instant it starts, and nothing is drawn into it until the game — or a
+	 * store launcher, minutes later — maps a window on the Xwayland, so {@link SessionHostWindow} minimizes it
+	 * for that stretch and restores it on the session's first attach. For a genuinely invisible run, override this argv
 	 * (via {@link NestedSession.Options#withGamescopeCommand}) with {@code --backend headless} — gamescope still
 	 * hosts a GPU-backed Xwayland with no output window. That path is documented, not verified: whether an
 	 * X11 window capture of a headless gamescope reads real pixels is exactly the sort of thing to confirm on a
