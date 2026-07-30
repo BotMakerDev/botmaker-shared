@@ -8,7 +8,17 @@ depend on the SDK. Its original charter is native window plumbing (enumerate, ca
 drive input); it also now hosts **OCR** (`com.botmaker.shared.ocr`), the first capability both consumers
 share above the window layer, the **Android-emulator** capability (`com.botmaker.shared.emulator`), the
 **launch stack** (`com.botmaker.shared.launch`), **template/colour matching** (`com.botmaker.shared.opencv`),
-**full-desktop capture** and the **project properties file** (`com.botmaker.shared.config`). It depends on
+**full-desktop capture** and the **project properties file** (`com.botmaker.shared.config`).
+
+**Private display sessions are no longer here.** `com.botmaker.shared.session` moved to its own module and
+repo, [`botmaker-session`](../botmaker-session/CLAUDE.md), in 2026-07; it depends on this module (and is the
+only BotMaker dependency it has). The **launch stack stayed** — including `LaunchIsolation`,
+`HostLauncherProbe` and `ProcessOrigin`, which read as session code but cannot leave, because `RunningProbe`
+uses `ProcessOrigin` and moving it would invert the dependency. Note that `botmaker-session` excludes this
+module's OpenCV and Tess4J when it depends on us, so **do not make `capture/` or `launch/` link an
+`org.opencv` or `net.sourceforge.tess4j` type** — that would break a standalone session consumer at runtime.
+
+It depends on
 **JNA** (window/input), **OpenCV** (`org.openpnp:opencv`) + **Tess4J** (`net.sourceforge.tess4j`) for OCR and
 matching, and **dadb** (`dev.mobile:dadb`, pure-JVM ADB) for the emulator transport. No JavaFX.
 

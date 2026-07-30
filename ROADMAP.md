@@ -8,6 +8,29 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — the session stack moved out into `botmaker-session`
+
+`com.botmaker.shared.session` (25 main + 16 test files) is now its own module and repo,
+[`botmaker-session`](../botmaker-session/ROADMAP.md), as `com.botmaker.session.*` split by role. shared keeps
+the native window plumbing, OCR, matching, config, emulator **and the whole launch stack**.
+
+**The launch package deliberately did not follow it**, including `LaunchIsolation`, `HostLauncherProbe` and
+`ProcessOrigin` — which are conceptually session code. `RunningProbe` uses `ProcessOrigin`, so it cannot leave
+without inverting the dependency; isolation logic is split across the two modules whichever way it goes, and
+splitting it twice would also widen `RunningProbe.programNames` to public for no gain.
+
+**Session history stays here.** Entries below are interleaved — one dated entry routinely covers both session
+and launch/capture work (Phase 11 step 1 is `HostLauncherProbe`, which stayed; Phase 12 is `PointerPolicy`,
+which moved) — so they were left whole rather than torn in half, and the new module's ROADMAP points back at
+them. Tests: shared 211 → **142**, session **69**.
+
+**If a second lightweight consumer ever appears**, the option not taken here is marking `opencv`, `tess4j` and
+`dadb` `<optional>` in this pom and re-declaring them in sdk/studio. `botmaker-session` instead excludes
+OpenCV and Tess4J at its own dependency, which leaves this module's contract with the SDK and Studio — both of
+which genuinely want the OCR and emulator stacks transitively — untouched.
+
+---
+
 ## 2026-07-30 — Phase 13 step 1: capture what the launched app actually says
 
 `NestedSession.launchAndAttach` spawned the app with `Redirect.DISCARD` on **both** streams, so a launch that
