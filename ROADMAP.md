@@ -8,6 +8,30 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 12: a click in a session must not hand the cursor back
+
+Live report: a bot on an adopted gamescope session found its template, clicked it, and the game rendered the
+**hover** effect instead of registering the click. Adoption and targeting were both fine — the button press was
+being thrown away by the courtesy warp that follows it.
+
+### Done
+
+- **`PointerPolicy`** — `ownsPointer(session)`, `click(controller, session, x, y, button)` and
+  `restoreTo(controller, session, origin)`. On the user's desktop a gesture hands the cursor back; inside a session
+  (`BACKGROUND_CLICK`) it leaves the pointer on the target, because a UI that samples the pointer per frame rather
+  than reading the event coordinate sees it somewhere else by the next frame — which is the hover above.
+- **Why it is a shared type and not two `if`s.** The rule was already written down in `NativeController.click`'s
+  javadoc ("Session callers take this method") and already implemented in Studio's `PilotInputService`
+  (`sessionOwnsPointer()`) — and *not* in the SDK's `Mouse`, which called `clickRestoringCursor` unconditionally.
+  One consumer honouring a policy and the other not is exactly the drift shared exists to prevent, so the decision
+  now lives here and both call it. `PilotInputService`'s private copy is gone.
+- `controller` stays a parameter rather than being taken off the session: the pilot deliberately drives an
+  *escalated* `:0` controller when no session is active, and re-deriving one here would silently swap it.
+- `PointerPolicyTest` (5) asserts the difference as the presence or absence of one trailing `move 7,9`, in both
+  directions, plus the two "don't restore" cases (pointer is ours; origin unreadable).
+
+---
+
 ## 2026-07-30 — Phase 11 (step 4): don't show the session's window until there is something in it
 
 Reported from a live run: *"would be cool to not show the window until the real process is ran, sometimes I have
