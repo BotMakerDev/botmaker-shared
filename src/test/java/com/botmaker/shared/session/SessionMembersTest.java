@@ -4,6 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -162,6 +165,52 @@ class SessionMembersTest {
             Thread.sleep(100);
         }
         return SessionMembers.of(display, null, List.of());
+    }
+
+    /**
+     * The remnants are signalled <b>one at a time</b>, not in a sweep. A sweep is the same mistake as the
+     * parents-first walk in miniature — a live supervisor gets to watch its own helpers die, which is what
+     * Chromium aborts on — and it is what ran immediately before the coredump on the last run that produced one.
+     *
+     * <p>Asserted from inside the processes: each traps {@code SIGTERM}, records when it arrived and keeps
+     * running, so the receipt times are real evidence of the spacing. A sweep would land them all in the same
+     * millisecond.
+     */
+    @Test
+    void remnantsAreSignalledOneAtATimeRatherThanSwept() throws Exception {
+        String display = uniqueDisplay();
+        Path log = Files.createTempFile("botmaker-term-", ".log");
+        List<Process> spinners = new ArrayList<>();
+        try {
+            // trap-and-continue: the TERM is observed and timestamped, but the process stays alive, so the walk
+            // has to escalate to SIGKILL before moving to the next one — the shape a stubborn helper has.
+            for (int i = 0; i < 3; i++) {
+                ProcessBuilder pb = new ProcessBuilder("sh", "-c",
+                        "trap 'date +%s%3N >> " + log.toAbsolutePath() + "' TERM; while :; do sleep 0.1; done");
+                pb.environment().put("DISPLAY", display);
+                spinners.add(pb.start());
+            }
+            List<ProcessHandle> members = waitForMembers(display, 3);
+            assertTrue(members.size() >= 3, "precondition: all three spinners are members");
+
+            SessionMembers.terminateOneByOne(SessionMembers.inStartOrder(members),
+                    System.currentTimeMillis() + 30_000);
+
+            List<Long> times = Files.readAllLines(log).stream().map(String::trim)
+                    .filter(s -> !s.isEmpty()).map(Long::parseLong).sorted().toList();
+            assertEquals(3, times.size(), "each spinner should have been asked exactly once: " + times);
+            for (int i = 1; i < times.size(); i++) {
+                long gap = times.get(i) - times.get(i - 1);
+                assertTrue(gap >= 250, "signals " + (i - 1) + "→" + i + " were " + gap
+                        + "ms apart — that is a sweep, not a staggered walk");
+            }
+            for (Process p : spinners) {
+                assertFalse(p.isAlive(), "a member that ignores SIGTERM must still be killed");
+            }
+        } finally {
+            spinners.forEach(Process::destroyForcibly);
+            Files.deleteIfExists(log);
+        }
     }
 
     @Test

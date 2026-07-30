@@ -8,6 +8,37 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 10 (B3): the teardown stops sweeping
+
+`SessionMembers.shutdown` got the eldest member right — asked first, killed before anything it spawned — and
+then threw that ordering away for everything behind it: one blanket `SIGTERM` across every survivor, then a
+single wait. That is the same "helpers killed underneath a live supervisor" mistake in miniature, it is what
+Chromium aborts on, and it is what ran immediately before the coredump on the last run that still produced one.
+
+### Done
+
+- **`terminateOneByOne`** replaces the sweep: each remaining member is asked, given `REMNANT_GRACE_MS`, killed
+  if it is still there, and only then is the next one touched — so at no point is a live process watching a
+  sibling die. Members that exited on their own (the common case: killing a parent usually takes its children)
+  are skipped rather than re-signalled, and the walk respects the overall deadline so one slow member can't
+  spend the whole teardown budget. The final whole-remainder `destroyForcibly` stays as the backstop.
+- **`REMNANT_GRACE_MS` = 500 ms**, deliberately far below the launcher's 8 s: a remnant has no shutdown of its
+  own worth waiting for, and the reason it's signalled alone is the ordering, not politeness. It also bounds the
+  walk — a session's chain runs to ~35 processes, so a per-process 8 s would be a teardown measured in minutes.
+- Test `remnantsAreSignalledOneAtATimeRatherThanSwept` asserts it from inside the processes: three spinners
+  trap `SIGTERM`, timestamp it and keep running, so the walk has to escalate to `SIGKILL` on each. The recorded
+  times must be ≥250 ms apart — a sweep lands them in the same millisecond.
+
+### Deferred / next
+
+- **B1 is still the deciding experiment** and still needs a live session: `SIGTERM` only the heroic browser pid
+  and capture the launcher's stderr (the reaper discards it today) for the `[FATAL:…] Check failed:` line that
+  names the cause outright. B3 was worth doing either way — it is a real defect on the path — but whether it is
+  *the* fix for the coredump is unproven.
+- B2 (ask the game's tree first, then `SIGKILL` the launcher) stays gated on B1.
+
+---
+
 ## 2026-07-30 — Phase 10 (A3/A4): a click is a click, and a press lasts a frame
 
 The two secondary defects behind "the tap produced a hover highlight instead of a click", both of which are

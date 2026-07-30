@@ -54,6 +54,15 @@ final class SessionMembers {
 	 */
 	private static final long GRACE_MS = 8_000;
 
+	/**
+	 * How long each <em>remnant</em> gets after the launcher has had its full {@link #GRACE_MS} — a helper, a
+	 * detached {@code wineserver}, something that outlived its parent. Deliberately short: these have no
+	 * shutdown of their own worth waiting for, and the reason they are signalled one at a time is the ordering
+	 * (nothing live watching a sibling die), not politeness. It also bounds the walk — a session's chain runs to
+	 * ~35 processes, so a per-process 8 s would be a teardown measured in minutes.
+	 */
+	private static final long REMNANT_GRACE_MS = 500;
+
 	private SessionMembers() {}
 
 	/**
@@ -113,6 +122,11 @@ final class SessionMembers {
 	 * is touched. A {@code SIGKILL} cannot be handled, so it cannot abort, so it cannot dump — a launcher that
 	 * ignores {@code SIGTERM} costs a hard kill, never a coredump.
 	 *
+	 * <p>Everything the launcher left behind is then walked the same way, <b>one process at a time</b> — see
+	 * {@link #terminateOneByOne}. The ordering has to hold for the whole teardown, not just for its first step:
+	 * a single sweep across the survivors is the same "helpers killed underneath a live supervisor" mistake in
+	 * miniature.
+	 *
 	 * @return the processes still alive at the end — normally empty; a non-empty list is worth logging, because
 	 *         the slice reap that follows will not reach them either
 	 */
@@ -135,11 +149,9 @@ final class SessionMembers {
 			eldest.destroyForcibly();
 			awaitExit(List.of(eldest), Math.min(deadline, System.currentTimeMillis() + GRACE_MS));
 		}
-		// Whatever the launcher left behind — a detached wineserver, a helper that outlived its parent. These
-		// have no shutdown of their own worth waiting for, but they get the ask before the kill.
-		List<ProcessHandle> rest = aliveIn(ordered);
-		rest.forEach(ProcessHandle::destroy);
-		awaitExit(rest, deadline);
+		// Whatever the launcher left behind — a detached wineserver, a helper that outlived its parent. One at a
+		// time, oldest first, each finished off before the next is touched (see terminateOneByOne).
+		terminateOneByOne(ordered, deadline);
 		List<ProcessHandle> stubborn = aliveIn(ordered);
 		stubborn.forEach(ProcessHandle::destroyForcibly);
 		if (!stubborn.isEmpty()) {
@@ -147,6 +159,39 @@ final class SessionMembers {
 			sleep();
 		}
 		return aliveIn(ordered);
+	}
+
+	/**
+	 * Terminate the remaining members <b>one at a time</b>, oldest first: ask, give it {@link #REMNANT_GRACE_MS},
+	 * kill it if it's still there, then move on.
+	 *
+	 * <p>What this replaced was a single sweep — {@code SIGTERM} to every survivor at once, then one wait. That
+	 * is precisely "kill a browser's helpers underneath it", the thing the ordering at the top of
+	 * {@link #shutdown} exists to avoid, and it is what ran immediately before the coredump on the run that
+	 * still produced one. Doing the eldest right and then abandoning the ordering for everything behind it kept
+	 * the bug alive at a smaller scale: any surviving supervisor still got to watch its own helpers die.
+	 *
+	 * <p>Each remnant is finished off before the next is signalled, so at no point is a live process watching a
+	 * sibling be killed. Members that exited on their own — the common case, since killing a parent usually
+	 * takes its children with it — are skipped rather than re-signalled, and the whole walk stops at
+	 * {@code deadline} so a slow member can't spend the entire teardown budget. The
+	 * {@link #shutdown} caller's final {@code destroyForcibly} sweep remains the backstop for anything left.
+	 */
+	static void terminateOneByOne(Collection<ProcessHandle> ordered, long deadline) {
+		for (ProcessHandle p : ordered) {
+			if (!p.isAlive()) {
+				continue;
+			}
+			if (System.currentTimeMillis() >= deadline) {
+				return;
+			}
+			p.destroy();
+			awaitExit(List.of(p), Math.min(deadline, System.currentTimeMillis() + REMNANT_GRACE_MS));
+			if (p.isAlive()) {
+				p.destroyForcibly();
+				awaitExit(List.of(p), Math.min(deadline, System.currentTimeMillis() + REMNANT_GRACE_MS));
+			}
+		}
 	}
 
 	/**
