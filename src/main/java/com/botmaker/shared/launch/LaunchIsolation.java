@@ -123,9 +123,12 @@ public final class LaunchIsolation {
 			return new Verdict(Blocker.NO_CHILD_COMMAND, List.of(), noChildCommandReason(spec));
 		}
 		if (hostLauncherRunning.test(spec)) {
-			// Left as a refusal even though a private bus hides the host instance from a single-instance check:
-			// that it does is a live-verification result, and until it is one, a clear "close it and retry" beats
-			// re-running the launch that produced the coredump.
+			// Still a refusal, but now a narrower one: HostLauncherProbe counts only launchers on the *host*
+			// desktop. A launcher on one of our private displays used to land here too, which inverted the
+			// feature — the setup that works (the launcher already up in a session) was the one refused, and the
+			// bot then ran on :0. Whether a private bus also hides a genuine host instance from a single-instance
+			// check is still unverified; until it is, "close it and retry" beats re-running the launch that
+			// produced the coredump.
 			return new Verdict(Blocker.HOST_LAUNCHER_OPEN, List.of(),
 					HostLauncherProbe.refusalMessage(spec.kind()));
 		}

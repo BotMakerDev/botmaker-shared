@@ -8,6 +8,50 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 11 (step 1): "the launcher is open" now means *on the host desktop*
+
+Two live readings, one cause: the launch probes ask questions about the **host desktop** while reading a process
+table that also contains our own private sessions and their leftovers.
+
+- Launch a game into a session with "▶ Launch now", then run the bot, and it refused —
+  `isolated launch declined — running on :0. Can't run heroic games in a private display while Heroic is open` —
+  naming the Heroic *inside that very session*. The setup that works was the one being refused, and the bot then
+  ran on the user's real desktop. (Which is also why "the SDK clicks on my desktop but BotPilot doesn't": both
+  call the same `clickRestoringCursor`; only the refusal differed.)
+- Long after Heroic was closed, `RunningProbe` still reported `heroic:43d4…: a live process mentions '43d4…'`,
+  so the bot skipped its launch entirely. Those processes were remnants of a session whose owning JVM was gone.
+
+### Done
+
+- **New `launch/ProcessOrigin`** — "where does this pid live?", best-effort and total (no `/proc`, an unreadable
+  file or an absent variable all answer *no evidence*, never an exception). Two independent signals because
+  neither alone suffices: `DISPLAY` out of `/proc/<pid>/environ` is decisive and stays true for the
+  Flatpak-portal-escaped children that are deliberately *not* in our cgroup; the cgroup name is the fallback when
+  `environ` is unreadable, and the only way to see a **remnant** (the session id carries its owning JVM's pid, so
+  a dead owner is readable off the cgroup path). `SESSION_UNIT_PREFIX` lives here because this class parses back
+  the name the reaper writes, and the two are in different packages.
+- **`HostLauncherProbe.isRunning` filters on `onHostDisplay`** and logs the one line that matters
+  (`ignoring pid N — Heroic is on :1 (BotMaker session s1234-1), not the host desktop, so it can't swallow the
+  launch`). A launcher on a private display cannot swallow an isolated launch: our child is handed that same
+  private `DISPLAY`, so a single-instance handoff lands where we wanted it anyway.
+- **`RunningProbe.mentions` drops session remnants** — running, but nothing a caller asked about: the session
+  that launched them is gone, nobody is driving them, and they are about to be reaped.
+- `LaunchIsolation`'s `HOST_LAUNCHER_OPEN` note narrowed to what is now true; whether a private bus also hides a
+  *genuine* host instance from a single-instance check is still unverified and still a refusal.
+- `ProcessOriginTest` (7) asserts the readings against **real children** (`sleep` with a rigged `DISPLAY`) rather
+  than a fixture — the class is entirely about what the kernel reports, so a fake would only test the parser
+  against itself. Reactor green: shared 189, sdk 114, studio 352.
+
+### Deferred / next
+
+- Step 2: nothing may survive a close to lie about it later — sweep orphans before the isolation verdict (not
+  only inside a successful `NestedSession.start`), verify the reap actually emptied the slice, and self-close a
+  session whose display died. A live `botmaker-sess-s167520-1-dbus.scope` with its display server long gone is
+  what prompted it.
+- Step 3: `AdoptedSession` — the bot adopts a live session instead of relaunching into a new one.
+
+---
+
 ## 2026-07-30 — Phase 10 (B3): the teardown stops sweeping
 
 `SessionMembers.shutdown` got the eldest member right — asked first, killed before anything it spawned — and

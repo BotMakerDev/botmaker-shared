@@ -19,6 +19,11 @@ import java.util.Set;
  * connection disappears mid-boot). Asking first turns a two-minute mystery into an immediate, actionable "close
  * Heroic and retry".
  *
+ * <p><b>"Running" means running on the host desktop.</b> The process table also contains the launchers inside
+ * our own private sessions, and counting those inverted the feature: launch a game into a session, run the bot,
+ * and it refused with "close Heroic" — naming the Heroic in that very session — then ran on {@code :0}. Every
+ * candidate is therefore filtered through {@link ProcessOrigin#onHostDisplay}.
+ *
  * <p>This is the mirror image of {@link RunningProbe}'s deny-list: that one excludes a launcher UI as evidence a
  * <em>game</em> is running; this one looks for exactly those processes. Both read the process table through
  * {@link RunningProbe#programNames} so a launcher shipped as a wrapper script, an Electron shell or a
@@ -64,7 +69,8 @@ public final class HostLauncherProbe {
         try {
             return ProcessHandle.allProcesses()
                     .filter(p -> p.pid() != self)
-                    .anyMatch(p -> isLauncherUi(p, names, flatpakIds));
+                    .filter(p -> isLauncherUi(p, names, flatpakIds))
+                    .anyMatch(p -> onHostDesktop(p, kind));
         } catch (Exception e) {
             Diag.log("[Session] host-launcher scan for " + kind.id() + " failed: " + e.getMessage());
             return false;
@@ -98,6 +104,25 @@ public final class HostLauncherProbe {
             case FAUGUS -> "Faugus Launcher";
             default -> "the launcher";
         };
+    }
+
+    /**
+     * Whether a launcher UI we found is on the <b>host desktop</b> — the only place it can swallow an isolated
+     * launch. A launcher running on one of our own private displays cannot: our child is handed that same
+     * private {@code DISPLAY}, so a single-instance handoff lands where we wanted it anyway.
+     *
+     * <p>Traced rather than silent, for the same reason {@link RunningProbe}'s deny-list is: a false "the
+     * launcher is open" is indistinguishable from a launch that did nothing. Measured live — launching a game
+     * into a session and then running the bot refused with "close Heroic", naming the Heroic <em>inside that
+     * session</em>.
+     */
+    private static boolean onHostDesktop(ProcessHandle process, LaunchKind kind) {
+        if (ProcessOrigin.onHostDisplay(process)) {
+            return true;
+        }
+        Diag.log("[Session] ignoring pid " + process.pid() + " — " + displayName(kind) + " is on "
+                + ProcessOrigin.describe(process) + ", not the host desktop, so it can't swallow the launch");
+        return false;
     }
 
     /**

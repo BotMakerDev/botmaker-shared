@@ -162,6 +162,15 @@ public final class RunningProbe {
         if (commandLine == null || !commandLine.toLowerCase(Locale.ROOT).contains(needle)) {
             return false;
         }
+        if (ProcessOrigin.isSessionRemnant(process.pid())) {
+            // Running, but nothing a caller asked about: the session that launched it is gone, so nobody is
+            // driving it and it will be reaped. Measured live — long after Heroic was closed, leftovers of a dead
+            // session still carried the game's app id, so the bot reported it "already running" and never
+            // launched anything.
+            Diag.log("[Target] ignoring pid " + process.pid() + " as a leftover of a dead BotMaker session ("
+                    + ProcessOrigin.describe(process) + ") — it names '" + needle + "' but nothing is driving it");
+            return false;
+        }
         String reason = launcherReason(info, commandLine.toLowerCase(Locale.ROOT));
         if (reason != null) {
             // Traced, not silent: the whole reason this deny-list exists is that a false "already running" is
