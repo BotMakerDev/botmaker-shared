@@ -96,7 +96,7 @@ public final class NestedSession implements DesktopSession {
 	/** This session's own D-Bus bus (and Flatpak portal), or {@code null} when one couldn't be started. */
 	private final SessionBus bus;
 
-	private volatile GenericWindow attached;
+	private final SessionAttachment attachment;
 	private volatile Process gameProc;
 	private volatile boolean closed;
 
@@ -109,6 +109,7 @@ public final class NestedSession implements DesktopSession {
 		this.ewmhDisplay = ewmhDisplay;
 		this.options = options;
 		this.bus = bus;
+		this.attachment = new SessionAttachment(controller, ewmhDisplay, id + " on " + display.displayName());
 		this.pointer = new ControllerPointer(controller);
 		this.keyboard = new ControllerKeyboard(controller, this::attached);
 		// The input backend asks for the driven window on every use rather than holding a handle, because
@@ -258,62 +259,17 @@ public final class NestedSession implements DesktopSession {
 
 	@Override
 	public void attach(GenericWindow window) {
-		this.attached = window;
+		attachment.attach(window);
 	}
 
 	/**
-	 * The window this session drives — <b>re-resolved when the one we attached to has gone</b>.
-	 *
-	 * <p><b>Why this can't be a plain field read.</b> A launcher chain does not map the game's window first. A
-	 * live Heroic run mapped a {@code ProtonFixes} setup dialog, which the attach (correctly, at the time) took;
-	 * the dialog then closed, the game's own window appeared beside it, and the session was left holding a
-	 * destroyed window — {@code capture()} returned {@code null} for the rest of the run and every keystroke went
-	 * to a window that no longer existed, while the game sat there perfectly capturable. The session reported
-	 * {@code HEALTHY} throughout, because it <em>was</em>: only the attachment had rotted.
-	 *
-	 * <p>The recovery is one cheap round trip ({@code XGetWindowAttributes} on the current window) and, when it
-	 * fails, the same "most recently mapped top-level" rule the initial attach uses. Deliberately narrow: it only
-	 * ever <em>replaces</em> a window that has died, so a session that never attached stays unattached (a failed
-	 * launch must not look like a successful one), and a live attachment is never second-guessed.
+	 * The window this session drives — re-resolved when the one we attached to has gone. The rule (and the bug
+	 * behind it) lives in {@link SessionAttachment}; a closed session answers with the last resolved window rather
+	 * than round-tripping to a display that is being torn down.
 	 */
 	@Override
 	public GenericWindow attached() {
-		GenericWindow current = attached;
-		if (current == null || closed || isViewable(current)) {
-			return current;
-		}
-		GenericWindow replacement = newestWindow();
-		if (replacement == null) {
-			// Between windows — the game may be mid-transition. Keep the old reference so the session still
-			// reads as attached; this call's capture/input simply finds nothing, and the next one retries.
-			return current;
-		}
-		attached = replacement;
-		Diag.log("[Session] " + id + ": re-attached to '" + replacement.getTitle() + "' on "
-			+ display.displayName() + " (the previous window was destroyed)");
-		return replacement;
-	}
-
-	/** Whether {@code window} still exists and is mapped on the nested display. */
-	private boolean isViewable(GenericWindow window) {
-		try {
-			return X11Utils.isWindowViewable(ewmhDisplay, (Pointer) window.getNativeHandle());
-		} catch (Exception e) {
-			return false;
-		}
-	}
-
-	/** The most recently mapped top-level on the nested display, or {@code null} when there is none. */
-	private GenericWindow newestWindow() {
-		GenericWindow newest = null;
-		try {
-			for (GenericWindow w : controller.getAllWindows()) {
-				newest = w;
-			}
-		} catch (Exception e) {
-			Diag.log("[Session] " + id + ": could not re-scan " + display.displayName() + ": " + e.getMessage());
-		}
-		return newest;
+		return closed ? attachment.current() : attachment.resolve();
 	}
 
 	/**
@@ -448,6 +404,22 @@ public final class NestedSession implements DesktopSession {
 	/** The nested display this session drives, e.g. {@code ":9"} — for diagnostics and tests. */
 	public String displayName() {
 		return display.displayName();
+	}
+
+	/** The backend hosting this session — a consumer offering it to another process has to pass it on. */
+	public NestedSession.Backend backend() {
+		return options.backend();
+	}
+
+	/**
+	 * The X id of the {@link #attached() attached} window, or {@code 0} when nothing is attached. Here rather than
+	 * at the call site so a consumer never has to unwrap a JNA {@code Pointer} out of a window handle —
+	 * {@link AdoptedSession#handoffArguments} is the one caller, and Studio has no other reason to know JNA exists.
+	 */
+	public long attachedWindowId() {
+		GenericWindow window = attached();
+		Object handle = window == null ? null : window.getNativeHandle();
+		return handle instanceof Pointer p ? Pointer.nativeValue(p) : 0;
 	}
 
 	/** This session's reap-group id — for diagnostics and tests. */

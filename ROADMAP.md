@@ -8,6 +8,46 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 11 (step 3): a bot joins the session instead of starting a rival one
+
+The workflow the last two steps were clearing the way for: launch the game once ("▶ Launch now"), watch it, then
+run the bot. Left to itself the bot brings up a *second* private display and launches the game into it — and every
+store launcher is single-instance, so that launch is handed to the copy already running in the first session and
+the game appears where nobody is watching.
+
+### Done
+
+- **`AdoptedSession`** — a `DesktopSession` over a display someone else brought up. It **owns nothing**: `close()`
+  drops its own two X connections and touches neither the server, the WM, the private bus nor the game. That is
+  why it is a separate class rather than a flag on `NestedSession` — a reap from the wrong side would tear down a
+  session its owner is still using. No `WINDOW_LAUNCH` (launching is the owner's job; `launch()` logs and declines
+  rather than starting a rival copy), but `BACKGROUND_CLICK`/`ISOLATED_FOCUS` hold — a private display is private
+  whoever made it. `screen()` is read off the display; `health()` is "does it still accept a connection", the only
+  liveness observable without process handles.
+- **The hand-off lives in one class, both halves of it.** `handoffArguments(NestedSession)` writes the `-D`
+  arguments and `fromProperties()` reads them, so a renamed property can't silently stop every bot adopting
+  anything. The **backend** rides along because it sets the pointer-warp convention — gamescope's Xwayland reads an
+  absolute warp as window-relative, and getting that wrong misplaces every click rather than failing outright. The
+  attached **window id** rides along because the owner knows which window the launcher chain finally settled on;
+  it is advisory, and `adopt` falls back to the newest top-level when it has since gone.
+- **`SessionAttachment`** — the re-attach rule (and the `ProtonFixes → Firestone` bug behind it) extracted from
+  `NestedSession` so an adopted session watching the same launcher chain doesn't need a second copy of it.
+- `NestedSession.backend()` / `attachedWindowId()` so a consumer never unwraps a JNA `Pointer` — Studio has no
+  other reason to know JNA exists.
+- `AdoptedSessionTest` (4, no X needed) pins the property names and the id parsing; `AdoptedSessionLiveTest`
+  (opt-in, `-Dbotmaker.live=true`) is the real proof — a second consumer joins a live Xephyr session, drives the
+  same window, and closing it leaves the owner's session `HEALTHY`. **Written but not yet run**: it needs a live
+  box. Reactor green otherwise: shared 198 (6 skipped live), sdk 114, studio 352.
+
+### Deferred / next
+
+- Step 4: don't map the nested window until there is something in it (the black flash), gated on capture still
+  producing frames while iconified.
+- An adopted session has no `DEGRADED` state — it can't see the game's process, only the display. If a bot ever
+  needs to notice the game dying under it, that wants a probe on the attached window, not a process handle.
+
+---
+
 ## 2026-07-30 — Phase 11 (step 2): a closed session stops existing
 
 Step 1 stopped the probes counting our own sessions; this stops the leftovers being there to count. The
