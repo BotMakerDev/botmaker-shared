@@ -8,6 +8,69 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 13 step 1: capture what the launched app actually says
+
+`NestedSession.launchAndAttach` spawned the app with `Redirect.DISCARD` on **both** streams, so a launch that
+failed inside a session left no trace but its exit code. What that cost, concretely: a Steam title that wouldn't
+start, reported with the only artefact the run left behind — a `bwrap` `SIGSYS` coredump — which turned out to
+be unrelated (see below). The app's own explanation had been discarded microseconds after it was written.
+
+### Done
+
+- **`AppOutputLog`** — one file per session (`botmaker-app-<id>-*.log` in the system temp dir) taking the app's
+  stdout **and** stderr, plus a daemon tailer echoing it into `Diag` under `[App]`.
+- **File first, log second, and bounded.** Everything is kept in the file; only the first `MAX_ECHOED_LINES`
+  (200) reach the log, truncated at `MAX_LINE_CHARS` (300), then one line pointing at the file. Unbounded
+  echoing is its own defect — a Proton cold start would bury every `[Session]` line under winetricks output.
+- **Both streams into one file on purpose:** their interleaving is evidence of what preceded what.
+- **Not `SessionReaper.tempOutputFile`**, which marks its file `deleteOnExit` — right for a display number
+  parsed during start-up, wrong here: a bot process exits as its run ends, which would delete the log of the
+  launch that just failed at exactly the moment it is wanted.
+- The tailer reads by byte offset with a carry-over buffer rather than through a `BufferedReader`: the writer is
+  another process appending as we read, so a reader would hand back half-arrived lines and tear each one across
+  two log entries. Asserted directly in `AppOutputLogTest`.
+- The "mapped no window on :N" and `noWindowDiagnosis` failure messages now name the log path — that is when
+  anyone wants it — and `close()` says where the file was kept rather than removing it.
+- `AppOutputLogTest` (4): a line split mid-write arrives whole and not before; blanks dropped and long lines
+  cut; the echo stops at the cap and names the file exactly once; and a real child's stdout *and* stderr both
+  arrive through `redirect()`.
+
+### Closes Phase 11 step 5 — the `bwrap` SIGSYS is not ours
+
+Measured, so it needs no phase: the dumping command is
+`bwrap --unshare-all … --seccomp <fd> /usr/bin/true` — the Steam Linux Runtime (pressure-vessel) probing
+whether `bwrap` works, whose seccomp filter is *meant* to kill it at `execve`. It fires on **every** Steam
+launch inside a session and is **uncorrelated with failure**: a launch that succeeded produced the identical
+dump. The planned `:0` comparison is no longer worth running.
+
+### Windows isolation — asked and answered, not built
+
+"Is there a gamescope equivalent for Windows?" came up while planning this phase. Recorded so it isn't
+re-derived; the decision is to keep the current "bring-up declines, run on the normal desktop" path.
+
+- **No equivalent exists.** gamescope is a nested Wayland compositor with an embedded Xwayland; nothing on
+  Windows puts a GPU game's window on a surface the host can still capture.
+- **`CreateDesktop` + `STARTUPINFO.lpDesktop` is the analogue of *Xephyr*, not of gamescope.** Input isolation
+  would be real, and our `keybd_event`/`mouse_event` synthesis (`capture/windows/WindowsController.java`)
+  follows `SetThreadDesktop`. But a secondary desktop runs **no DWM**, so capture is GDI-only — and
+  `WindowCapture` already leans on `PrintWindow(PW_RENDERFULLCONTENT)` *with an on-screen framebuffer fallback*
+  that a secondary desktop cannot provide. Plausible for 2D/launcher/emulator targets, not for Proton-class 3D,
+  and it would need a capture spike before any API commitment.
+- **Hyper-V / Windows Sandbox with GPU-P solves the GPU and not the architecture.** `<vGPU>Enable</vGPU>` and
+  `Add-VMGpuPartitionAdapter` do give a guest a real GPU partition — but the game then runs in another OS
+  instance, where nothing on the host can `PrintWindow` it or inject into it. BotMaker would have to run *inside
+  the guest* with Studio driving it over a transport: a remote-agent product (wire protocol, second Windows
+  license, driver-file copy ritual, guest-side SDK + OCR), against gamescope's cost of one process spawn with
+  every existing X11 path unchanged.
+
+### Deferred / next
+
+Phase 13 steps 2–4: don't let a dead session's leftovers veto a launch (`HostLauncherProbe` must name the pid
+it refuses on, and skip remnants/zombies); attach provisionally and gate readiness on the *target's* own window
+rather than the launcher's first one; and SIGTERM the game tree before SIGKILLing the launcher.
+
+---
+
 ## 2026-07-30 — Phase 12: a click in a session must not hand the cursor back
 
 Live report: a bot on an adopted gamescope session found its template, clicked it, and the game rendered the

@@ -115,6 +115,8 @@ public final class NestedSession implements DesktopSession {
 	/** Set once the session has something to show, so a search still in flight knows not to hide anything. */
 	private volatile boolean revealRequested;
 	private volatile Process gameProc;
+	/** The launched app's captured stdout+stderr, or {@code null} until something has been launched. */
+	private volatile AppOutputLog appLog;
 	private volatile boolean closed;
 
 	private NestedSession(String id, SessionReaper reaper, SessionDisplay display,
@@ -388,11 +390,17 @@ public final class NestedSession implements DesktopSession {
 		stopHostInstance(spec);
 
 		long windowTimeoutMs = windowTimeoutFor(spec, options);
+		// One log for the whole ladder, opened before the first rung: when an early form fails and a later one
+		// works, the reason the first didn't is the thing worth reading.
+		AppOutputLog output = appLog == null ? (appLog = AppOutputLog.open(id)) : appLog;
+		ProcessBuilder.Redirect sink =
+			output == null ? ProcessBuilder.Redirect.DISCARD : output.redirect();
 		for (List<String> command : candidates) {
 			Set<Long> before = windowIdsOnDisplay();
 			Process proc;
 			try {
-				proc = reaper.launch(APP_ROLE, command, sessionEnv(), ProcessBuilder.Redirect.DISCARD);
+				// Both streams, same file: which message preceded which is itself evidence.
+				proc = reaper.launch(APP_ROLE, command, sessionEnv(), sink, sink);
 			} catch (Exception e) {
 				Diag.error("[Session] " + id + ": launching `" + String.join(" ", command) + "` failed: "
 					+ e.getMessage() + " — trying the next launch form");
@@ -406,12 +414,19 @@ public final class NestedSession implements DesktopSession {
 				return;
 			}
 			Diag.error("[Session] " + id + ": `" + String.join(" ", command) + "` mapped no window on "
-				+ display.displayName() + " within " + windowTimeoutMs + "ms — trying the next launch form");
+				+ display.displayName() + " within " + windowTimeoutMs + "ms — trying the next launch form"
+				+ outputHint(output));
 		}
 		// Every form ran but nothing appeared on :N. The up-front probe already ruled out what it can see, so
-		// rather than guess, ask what the process table says actually happened.
+		// rather than guess, ask what the process table says actually happened — and say where the app's own
+		// account of it is, which is the only source that can explain a failure neither probe anticipated.
 		Diag.error("[Session] " + id + ": " + spec.spec() + " launched but no window appeared on "
-			+ display.displayName() + ". " + LaunchIsolation.noWindowDiagnosis(spec));
+			+ display.displayName() + ". " + LaunchIsolation.noWindowDiagnosis(spec) + outputHint(output));
+	}
+
+	/** {@code " Its output: <path>"}, or nothing when the log couldn't be opened. */
+	private static String outputHint(AppOutputLog output) {
+		return output == null ? "" : " Its output: " + output.file().getAbsolutePath();
 	}
 
 	@Override
@@ -449,6 +464,13 @@ public final class NestedSession implements DesktopSession {
 		LIVE.remove(id);
 		// Before anything the game depends on goes away. See shutdownMembers.
 		shutdownMembers();
+		// Stop following the app's output, but leave the file: a session torn down after a failed launch is
+		// exactly when someone wants to read it.
+		AppOutputLog output = appLog;
+		if (output != null) {
+			output.close();
+			Diag.log("[Session] " + id + ": app output kept at " + output.file().getAbsolutePath());
+		}
 		try { controller.close(); } catch (Throwable t) { Diag.error("[Session] " + id + ": controller close: " + t.getMessage()); }
 		try { X11.INSTANCE.XCloseDisplay(ewmhDisplay); } catch (Throwable t) { Diag.error("[Session] " + id + ": ewmh close: " + t.getMessage()); }
 		// The bus daemon itself belongs to the reaper (it is in the slice); this only drops its generated files.
