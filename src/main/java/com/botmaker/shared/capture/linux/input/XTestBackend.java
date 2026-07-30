@@ -12,6 +12,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * XTest backend — device-level injection through the XTEST extension: {@code XTestFakeMotionEvent} warps the
@@ -53,6 +54,12 @@ public final class XTestBackend implements LinuxInputBackend {
 	/** Keycodes and buttons currently pressed by this backend, so {@link #releaseHeld} can let them all go. */
 	private final Set<Integer> heldKeys = new LinkedHashSet<>();
 	private final Set<Integer> heldButtons = new LinkedHashSet<>();
+
+	/** The window the caller says it is driving; {@code null} until a session sets it. See {@link #trace}. */
+	private volatile Supplier<Pointer> drivenWindow;
+
+	/** {@code -Dbotmaker.input.trace=true} — the Phase 10 measurement in {@link #trace}. Temporary. */
+	private static final boolean TRACE = Boolean.getBoolean("botmaker.input.trace");
 
 	public XTestBackend(Pointer display) {
 		this(display, InputTiming.DEFAULT, PointerWarp.ROOT_ABSOLUTE);
@@ -101,10 +108,83 @@ public final class XTestBackend implements LinuxInputBackend {
 	}
 
 	@Override
+	public void setDrivenWindow(Supplier<Pointer> window) {
+		this.drivenWindow = window;
+	}
+
+	@Override
 	public void move(int xAbs, int yAbs) {
 		Point origin = warpOrigin();
 		XTest.INSTANCE.XTestFakeMotionEvent(display, -1, xAbs - origin.x, yAbs - origin.y, 0);
 		X11.INSTANCE.XFlush(display);
+		if (TRACE) {
+			trace(xAbs, yAbs, origin);
+		}
+	}
+
+	/**
+	 * <b>Phase 10 measurement, temporary.</b> Enabled by {@code -Dbotmaker.input.trace=true}; off by default and
+	 * costing one branch when off.
+	 *
+	 * <p>It exists to settle one question with data rather than inference: is the window this backend is
+	 * <em>driving</em> the same as the one holding <em>focus</em>? {@link #warpOrigin()} takes the correction from
+	 * focus, and on gamescope focus also decides which surface the motion is routed to — so if the two diverge,
+	 * both an injected click and a real mouse click land on the wrong window, which is exactly the reported
+	 * symptom (a hover highlight, or a click in the wrong place). The pointer read-back closes the loop: it says
+	 * where the server actually put the cursor, not where we asked it to go.
+	 */
+	private void trace(int xAbs, int yAbs, Point origin) {
+		Pointer driven = drivenWindow == null ? null : drivenWindow.get();
+		Pointer focused = focusedWindow();
+		boolean diverged = driven != null && focused != null
+			&& Pointer.nativeValue(driven) != Pointer.nativeValue(focused);
+		Diag.log("[InputTrace] want=(" + xAbs + "," + yAbs + ") corr=(" + origin.x + "," + origin.y + ")"
+			+ " sent=(" + (xAbs - origin.x) + "," + (yAbs - origin.y) + ")"
+			+ " driven=" + describe(driven) + " focus=" + describe(focused)
+			+ (diverged ? " DIVERGED" : "") + " after=" + pointerPosition());
+	}
+
+	/** {@code 0x<id> [x,y wxh]} for a window, for the trace — never throws, whatever the window turned out to be. */
+	private String describe(Pointer window) {
+		if (window == null || Pointer.nativeValue(window) <= 1) {
+			return "none";
+		}
+		Rectangle r = X11Utils.getWindowGeometry(display, window);
+		return "0x" + Long.toHexString(Pointer.nativeValue(window))
+			+ (r == null ? " [gone]" : " [" + r.x + "," + r.y + " " + r.width + "x" + r.height + "]");
+	}
+
+	/** Where the server says the pointer is now, in root coordinates — the read-back the trace closes on. */
+	private String pointerPosition() {
+		try {
+			PointerByReference root = new PointerByReference();
+			PointerByReference child = new PointerByReference();
+			IntByReference rootX = new IntByReference();
+			IntByReference rootY = new IntByReference();
+			IntByReference winX = new IntByReference();
+			IntByReference winY = new IntByReference();
+			IntByReference mask = new IntByReference();
+			if (!X11.INSTANCE.XQueryPointer(display, X11.INSTANCE.XDefaultRootWindow(display),
+					root, child, rootX, rootY, winX, winY, mask)) {
+				return "(unreadable)";
+			}
+			return "(" + rootX.getValue() + "," + rootY.getValue() + ")";
+		} catch (Throwable t) {
+			return "(unreadable)";
+		}
+	}
+
+	/** The focused window, or {@code null} for None/PointerRoot — the raw read {@link #warpOrigin()} is built on. */
+	private Pointer focusedWindow() {
+		try {
+			PointerByReference focus = new PointerByReference();
+			IntByReference revertTo = new IntByReference();
+			X11.INSTANCE.XGetInputFocus(display, focus, revertTo);
+			Pointer focused = focus.getValue();
+			return focused == null || Pointer.nativeValue(focused) <= 1 ? null : focused;
+		} catch (Throwable t) {
+			return null;
+		}
 	}
 
 	/**
@@ -118,12 +198,9 @@ public final class XTestBackend implements LinuxInputBackend {
 			return noCorrection();
 		}
 		try {
-			PointerByReference focus = new PointerByReference();
-			IntByReference revertTo = new IntByReference();
-			X11.INSTANCE.XGetInputFocus(display, focus, revertTo);
-			Pointer focused = focus.getValue();
 			// None (0) / PointerRoot (1) are not windows — nothing to be relative to.
-			if (focused == null || Pointer.nativeValue(focused) <= 1) {
+			Pointer focused = focusedWindow();
+			if (focused == null) {
 				return noCorrection();
 			}
 			Rectangle geometry = X11Utils.getWindowGeometry(display, focused);

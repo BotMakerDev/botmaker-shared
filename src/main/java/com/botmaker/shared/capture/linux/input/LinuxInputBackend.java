@@ -2,6 +2,8 @@ package com.botmaker.shared.capture.linux.input;
 
 import com.sun.jna.Pointer;
 
+import java.util.function.Supplier;
+
 /**
  * Pluggable input-synthesis strategy for the Linux backend, selected by the {@code botmaker.linux.input}
  * system property / env var (see {@link com.botmaker.shared.capture.linux.LinuxController}).
@@ -87,6 +89,16 @@ public interface LinuxInputBackend extends AutoCloseable {
 	default int interKeyDelayMs() {
 		return 0;
 	}
+
+	/**
+	 * Tell this backend which window the caller believes it is driving, as a supplier read afresh on each use
+	 * (a session re-attaches, so a captured handle goes stale — see {@code NestedSession.attached()}).
+	 *
+	 * <p>Only a backend whose coordinates are relative to <em>something</em> can use this: on gamescope's
+	 * Xwayland ({@link PointerWarp#FOCUS_RELATIVE}) the warp origin has to come from a window, and reading it
+	 * from whatever currently holds focus is a guess. Every other backend ignores it, hence the no-op default.
+	 */
+	default void setDrivenWindow(Supplier<Pointer> window) {}
 
 	/** Release any native resources (e.g. a uinput device). Default: nothing. */
 	@Override

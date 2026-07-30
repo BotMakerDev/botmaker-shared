@@ -65,6 +65,15 @@ public final class NestedSession implements DesktopSession {
 	/** How long to wait for an optional window manager to claim the display; a WM-less session proceeds anyway. */
 	private static final long WM_TIMEOUT_MS = 5_000;
 	private static final long POLL_MS = 150;
+	/**
+	 * How long the payload gets to exit on {@code SIGTERM} at teardown before it is killed. Generous enough for
+	 * a launcher to close its windows, a Wine prefix to flush and each generation of a deep process tree to take
+	 * its own children down in turn; closing a session with nothing running still costs nothing, because the
+	 * budget is a deadline and not a wait.
+	 */
+	private static final long MEMBER_SHUTDOWN_MS = 20_000;
+	/** The reaper role the game is launched under — everything else in the group is session infrastructure. */
+	private static final String APP_ROLE = "app";
 
 	private final String id;
 	private final SessionReaper reaper;
@@ -93,6 +102,15 @@ public final class NestedSession implements DesktopSession {
 		this.bus = bus;
 		this.pointer = new ControllerPointer(controller);
 		this.keyboard = new ControllerKeyboard(controller, this::attached);
+		// The input backend asks for the driven window on every use rather than holding a handle, because
+		// attached() re-resolves: the launcher chain routinely swaps the window out from under us.
+		controller.setDrivenWindow(this::attachedHandle);
+	}
+
+	/** The native handle of {@link #attached()}, or {@code null} when nothing is attached (or it has died). */
+	private Pointer attachedHandle() {
+		GenericWindow window = attached();
+		return window == null ? null : (Pointer) window.getNativeHandle();
 	}
 
 	/**
@@ -317,7 +335,7 @@ public final class NestedSession implements DesktopSession {
 			Set<Long> before = windowIdsOnDisplay();
 			Process proc;
 			try {
-				proc = reaper.launch("app", command, sessionEnv(), ProcessBuilder.Redirect.DISCARD);
+				proc = reaper.launch(APP_ROLE, command, sessionEnv(), ProcessBuilder.Redirect.DISCARD);
 			} catch (Exception e) {
 				Diag.error("[Session] " + id + ": launching `" + String.join(" ", command) + "` failed: "
 					+ e.getMessage() + " — trying the next launch form");
@@ -371,6 +389,8 @@ public final class NestedSession implements DesktopSession {
 			return;
 		}
 		closed = true;
+		// Before anything the game depends on goes away. See shutdownMembers.
+		shutdownMembers();
 		try { controller.close(); } catch (Throwable t) { Diag.error("[Session] " + id + ": controller close: " + t.getMessage()); }
 		try { X11.INSTANCE.XCloseDisplay(ewmhDisplay); } catch (Throwable t) { Diag.error("[Session] " + id + ": ewmh close: " + t.getMessage()); }
 		// The bus daemon itself belongs to the reaper (it is in the slice); this only drops its generated files.
@@ -379,6 +399,36 @@ public final class NestedSession implements DesktopSession {
 		}
 		reaper.reap();
 		Diag.log("[Session] " + id + ": closed");
+	}
+
+	/**
+	 * Shut the payload down <em>before</em> the display server does — the step that makes teardown a shutdown
+	 * rather than a crash.
+	 *
+	 * <p>{@link SessionReaper#reap()} alone is not enough for a Flatpak target, because {@code flatpak run} moves
+	 * the app out of our slice into its own transient scope (see {@link SessionMembers}): stopping the slice
+	 * killed gamescope and left the launcher to abort on the X connection that vanished under it — the
+	 * {@code SIGTRAP} coredump that appeared on every live run. Asking those processes to exit first removes the
+	 * crash, and — the part that actually matters — reaps processes the slice never reached at all.
+	 */
+	private void shutdownMembers() {
+		List<ProcessHandle> members = SessionMembers.of(display.displayName(),
+			bus == null ? null : bus.address(), reaper.unitNamesExcept(APP_ROLE));
+		if (members.isEmpty()) {
+			return;
+		}
+		Diag.log("[Session] " + id + ": asking " + members.size() + " session process(es) to exit before "
+			+ display.displayName() + " goes away");
+		long started = System.currentTimeMillis();
+		List<ProcessHandle> survivors = SessionMembers.shutdown(members, MEMBER_SHUTDOWN_MS);
+		if (survivors.isEmpty()) {
+			Diag.log("[Session] " + id + ": session processes exited in " + (System.currentTimeMillis() - started) + "ms");
+			return;
+		}
+		// Not fatal — the slice reap follows — but worth saying plainly: these are exactly the processes it
+		// cannot reach, so a survivor here is a real orphan.
+		Diag.error("[Session] " + id + ": " + survivors.size() + " session process(es) survived SIGKILL: "
+			+ survivors.stream().map(SessionMembers::describe).reduce((a, b) -> a + ", " + b).orElse(""));
 	}
 
 	/** The nested display this session drives, e.g. {@code ":9"} — for diagnostics and tests. */

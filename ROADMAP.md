@@ -8,6 +8,76 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 10 (A1): membership by environment, and instrumenting the click problem
+
+Two threads, one commit. Both are about the same thing: the session had guarantees it could not actually keep,
+because it was asking the wrong source for the answer.
+
+### `SessionMembers` — who belongs to a session, when the cgroup can't say
+
+The reap guarantee ("`kill -9` the JVM ⇒ zero orphans") was **false for every Flatpak target**, and the crash
+proved it: the coredump showed *our* argv in *someone else's* cgroup.
+
+```
+PID: 312266 (heroic)   Signal: 5 (TRAP)
+Command Line: /app/bin/heroic/heroic --no-gui --no-sandbox heroic://launch/43d4…
+Control Group: …/app.slice/app-flatpak-com.heroicgameslauncher.hgl-3053722396.scope
+```
+
+`flatpak run` moves the app into its own transient scope over `/run/user/<uid>/systemd/private` — the systemd
+user manager's private socket, **not** D-Bus, so the session's private bus cannot intercept it and no flag
+disables it (confirmed in the flatpak 1.18 binary's strings). So `systemctl stop <our slice>` never signalled
+the launcher or the game at all. It killed gamescope instead, Xwayland `:N` vanished under a live Chromium, and
+Chromium's X11 IO-error path aborted — which is also the *only* reason nothing was left running afterwards. A
+launcher that survived losing its X connection would simply have leaked.
+
+Membership is now asked of **the environment**: every process in the chain carries the session's `DISPLAY=:N`
+or its unique private bus address, and neither is handed out by accident. Two exclusions carry the correctness:
+this JVM and its ancestors (signalling them is how a teardown becomes a suicide), and the session's own
+infrastructure by cgroup (the bus and WM are launched *with* `DISPLAY=:N`, so they match the environment test
+and must not be killed alongside the game). Ordering is by **start time**, not parentage — under Flatpak
+`zypak` reparents Chromium's helpers onto `flatpak-portal`, so the process tree ranks them *ahead* of the
+launcher that spawned them, and a parents-first walk kills a browser's helpers underneath it.
+
+Also fixed: `SessionReaper`'s orphan sweep matched only the leaf slice, so the parent slices systemd derives
+from each dash in a unit name were left loaded-and-empty forever (six had accumulated in one afternoon).
+
+The teardown coredump is **not yet gone** — three orderings have failed. What is established: idle Heroic exits
+cleanly on SIGTERM (measured), so the signal is not inherently fatal; something about supervising a running
+game is. Next step is the deciding experiment (SIGTERM the launcher alone, capture its stderr for the
+`[FATAL:…] Check failed:` line) rather than a fourth guess.
+
+### Instrumenting the clicks — measurement before fix
+
+Clicks land wrong or register as hover, **from BotPilot and from a real mouse in the session**. The second half
+rules out the whole injection path: a real click never touches XTest. What is common to both lives inside `:N`,
+and the prime suspect is focus — gamescope is the WM for its own Xwayland and routes input through the focused
+surface, while `NestedSession.attached()` self-heals only the *capture* target. Nothing keeps those two in
+agreement.
+
+So this adds the seam and the measurement, and **changes no behaviour**:
+
+- `LinuxInputBackend.setDrivenWindow(Supplier<Pointer>)` (default no-op) — the caller names the window it
+  believes it is driving, as a supplier because `attached()` re-resolves and a captured handle goes stale.
+  `NestedSession` wires its own `attached()` in.
+- `XTestBackend` gains a trace behind `-Dbotmaker.input.trace=true`: requested coords, the correction applied,
+  the driven window vs the focused window (flagged `DIVERGED` when they differ), and a pointer read-back
+  saying where the server actually put the cursor. `warpOrigin()` still takes its origin from focus exactly as
+  before — deliberately, so the reading is not contaminated by the fix it is meant to justify.
+
+Answering a question raised alongside: **resizing the session window does not reduce the game's resolution.**
+`GamescopeDisplay.defaultCommand` passes the size twice — `-W/-H` is the output (the nested window on the host)
+and `-w/-h` the internal resolution Xwayland advertises. Only the former follows a resize; the game renders,
+and `TargetCapture` reads, at `-w/-h` regardless. It is a real suspect for the *real-mouse* path only, since
+gamescope maps the host pointer through the output→internal scale.
+
+**Deferred / next:** the fix itself, once the trace says which suspect it is — focus (session owns focus, warp
+origin comes from the driven window) or geometry (a gamescope argv change). Then the secondary injection-path
+defects: the session tap warps the cursor away immediately after release, presses for 0 ms, and BotPilot sends
+the tap at the finger-lift position. The trace is temporary and comes out once it has answered.
+
+---
+
 ## 2026-07-29 — Phase 9: live verification — a real game runs and is captured inside the private session
 
 The end-to-end result the previous phases were building toward, measured rather than argued: **Firestone,

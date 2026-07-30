@@ -7,8 +7,11 @@ import java.io.IOException;
 import java.lang.ProcessBuilder.Redirect;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -45,6 +48,8 @@ final class SessionReaper {
 	private final String slice;
 	private final boolean useSystemd;
 	private final List<Process> launched = new CopyOnWriteArrayList<>();
+	/** The roles actually launched, so {@link #unitNamesExcept} names units that exist rather than a fixed list. */
+	private final Set<String> roles = ConcurrentHashMap.newKeySet();
 	private volatile boolean reaped;
 
 	SessionReaper(String sessionId) {
@@ -58,6 +63,19 @@ final class SessionReaper {
 	/** Whether this reaper groups processes in a systemd slice (vs. plain child processes). */
 	boolean usesSystemd() {
 		return useSystemd;
+	}
+
+	/**
+	 * The transient unit names of every role launched so far except {@code role} — the cgroup fingerprint of this
+	 * session's <em>infrastructure</em>, which {@link SessionMembers} needs in order to leave the display server,
+	 * the private bus and the window manager alone while it terminates the payload. Empty under the no-systemd
+	 * fallback, where there are no units (and the payload is simply our own descendants).
+	 */
+	Collection<String> unitNamesExcept(String role) {
+		if (!useSystemd) {
+			return List.of();
+		}
+		return roles.stream().filter(r -> !r.equals(role)).map(r -> "botmaker-sess-" + id + "-" + r).toList();
 	}
 
 	/**
@@ -83,6 +101,7 @@ final class SessionReaper {
 		if (reaped) {
 			throw new IllegalStateException("SessionReaper " + id + " already reaped");
 		}
+		roles.add(role);
 		List<String> full = new ArrayList<>();
 		ProcessBuilder pb;
 		if (useSystemd) {
@@ -181,8 +200,13 @@ final class SessionReaper {
 		return ok;
 	}
 
-	/** Matches a per-session leaf slice {@code botmaker-sess-s<pid>-<seq>.slice}, capturing the owner pid. */
-	private static final Pattern SESSION_SLICE = Pattern.compile("botmaker-sess-s(\\d+)-\\d+\\.slice");
+	/**
+	 * Matches a per-session slice, capturing the owner pid. The {@code -<seq>} is optional on purpose: systemd
+	 * derives a parent slice from every dash in a unit name, so a session's {@code botmaker-sess-s<pid>-1.slice}
+	 * silently creates {@code botmaker-sess-s<pid>.slice} above it. Matching only the leaf left those parents
+	 * loaded-and-empty forever (six of them had accumulated by the end of one afternoon's live runs).
+	 */
+	private static final Pattern SESSION_SLICE = Pattern.compile("botmaker-sess-s(\\d+)(?:-\\d+)?\\.slice");
 
 	/**
 	 * Reap the leftovers of dead sessions: any {@code botmaker-sess-s<pid>-*.slice} whose owning JVM {@code pid}

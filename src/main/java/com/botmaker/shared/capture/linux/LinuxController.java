@@ -17,6 +17,7 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Linux implementation of NativeController using X11
@@ -159,6 +160,19 @@ public class LinuxController implements NativeController, AutoCloseable {
 	/** The X11 display name this controller is bound to, or {@code null} for the default {@code $DISPLAY}. */
 	public String displayName() {
 		return displayName;
+	}
+
+	/**
+	 * Declare which window this controller is driving — see
+	 * {@link LinuxInputBackend#setDrivenWindow(Supplier)}. A session sets it to its own re-resolving
+	 * {@code attached()}, so the answer survives the launcher chain swapping one window for another. No-op
+	 * without an X11 display, and ignored by every backend whose coordinates don't depend on a window.
+	 */
+	public void setDrivenWindow(Supplier<Pointer> window) {
+		LinuxInputBackend backend = inputBackend;
+		if (backend != null) {
+			backend.setDrivenWindow(window);
+		}
 	}
 
 	/**
