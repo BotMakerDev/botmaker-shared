@@ -8,6 +8,54 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 10 (A3/A4): a click is a click, and a press lasts a frame
+
+The two secondary defects behind "the tap produced a hover highlight instead of a click", both of which are
+real regardless of what the A1 measurement says about focus. Neither is the root cause — a real mouse click
+never touches this code, and the user reported the same symptom with a real mouse — but both would still be
+defects after the root cause is fixed, and both are cheap.
+
+### Done
+
+- **`NativeController.click(x, y, button)` — the plain click.** `clickRestoringCursor` is now *this plus a
+  warp back*, delegating rather than keeping its own copy of the sequence, so the two can only differ in the
+  thing they're supposed to differ in. The restoring warp exists for the host `:0`, where the cursor is the
+  user's; in a session there is no user cursor to return and warping away right after the release is a good
+  way to leave a UI rendering hover feedback where a click should have registered — the pointer is somewhere
+  else by the time the next frame samples it. Studio's pilot TAP picks the path by
+  `Capability.BACKGROUND_CLICK`.
+- **`postLeftClickScreen` folded onto it** — it was the same call hardcoded to button 1, under a name left
+  over from the `XSendEvent` era (permitted: the API is freely breakable, no published bot consumes it). The
+  window-relative `postLeftClick(window, …)` stays; it is a genuinely different path. Linux implements `click`
+  as `inputBackend.clickScreen`, which is the point — each backend's own sequence rounds the motion through
+  `XSync` before pressing, which a naive move/press/release can't.
+- **A press now outlasts a frame.** The interface default pressed and released back-to-back: 0 ms, well under
+  one frame at 60 fps, so a game sampling input per frame can observe no press at all. Default hold is
+  `CLICK_HOLD_MS` = 12 ms (matching `InputTiming.DEFAULT`); a session raises it to 40 ms — two frames —
+  via the new `SessionBackends.inputTimingFor(backend)`, plumbed through
+  `LinuxController(displayName, backendChoice, warp, timing)` to the XTest backend.
+- **`NativeController.pressHoldMs()`** so a caller assembling its own press/release pair asks the backend
+  instead of inventing a hold. `SessionPointer.click(button)` (via `ControllerPointer`) was exactly that
+  caller and had no hold at all. It deliberately does *not* route through `click(x, y, button)`: it is a click
+  *where the pointer already is*, and re-deriving a coordinate only to warp back to it would add a round trip
+  through the very warp path currently under suspicion.
+- `LinuxController` now remembers the driven-window supplier, so `useReliableInput()`'s backend swap doesn't
+  silently drop it with the replaced backend.
+- Tests: `ClickPathTest` (the two paths differ only by the warp back; an unreadable cursor means don't
+  restore; the press really does elapse), `SessionBackendsTest.aSessionHoldsAButtonLongerThanOneFrame`, and
+  in Studio `aSessionTapDoesNotWarpThePointerBack` / `aHostTapPutsTheUsersCursorBack`.
+
+### Deferred / next
+
+- **A1's data half is still outstanding** and still gates A2 — the trace and the probe script exist, but the
+  reading needs a live session, Firestone up, and the user's phone.
+- **The drag gestures still restore on `:N`.** `PilotInputService` `UP` warps back to `dragOrigin` on every
+  path; on a session that is the same pointless warp as the tap's. Left alone deliberately — the approved plan
+  scoped A3 to TAP, and a drag's restore is at least not mid-gesture.
+- A5 (BotPilot taps at the pointer-**down** coordinate) and workstream B (the teardown SIGTRAP) are untouched.
+
+---
+
 ## 2026-07-30 — Phase 10 (A1): membership by environment, and instrumenting the click problem
 
 Two threads, one commit. Both are about the same thing: the session had guarantees it could not actually keep,

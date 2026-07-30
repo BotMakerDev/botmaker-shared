@@ -1,5 +1,6 @@
 package com.botmaker.shared.session;
 
+import com.botmaker.shared.capture.linux.input.InputTiming;
 import com.botmaker.shared.capture.linux.input.PointerWarp;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
@@ -97,6 +98,21 @@ class SessionBackendsTest {
                 NestedSession.Options.gamescope(1280, 720).withoutPrivateBus()));
         // A null options is the "nothing stated" case and must not silently drop the protection.
         assertTrue(SessionBackends.usesPrivateBus(null));
+    }
+
+    @Test
+    void aSessionHoldsAButtonLongerThanOneFrame() {
+        // The host default (12 ms) is under one frame at 60 fps, so a game sampling input per frame can observe
+        // no press at all — the "tap produced a hover highlight" symptom. Both backends get the longer hold.
+        for (NestedSession.Backend backend : NestedSession.Backend.values()) {
+            int hold = SessionBackends.inputTimingFor(backend).pressHoldMs();
+            assertTrue(hold > 16, backend + " press hold must exceed one 60 fps frame, was " + hold + "ms");
+            assertTrue(hold > InputTiming.DEFAULT.pressHoldMs(), backend + " must hold longer than the host default");
+        }
+        // Only the hold is raised — the motion settle and typing pace stay at the tuned defaults.
+        InputTiming session = SessionBackends.inputTimingFor(NestedSession.Backend.GAMESCOPE);
+        assertEquals(InputTiming.DEFAULT.motionSettleMs(), session.motionSettleMs());
+        assertEquals(InputTiming.DEFAULT.interKeyMs(), session.interKeyMs());
     }
 
     @Test

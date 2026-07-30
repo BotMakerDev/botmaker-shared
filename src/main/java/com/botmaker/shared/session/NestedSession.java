@@ -140,7 +140,8 @@ public final class NestedSession implements DesktopSession {
 			// warp convention comes with the backend — gamescope's Xwayland reads an absolute warp as
 			// window-relative, so its clicks need the focus origin subtracted (SessionBackends.pointerWarpFor).
 			controller = LinuxController.forDisplay(display.displayName(), "xtest",
-				SessionBackends.pointerWarpFor(options.backend()));
+				SessionBackends.pointerWarpFor(options.backend()),
+				SessionBackends.inputTimingFor(options.backend()));
 			ewmh = X11.INSTANCE.XOpenDisplay(display.displayName());
 			if (ewmh == null) {
 				throw new SessionStartException("could not open a second connection to " + display.displayName());

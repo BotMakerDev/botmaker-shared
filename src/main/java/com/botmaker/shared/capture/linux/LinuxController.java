@@ -3,6 +3,7 @@ package com.botmaker.shared.capture.linux;
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
+import com.botmaker.shared.capture.linux.input.InputTiming;
 import com.botmaker.shared.capture.linux.input.LinuxInputBackend;
 import com.botmaker.shared.capture.linux.input.PointerWarp;
 import com.botmaker.shared.capture.linux.input.UinputBackend;
@@ -64,6 +65,12 @@ public class LinuxController implements NativeController, AutoCloseable {
 	/** How this display reads an absolute warp; every XTest backend this controller builds is given it. */
 	private final PointerWarp warp;
 
+	/** Click/keystroke pacing for every backend this controller builds ({@code null} → {@code InputTiming.DEFAULT}). */
+	private final InputTiming timing;
+
+	/** Remembered so an escalation ({@link #useReliableInput()}) doesn't drop it with the replaced backend. */
+	private volatile Supplier<Pointer> drivenWindow;
+
 	/** Opens the default display named by {@code $DISPLAY} — the host session. */
 	public LinuxController() {
 		this(null, null);
@@ -101,6 +108,17 @@ public class LinuxController implements NativeController, AutoCloseable {
 	 * {@code SessionBackends.pointerWarpFor(...)}, not here.
 	 */
 	public LinuxController(String displayName, String backendChoice, PointerWarp warp) {
+		this(displayName, backendChoice, warp, null);
+	}
+
+	/**
+	 * {@link #LinuxController(String, String, PointerWarp)} with the backend's click/keystroke timing pinned
+	 * ({@code null} → {@link InputTiming#DEFAULT}). A session passes a longer press hold than the host default,
+	 * because the thing on the other end is a game sampling input on a frame timer rather than a toolkit
+	 * reacting to an event queue; the policy itself lives in {@code SessionBackends.inputTimingFor(...)}, not
+	 * here. Only the XTest backend reads it today — the others have no tunable timing.
+	 */
+	public LinuxController(String displayName, String backendChoice, PointerWarp warp, InputTiming timing) {
 		// Try to open the named X11 display (null → default $DISPLAY).
 		Pointer disp = null;
 		boolean available = false;
@@ -124,9 +142,10 @@ public class LinuxController implements NativeController, AutoCloseable {
 
 		this.displayName = displayName;
 		this.warp = warp == null ? PointerWarp.ROOT_ABSOLUTE : warp;
+		this.timing = timing;
 		this.display = disp;
 		this.x11Available = available;
-		this.inputBackend = available ? selectBackend(disp, backendChoice, warp) : null;
+		this.inputBackend = available ? selectBackend(disp, backendChoice, warp, timing) : null;
 	}
 
 	/**
@@ -154,7 +173,17 @@ public class LinuxController implements NativeController, AutoCloseable {
 	 * {@link #close()} it.
 	 */
 	public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp) {
-		return new LinuxController(displayName, backendChoice, warp);
+		return new LinuxController(displayName, backendChoice, warp, null);
+	}
+
+	/**
+	 * {@link #forDisplay(String, String, PointerWarp)} with the backend timing pinned too — see
+	 * {@link #LinuxController(String, String, PointerWarp, InputTiming)}. The caller owns the returned instance
+	 * and must {@link #close()} it.
+	 */
+	public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp,
+											 InputTiming timing) {
+		return new LinuxController(displayName, backendChoice, warp, timing);
 	}
 
 	/** The X11 display name this controller is bound to, or {@code null} for the default {@code $DISPLAY}. */
@@ -169,6 +198,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 	 * without an X11 display, and ignored by every backend whose coordinates don't depend on a window.
 	 */
 	public void setDrivenWindow(Supplier<Pointer> window) {
+		this.drivenWindow = window;
 		LinuxInputBackend backend = inputBackend;
 		if (backend != null) {
 			backend.setDrivenWindow(window);
@@ -180,7 +210,8 @@ public class LinuxController implements NativeController, AutoCloseable {
 	 * {@code "xtest"}); otherwise the choice comes from {@code botmaker.linux.input} / {@code BOTMAKER_LINUX_INPUT}
 	 * (default {@code auto} → cursor-safe xsendevent).
 	 */
-	private static LinuxInputBackend selectBackend(Pointer display, String forced, PointerWarp warp) {
+	private static LinuxInputBackend selectBackend(Pointer display, String forced, PointerWarp warp,
+												   InputTiming timing) {
 		String choice;
 		if (forced != null && !forced.isBlank()) {
 			choice = forced.trim().toLowerCase();
@@ -193,14 +224,14 @@ public class LinuxController implements NativeController, AutoCloseable {
 		LinuxInputBackend backend;
 		switch (choice) {
 			case "xtest":
-				backend = new XTestBackend(display, warp);
+				backend = new XTestBackend(display, timing, warp);
 				break;
 			case "xdotool": {
 				LinuxInputBackend x = XdotoolBackend.tryCreate(display);
 				if (x == null) {
 					Diag.error("[Linux] xdotool not found on PATH (install it: "
 						+ "dnf install xdotool / apt install xdotool); falling back to in-process XTest.");
-					backend = new XTestBackend(display, warp);
+					backend = new XTestBackend(display, timing, warp);
 				} else {
 					backend = x;
 				}
@@ -671,18 +702,28 @@ public class LinuxController implements NativeController, AutoCloseable {
 	}
 
 	/**
-	 * Post a left click at absolute screen coordinates via the selected input backend. The default
-	 * {@code xsendevent} backend resolves the window under the point and clicks it without touching the
-	 * real cursor; {@code uinput}/{@code xtest} move the shared cursor.
+	 * Click at absolute screen coordinates via the selected input backend, leaving the pointer there. The
+	 * default {@code xsendevent} backend resolves the window under the point and clicks it without touching
+	 * the real cursor; {@code uinput}/{@code xtest} move the shared cursor.
+	 *
+	 * <p>Delegating to {@code clickScreen} rather than to the interface's portable default is the point: each
+	 * backend's own sequence rounds the motion through {@code XSync} before pressing and holds for its
+	 * {@link com.botmaker.shared.capture.linux.input.InputTiming}, which a naive move/press/release can't.
 	 */
 	@Override
-	public void postLeftClickScreen(int xAbs, int yAbs) {
+	public void click(int xAbs, int yAbs, int button) {
 		checkNotClosed();
 		if (inputBackend == null) {
-			Diag.log("[Linux] X11 not available, cannot post click.");
+			Diag.log("[Linux] X11 not available, cannot click.");
 			return;
 		}
-		inputBackend.clickScreen(xAbs, yAbs, 1);
+		inputBackend.clickScreen(xAbs, yAbs, button);
+	}
+
+	/** This display's configured hold, so a caller's own press/release pair matches what {@link #click} does. */
+	@Override
+	public int pressHoldMs() {
+		return timing == null ? NativeController.super.pressHoldMs() : timing.pressHoldMs();
 	}
 
 	@Override
@@ -1093,7 +1134,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			Diag.log("[Linux] xdotool not on PATH (install it: dnf install xdotool / apt install xdotool); "
 				+ "trying in-process XTest.");
 			try {
-				escalated = new XTestBackend(display, warp);
+				escalated = new XTestBackend(display, timing, warp);
 			} catch (Exception | UnsatisfiedLinkError e) {
 				Diag.error("[Linux] XTest unavailable (" + e.getMessage() + ").");
 			}
@@ -1104,6 +1145,7 @@ public class LinuxController implements NativeController, AutoCloseable {
 			return false;
 		}
 		LinuxInputBackend previous = inputBackend;
+		escalated.setDrivenWindow(drivenWindow); // the new backend starts blank; carry the caller's answer over
 		inputBackend = escalated;
 		try {
 			previous.close();

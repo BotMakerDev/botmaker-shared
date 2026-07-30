@@ -163,7 +163,6 @@ class HostSessionTest {
 		@Override public void postLeftClick(GenericWindow window, int relativeX, int relativeY) {
 			calls.add("postLeftClick(" + window.getTitle() + "," + relativeX + "," + relativeY + ")");
 		}
-		@Override public void postLeftClickScreen(int xAbs, int yAbs) { calls.add("postLeftClickScreen(" + xAbs + "," + yAbs + ")"); }
 
 		@Override public void focusWindow(GenericWindow window) { calls.add("focusWindow"); }
 		@Override public void moveWindow(GenericWindow window, int x, int y) { calls.add("moveWindow"); }

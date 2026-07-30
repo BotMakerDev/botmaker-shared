@@ -58,10 +58,14 @@ public class WindowsController implements NativeController {
 		Clicker.postLeftClick((HWND) window.getNativeHandle(), relativeX, relativeY);
 	}
 
+	/**
+	 * The posted-message path can only express a left click, so anything else — and everything once
+	 * {@link #useReliableInput()} has escalated — goes to the real-device default.
+	 */
 	@Override
-	public void postLeftClickScreen(int xAbs, int yAbs) {
-		if (reliableInput) {
-			clickRestoringCursor(xAbs, yAbs, 1);
+	public void click(int xAbs, int yAbs, int button) {
+		if (reliableInput || button != 1) {
+			NativeController.super.click(xAbs, yAbs, button);
 			return;
 		}
 		Clicker.postLeftClickScreen(xAbs, yAbs);

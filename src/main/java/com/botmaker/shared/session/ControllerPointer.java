@@ -37,6 +37,27 @@ final class ControllerPointer implements SessionPointer {
 		controller.mouseButton(button, press);
 	}
 
+	/**
+	 * Press and release with the backend's own hold in between, instead of the interface's back-to-back pair.
+	 * A press shorter than a frame (~16 ms at 60 fps) can be sampled away entirely by a game that reads input
+	 * once per frame, which is the "the click registered as a hover" symptom.
+	 *
+	 * <p>It deliberately does <em>not</em> route through {@link NativeController#click}: this gesture is a
+	 * click <em>where the pointer already is</em>, so re-deriving a coordinate from
+	 * {@link NativeController#cursorPosition()} only to warp back to it would add a round trip through the
+	 * warp path for no gain.
+	 */
+	@Override
+	public void click(int button) {
+		controller.mouseButton(button, true);
+		try {
+			Thread.sleep(controller.pressHoldMs());
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+		controller.mouseButton(button, false);
+	}
+
 	@Override
 	public void scroll(int amount) {
 		controller.scroll(amount);

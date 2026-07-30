@@ -48,7 +48,6 @@ public interface NativeController {
 	}
 
 	void postLeftClick(GenericWindow window, int relativeX, int relativeY);
-	void postLeftClickScreen(int xAbs, int yAbs);
 
 	/**
 	 * True if input synthesis leaves the user's real cursor untouched and can drive an unfocused/background
@@ -137,17 +136,51 @@ public interface NativeController {
 
 	/**
 	 * Click at an absolute screen coordinate on the <em>reliable</em> path (real pointer input, which games
-	 * accept), leaving the cursor where it started.
+	 * accept) and <b>leave the pointer on the target</b>.
+	 *
+	 * <p>This is the plain click; {@link #clickRestoringCursor} is this plus a courtesy warp back, and exists
+	 * only because a click on the user's own desktop shouldn't steal their cursor. On a private session display
+	 * ({@link com.botmaker.shared.session.Capability#BACKGROUND_CLICK}) there is no user cursor to be polite to,
+	 * and the warp away is actively harmful: a UI that samples the pointer a frame later sees it somewhere else
+	 * and renders a hover highlight where a click should have registered. Session callers take this method.
+	 *
+	 * <p>The portable default is move → settle → press → {@link #CLICK_HOLD_MS hold} → release. The hold is not
+	 * decoration: a press and release issued in the same instant is under one frame at 60 fps, and a game that
+	 * samples input per frame can miss it entirely. Backends with a hardened sequence of their own (the Linux
+	 * ones round-trip the motion through {@code XSync} before pressing, and carry a tunable
+	 * {@code InputTiming}) override this.
+	 *
+	 * <p>It replaced {@code postLeftClickScreen}, which was the same call hardcoded to button 1 under a name
+	 * left over from the {@code XSendEvent} era.
+	 */
+	default void click(int xAbs, int yAbs, int button) {
+		mouseMove(xAbs, yAbs);
+		pause(CLICK_SETTLE_MS);
+		mouseButton(button, true);
+		pause(pressHoldMs());
+		mouseButton(button, false);
+	}
+
+	/**
+	 * How long this controller holds a button down between press and release, so a caller assembling its own
+	 * press/release pair (a session's {@code pointer().click(...)}, a drag) can match the click paths rather
+	 * than inventing a hold — or, as it did, using none at all. Backends with tunable timing report theirs.
+	 */
+	default int pressHoldMs() {
+		return CLICK_HOLD_MS;
+	}
+
+	/**
+	 * {@link #click} with the pointer put back where it was — the host {@code :0} path, where the cursor is the
+	 * user's and borrowing it silently is the whole trick.
 	 *
 	 * <p>This lives here rather than in the SDK's {@code Mouse} because both consumers need the identical
 	 * policy and Studio does not depend on the SDK: the SDK's {@code Mouse.click} and Studio's
 	 * {@code PilotInputService} {@code TAP} would otherwise each rebuild it and drift.
 	 *
-	 * <p>The default implementation is the portable one — read cursor, move, settle, press, release, move
-	 * back. The settle delay matters: games sample the pointer on their own timer, so a press issued in the
-	 * same instant as the move is read at the <em>old</em> position. A backend that can do this atomically
-	 * (the xdotool one chains {@code mousemove … click … mousemove restore} in a single invocation) overrides
-	 * it.
+	 * <p>The click itself is delegated, so the two paths can't drift in their timing — only in whether they
+	 * warp back. A {@code null} {@link #cursorPosition()} means "don't restore": a stale or invented coordinate
+	 * would park the cursor somewhere the user never left it.
 	 *
 	 * <p>Note this deliberately cannot target an occluded window: real pointer input lands on whatever is
 	 * topmost at that coordinate. Raising the target first is the caller's decision, since it is visible to
@@ -155,19 +188,28 @@ public interface NativeController {
 	 */
 	default void clickRestoringCursor(int xAbs, int yAbs, int button) {
 		Point origin = cursorPosition();
-		mouseMove(xAbs, yAbs);
-		try {
-			Thread.sleep(CLICK_SETTLE_MS);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-		}
-		mouseButton(button, true);
-		mouseButton(button, false);
+		click(xAbs, yAbs, button);
 		if (origin != null) {
 			mouseMove(origin.x, origin.y);
 		}
 	}
 
+	/** Sleep that keeps the interrupt flag — the click sequence's pauses are not worth throwing over. */
+	private static void pause(int ms) {
+		try {
+			Thread.sleep(ms);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+	}
+
 	/** Delay between positioning the pointer and pressing, so the target reads the new position. */
 	int CLICK_SETTLE_MS = 20;
+
+	/**
+	 * How long a button stays down between press and release — one frame at 60 fps is ~16 ms, so a shorter
+	 * press can be sampled away entirely. Matches the Linux backends' {@code InputTiming.DEFAULT} hold; a
+	 * session raises its own (see {@code SessionBackends.inputTimingFor}).
+	 */
+	int CLICK_HOLD_MS = 12;
 }

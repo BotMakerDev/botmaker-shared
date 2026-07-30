@@ -1,6 +1,7 @@
 package com.botmaker.shared.session;
 
 import com.botmaker.shared.Executables;
+import com.botmaker.shared.capture.linux.input.InputTiming;
 import com.botmaker.shared.capture.linux.input.PointerWarp;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
@@ -117,6 +118,27 @@ public final class SessionBackends {
                 ? PointerWarp.FOCUS_RELATIVE
                 : PointerWarp.ROOT_ABSOLUTE;
     }
+
+    /**
+     * How long a session's backend pauses around a click or keystroke — decided here for the same reason
+     * {@link #pointerWarpFor(NestedSession.Backend)} is: it is a property of what a session drives, not of the
+     * consumer driving it.
+     *
+     * <p><b>Why longer than the host default.</b> {@code InputTiming.DEFAULT}'s 12 ms press hold is tuned for
+     * desktop toolkits, which react to an event queue. What is on the other end of a session is a game
+     * sampling input on its own frame timer, where a press shorter than a frame (~16 ms at 60 fps) can be
+     * observed as no press at all — the "tap produced a hover highlight instead of a click" symptom. ~40 ms is
+     * two frames at 60 fps, comfortably above the sampling interval and still imperceptible.
+     *
+     * <p>Both backends get the same answer today; it takes the backend anyway because the question is a
+     * per-backend one, and gamescope's compositor may yet turn out to want different pacing from Xephyr's.
+     */
+    public static InputTiming inputTimingFor(NestedSession.Backend backend) {
+        return SESSION_TIMING;
+    }
+
+    /** ~40 ms press hold — two frames at 60 fps. See {@link #inputTimingFor(NestedSession.Backend)}. */
+    static final InputTiming SESSION_TIMING = InputTiming.DEFAULT.withPressHold(40);
 
     /**
      * Whether a session started with these {@code options} should own a private D-Bus session bus. Policy lives
