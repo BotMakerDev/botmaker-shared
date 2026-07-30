@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -51,6 +52,14 @@ public final class NestedSession implements DesktopSession {
 
 	/** Monotonic per-JVM counter so concurrent sessions get distinct reap-group ids (display numbers come from Xephyr). */
 	private static final AtomicInteger SEQ = new AtomicInteger();
+
+	/**
+	 * The ids of the sessions this JVM currently holds. It exists so the orphan sweep can tell an <em>abandoned</em>
+	 * cgroup of ours from a live one: "owner pid is alive" used to be enough to spare a slice, which spared the
+	 * shells of sessions this JVM had already let go of — a private {@code dbus-daemon} was found still running in
+	 * one whose display server had been gone for hours, and the launch probes counted it as a launcher that was up.
+	 */
+	private static final Set<String> LIVE = ConcurrentHashMap.newKeySet();
 
 	/** How long to wait for a launched game's window to appear on the nested display before giving up the attach. */
 	static final long WINDOW_TIMEOUT_MS = 20_000;
@@ -147,6 +156,9 @@ public final class NestedSession implements DesktopSession {
 				throw new SessionStartException("could not open a second connection to " + display.displayName());
 			}
 			NestedSession session = new NestedSession(id, reaper, display, controller, ewmh, options, bus);
+			// Registered only once the tree is actually up: a half-built session is cleaned up below, and the sweep
+			// must be free to collect anything it left behind.
+			LIVE.add(id);
 			session.startWindowManager();
 			return session;
 		} catch (SessionStartException e) {
@@ -390,6 +402,7 @@ public final class NestedSession implements DesktopSession {
 			return;
 		}
 		closed = true;
+		LIVE.remove(id);
 		// Before anything the game depends on goes away. See shutdownMembers.
 		shutdownMembers();
 		try { controller.close(); } catch (Throwable t) { Diag.error("[Session] " + id + ": controller close: " + t.getMessage()); }
@@ -443,12 +456,33 @@ public final class NestedSession implements DesktopSession {
 	}
 
 	/**
-	 * Reap the process trees of nested sessions whose owning JVM has died — the reliable answer to "a bot
-	 * crashed and left a Xephyr running". Call it at startup (a supervisor/Studio boot) as well; {@link #start}
-	 * already runs it before each new session. No-op where there is no user systemd.
+	 * Close this session if its display is gone, and say whether it did.
+	 *
+	 * <p>A dead display is not a state a session can come back from ({@link SessionHealth#DEAD}), but nothing used
+	 * to act on it: the object stayed "open", holding a slice with a private {@code dbus-daemon} in it, and every
+	 * launch probe read that leftover as a launcher still up. Whoever holds the session polls this — Studio's
+	 * background launcher does, and drops the session it can no longer use.
+	 *
+	 * @return {@code true} if this call closed it (so a caller notifies once, not on every poll)
+	 */
+	public boolean closeIfDead() {
+		if (closed || health() != SessionHealth.DEAD) {
+			return false;
+		}
+		Diag.error("[Session] " + id + ": " + display.displayName() + " is gone — closing the session");
+		close();
+		return true;
+	}
+
+	/**
+	 * Reap the process trees of nested sessions this JVM no longer holds, and of sessions whose owning JVM has
+	 * died — the reliable answer to "a bot crashed and left a Xephyr running". Call it at startup (a
+	 * supervisor/Studio boot) and before deciding whether a launch can be isolated: a leftover is read as a
+	 * running launcher by the launch probes, so sweeping late means refusing a launch on a dead session's
+	 * account. {@link #start} runs it before each new session too. No-op where there is no user systemd.
 	 */
 	public static void reapOrphanSessions() {
-		SessionReaper.reapOrphans();
+		SessionReaper.reapOrphans(LIVE);
 	}
 
 	// --- internals ---

@@ -8,6 +8,42 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-30 — Phase 11 (step 2): a closed session stops existing
+
+Step 1 stopped the probes counting our own sessions; this stops the leftovers being there to count. The
+prompting observation: `botmaker-sess-s167520-1-dbus.scope` found `active running` — a private `dbus-daemon`
+whose display server had been gone for hours — under a Studio JVM that was still alive. Nothing could collect
+it: the sweep spares any slice whose owner pid is alive, and it only ever ran inside a successful
+`NestedSession.start`, the one path a *refused* launch never reaches.
+
+### Done
+
+- **A live registry, so "ours" and "live" stop being the same word.** `NestedSession.LIVE` holds the ids this JVM
+  currently owns (added once the tree is up, removed on close). `SessionReaper.reapOrphans(liveIds)` now also
+  stops slices owned by *this* pid that no session object is keyed by. The trap that introduces is guarded and
+  tested: systemd derives a parent slice from every dash, so a live `s123-1` sits inside a
+  `botmaker-sess-s123.slice` no object is keyed by — `isLive` treats a parent of a live id as live, or the sweep
+  would have taken running sessions down with it.
+- **The reap verifies itself.** `reap()` re-lists `botmaker-sess-<id>*` after stopping the slice and stops
+  whatever is still loaded, saying so at error level. It used to log "stopped slice" unconditionally, which is
+  how the `dbus.scope` above went unnoticed.
+- **`NestedSession.closeIfDead()`** — a dead display is not recoverable, and now something acts on it. Studio's
+  `BackgroundLauncher` polls it (2 s) and drops the session, so a session whose gamescope died no longer blocks
+  the next bring-up *and* no longer leaves a slice for the launch probes to misread.
+- **Swept before the verdict, not only inside `start`.** The bot runtime sweeps in
+  `SessionBootstrap.launchIsolated` ahead of `LaunchIsolation.check`, and Studio sweeps on boot (off the FX
+  thread). Sweeping late means refusing a launch on a dead session's account.
+- `SessionReaperSweepTest` (4) pins the parent-slice rule and the id parsing. Reactor green: shared 193, sdk 114,
+  studio 352.
+
+### Deferred / next
+
+- Step 3: `AdoptedSession` — the bot adopts a live session instead of relaunching into a new one.
+- The watchdog is Studio-side only; a bot JVM that outlives its own session's display still relies on
+  `closeIfDead` being called by someone. Worth revisiting when the SDK grows a supervisor loop.
+
+---
+
 ## 2026-07-30 — Phase 11 (step 1): "the launcher is open" now means *on the host desktop*
 
 Two live readings, one cause: the launch probes ask questions about the **host desktop** while reading a process

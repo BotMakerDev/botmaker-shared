@@ -142,16 +142,9 @@ final class SessionReaper {
 		}
 		reaped = true;
 		if (useSystemd) {
-			try {
-				new ProcessBuilder("systemctl", "--user", "stop", slice)
-					.redirectOutput(Redirect.DISCARD).redirectError(Redirect.DISCARD)
-					.start().waitFor(5, TimeUnit.SECONDS);
-				Diag.log("[Session] " + id + ": stopped slice " + slice);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-			} catch (Exception e) {
-				Diag.error("[Session] " + id + ": stopping slice failed: " + e.getMessage());
-			}
+			stopUnit(slice);
+			Diag.log("[Session] " + id + ": stopped slice " + slice);
+			verifyStopped();
 		}
 		// Belt and suspenders (and the whole story under the fallback): force-kill each tracked process and its
 		// descendants. Under systemd the scope wrappers and payloads are already gone; this is a cheap no-op then.
@@ -164,6 +157,39 @@ final class SessionReaper {
 			}
 		}
 		launched.clear();
+	}
+
+	/**
+	 * Check the reap actually emptied the cgroup, and finish the job when it didn't.
+	 *
+	 * <p>Stopping the slice is <em>supposed</em> to take everything in it, and the log said so unconditionally —
+	 * which is how a private {@code dbus-daemon} came to be found still {@code active running} in
+	 * {@code botmaker-sess-s167520-1-dbus.scope} with its display server long gone. A leftover is not cosmetic:
+	 * while it lives, {@link com.botmaker.shared.launch.RunningProbe} and
+	 * {@link com.botmaker.shared.launch.HostLauncherProbe} read it as a launcher/game that is up, and the next
+	 * launch is refused or skipped on its account.
+	 */
+	private void verifyStopped() {
+		List<String> leftovers = listUnits("botmaker-sess-" + id + "*");
+		if (leftovers.isEmpty()) {
+			return;
+		}
+		Diag.error("[Session] " + id + ": stopping " + slice + " left " + leftovers.size()
+			+ " unit(s) loaded: " + String.join(", ", leftovers) + " — stopping each");
+		leftovers.forEach(SessionReaper::stopUnit);
+	}
+
+	/** {@code systemctl --user stop <unit>}, best-effort and bounded. */
+	private static void stopUnit(String unit) {
+		try {
+			new ProcessBuilder("systemctl", "--user", "stop", unit)
+				.redirectOutput(Redirect.DISCARD).redirectError(Redirect.DISCARD)
+				.start().waitFor(5, TimeUnit.SECONDS);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		} catch (Exception e) {
+			Diag.error("[Session] stopping " + unit + " failed: " + e.getMessage());
+		}
 	}
 
 	/** Sanitise an id to what a systemd unit name accepts (alnum, dash, underscore); never empty. */
@@ -216,7 +242,7 @@ final class SessionReaper {
 	 * session starts (or on demand), collects those trees. A slice whose owner pid <em>is</em> alive — this JVM's
 	 * own live sessions, or a sibling JVM's — is left strictly alone. No-op when there is no user systemd.
 	 */
-	static void reapOrphans() {
+	static void reapOrphans(Collection<String> liveSessionIds) {
 		if (!systemdAvailable()) {
 			return;
 		}
@@ -227,44 +253,71 @@ final class SessionReaper {
 				continue;
 			}
 			long ownerPid = Long.parseLong(m.group(1));
-			if (ownerPid == self || ProcessHandle.of(ownerPid).map(ProcessHandle::isAlive).orElse(false)) {
-				continue; // a live owner (us or another JVM) still manages this session
+			String why;
+			if (ownerPid == self) {
+				// Ours — but only the sessions we still hold are live. An id we no longer have an object for is
+				// abandoned: measured, a dbus.scope of a long-dead display was still running under this very JVM
+				// and the launch probes counted it as a launcher that was up.
+				if (isLive(sessionIdOf(slice), liveSessionIds)) {
+					continue;
+				}
+				why = "we no longer hold it";
+			} else if (ProcessHandle.of(ownerPid).map(ProcessHandle::isAlive).orElse(false)) {
+				continue; // another live JVM still manages this session
+			} else {
+				why = "owner pid " + ownerPid + " is gone";
 			}
-			try {
-				new ProcessBuilder("systemctl", "--user", "stop", slice)
-					.redirectOutput(Redirect.DISCARD).redirectError(Redirect.DISCARD)
-					.start().waitFor(5, TimeUnit.SECONDS);
-				Diag.log("[Session] reaped orphan slice " + slice + " (owner pid " + ownerPid + " is gone)");
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				return;
-			} catch (Exception e) {
-				Diag.error("[Session] reaping orphan slice " + slice + " failed: " + e.getMessage());
-			}
+			stopUnit(slice);
+			Diag.log("[Session] reaped orphan slice " + slice + " (" + why + ")");
 		}
+	}
+
+	/**
+	 * Whether {@code id} names a session this JVM still holds — <b>or is the parent of one</b>. That second half
+	 * matters: systemd derives a parent slice from every dash, so a live {@code s123-1} sits inside a
+	 * {@code botmaker-sess-s123.slice} that no session object is ever keyed by. Stopping <em>that</em> would take
+	 * the live session down with it, which is why the sweep can't simply ask for an exact match.
+	 */
+	static boolean isLive(String id, Collection<String> liveSessionIds) {
+		return liveSessionIds.contains(id) || liveSessionIds.stream().anyMatch(live -> live.startsWith(id + "-"));
+	}
+
+	/** The session id inside a slice name — {@code botmaker-sess-s123-4.slice} → {@code s123-4}. */
+	static String sessionIdOf(String slice) {
+		String name = slice.endsWith(".slice") ? slice.substring(0, slice.length() - ".slice".length()) : slice;
+		return name.startsWith("botmaker-sess-") ? name.substring("botmaker-sess-".length()) : name;
 	}
 
 	/** The names of every {@code botmaker-sess-*} slice systemd currently knows, or empty on any failure. */
 	private static List<String> listSessionSlices() {
-		List<String> slices = new ArrayList<>();
+		return listUnits("botmaker-sess-*.slice").stream().filter(u -> u.endsWith(".slice")).toList();
+	}
+
+	/**
+	 * The unit names matching {@code pattern} that systemd currently knows (any type — a session's members are
+	 * scopes, its groups are slices), or empty on any failure. {@code --all} on purpose: a unit that is loaded but
+	 * inactive is still a leftover worth collecting.
+	 */
+	private static List<String> listUnits(String pattern) {
+		List<String> units = new ArrayList<>();
 		try {
 			Process p = new ProcessBuilder("systemctl", "--user", "list-units", "--all", "--plain",
-				"--no-legend", "--type=slice", "botmaker-sess-*.slice")
+				"--no-legend", pattern)
 				.redirectError(Redirect.DISCARD).start();
 			String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
 			p.waitFor(5, TimeUnit.SECONDS);
 			for (String line : out.split("\\R")) {
 				String name = line.trim().split("\\s+")[0];
-				if (name.endsWith(".slice")) {
-					slices.add(name);
+				if (name.startsWith("botmaker-sess-")) {
+					units.add(name);
 				}
 			}
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 		} catch (Exception e) {
-			Diag.error("[Session] listing session slices failed: " + e.getMessage());
+			Diag.error("[Session] listing units " + pattern + " failed: " + e.getMessage());
 		}
-		return slices;
+		return units;
 	}
 
 	/** A throwaway temp file for a child's {@code -displayfd} output, deleted on JVM exit. */
