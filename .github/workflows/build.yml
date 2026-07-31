@@ -1,0 +1,33 @@
+name: Build
+
+# The unconditional gate: every push and every PR compiles this module and runs its unit tests.
+# Nothing else in the refactor is verifiable without it (docs/refactor/02-execution-order.md, Phase 0).
+#
+# shared has no BotMaker dependency of its own, so this is the one Java repo whose CI is a plain build.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Verify
+        run: mvn -B verify
+
+      - name: Upload surefire reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
