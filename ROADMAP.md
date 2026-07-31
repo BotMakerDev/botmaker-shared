@@ -8,6 +8,37 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-01 — refactor Phase 4: B6, the resilience that stopped at the wire (S7)
+
+**176 → 177 tests** (two un-disabled, one added), and the first production change here since Phase 3.
+
+### Done
+
+- **B6 — a telemetry listener that throws no longer takes the channel with it.** `acceptLoop` decoded and
+  dispatched in one statement, guarded only for `FrameFormatException` and `IOException`, so a
+  `RuntimeException` out of the caller-supplied `onEvent` unwound the loop, ended the daemon
+  `telemetry-server-accept` thread and left the run silent — while `close()` and `port()` kept answering
+  normally, so nothing downstream could tell. Decode and dispatch are now two steps, and `dispatch` catches
+  `RuntimeException`, prints the stack through `Diag` and reports the cause once through `onError`. `Error`
+  still unwinds: that says the JVM is in no state to keep serving, which is not the same claim as "a
+  subscriber has a bug".
+- **Two one-shot guards, not one.** `reportErrorOnce` now takes its `AtomicBoolean` as a parameter. Sharing
+  the single latch with wire-skew reporting — the literal prescription in `bugs.md` — would let whichever
+  failure happened first suppress the other for the whole run, and a listener bug and an old-SDK wire version
+  are different diagnoses that both deserve their notice.
+- **The class javadoc's claim is true now.** It advertised "resilient by design", meaning the wire; the
+  consumer is the side we do not control, and in Studio it is an `EventBus` any handler can subscribe to.
+
+### The finding worth keeping
+
+Phase 3 wrote this gate (`TelemetryServerResilienceTest`, MISSING 5) and left it `@Disabled` with a re-enable
+condition naming S7. Deleting those two lines *is* the red-on-the-previous-commit evidence, so this was the
+one Phase 4 item that needed no reconstruction dance — re-confirmed anyway by stashing only the production
+file: **3 failures of 4**. A test written before the fix costs one line to prove; a test written after it
+costs an afternoon of arranging to see it fail.
+
+---
+
 ## 2026-07-31 — refactor Phase 3: the test floor (S1, S2, S3)
 
 Part of the repo-wide refactor scheduled in `../docs/refactor/02-execution-order.md`; this module's share is

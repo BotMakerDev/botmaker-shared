@@ -1,6 +1,5 @@
 package com.botmaker.shared.ipc;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ArrayBlockingQueue;
@@ -16,11 +15,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The accept loop's survival contract: <b>a consumer that throws must not take the channel with it</b>.
  *
  * <p>{@code onEvent} is supplied by the caller — in Studio it republishes on the {@code EventBus}, so any
- * handler subscribed there can throw. {@link TelemetryServer#acceptLoop} catches {@link java.io.IOException}
- * and {@link TelemetryFrame.FrameFormatException} but nothing else, so an unchecked exception out of
- * {@code onEvent} unwinds the whole loop and the run goes permanently silent with no error anywhere. That is
- * <b>B6</b>; these tests are its gate and {@link #consumerThatThrowsDoesNotKillTheChannel()} fails on the
- * commit that logged it.
+ * handler subscribed there can throw. The accept loop used to catch {@link java.io.IOException} and
+ * {@link TelemetryFrame.FrameFormatException} and nothing else, so an unchecked exception out of
+ * {@code onEvent} unwound the whole loop and the run went permanently silent with no error anywhere: the
+ * daemon accept thread was gone while {@code close()} and {@code port()} kept answering normally. That is
+ * <b>B6</b>, fixed in Phase 4 (S7); these tests are its gate and were written {@code @Disabled} against the
+ * commit that logged it, verified red there, and enabled by the fix.
  */
 class TelemetryServerResilienceTest {
 
@@ -32,8 +32,6 @@ class TelemetryServerResilienceTest {
     }
 
     @Test
-    @Disabled("B6 is unfixed: verified red on this commit. Delete this line in Phase 4 with S7's fix — "
-            + "that is what makes it 'a test that fails on the previous commit'.")
     void consumerThatThrowsDoesNotKillTheChannel() throws Exception {
         BlockingQueue<TelemetryEvent> received = new ArrayBlockingQueue<>(8);
         AtomicInteger seen = new AtomicInteger();
@@ -57,7 +55,6 @@ class TelemetryServerResilienceTest {
     }
 
     @Test
-    @Disabled("B6, as above — re-enable with S7 in Phase 4.")
     void everyConsumerThrowStillLeavesTheServerAcceptingReconnects() throws Exception {
         AtomicInteger delivered = new AtomicInteger();
         java.util.function.Consumer<TelemetryEvent> alwaysThrows = event -> {
@@ -77,6 +74,35 @@ class TelemetryServerResilienceTest {
             }
         }
         assertTrue(delivered.get() >= 2, "the server stopped accepting after a consumer threw");
+    }
+
+    /**
+     * Surviving the listener is half the fix; the other half is not doing it silently. Three throws must
+     * produce exactly one notice — a per-event error would be as unusable as no error at all, since a handler
+     * that throws once usually throws on everything.
+     */
+    @Test
+    void aListenerFaultIsReportedOnceThroughOnError() throws Exception {
+        BlockingQueue<String> errors = new ArrayBlockingQueue<>(8);
+        AtomicInteger delivered = new AtomicInteger();
+        java.util.function.Consumer<TelemetryEvent> alwaysThrows = event -> {
+            delivered.incrementAndGet();
+            throw new IllegalStateException("subscriber blew up");
+        };
+
+        try (TelemetryServer server = new TelemetryServer("secret", alwaysThrows, errors::offer)) {
+            try (TelemetryClient client = new TelemetryClient(server.port(), "secret")) {
+                client.send(click(1));
+                client.send(click(2));
+                client.send(click(3));
+                awaitAtLeast(delivered, 3);
+            }
+        }
+        String reported = errors.poll(5, TimeUnit.SECONDS);
+        assertNotNull(reported, "a listener that threw on every event never reached onError");
+        assertTrue(reported.contains("subscriber blew up"),
+                "the notice must name the cause, not just say something failed: " + reported);
+        assertTrue(errors.isEmpty(), "the listener fault was reported more than once: " + errors);
     }
 
     @Test
