@@ -19,9 +19,9 @@ package com.botmaker.shared.capture.linux.input;
  */
 public enum PointerWarp {
 
-	/** Coordinates are root-relative — the X11 norm (real servers, Xvfb, Xephyr). */
-	ROOT_ABSOLUTE,
+    /** Coordinates are root-relative — the X11 norm (real servers, Xvfb, Xephyr). */
+    ROOT_ABSOLUTE,
 
-	/** Coordinates are interpreted relative to the focused window's origin (gamescope's Xwayland). */
-	FOCUS_RELATIVE
+    /** Coordinates are interpreted relative to the focused window's origin (gamescope's Xwayland). */
+    FOCUS_RELATIVE
 }

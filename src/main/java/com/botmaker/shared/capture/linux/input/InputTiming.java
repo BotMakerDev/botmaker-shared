@@ -14,43 +14,43 @@ package com.botmaker.shared.capture.linux.input;
  */
 public final class InputTiming {
 
-	/** Conservative defaults that survive most toolkits/games without being sluggish (all in milliseconds). */
-	public static final InputTiming DEFAULT = new InputTiming(12, 12, 8);
+    /** Conservative defaults that survive most toolkits/games without being sluggish (all in milliseconds). */
+    public static final InputTiming DEFAULT = new InputTiming(12, 12, 8);
 
-	private final int motionSettleMs;
-	private final int pressHoldMs;
-	private final int interKeyMs;
+    private final int motionSettleMs;
+    private final int pressHoldMs;
+    private final int interKeyMs;
 
-	private InputTiming(int motionSettleMs, int pressHoldMs, int interKeyMs) {
-		this.motionSettleMs = Math.max(0, motionSettleMs);
-		this.pressHoldMs = Math.max(0, pressHoldMs);
-		this.interKeyMs = Math.max(0, interKeyMs);
-	}
+    private InputTiming(int motionSettleMs, int pressHoldMs, int interKeyMs) {
+        this.motionSettleMs = Math.max(0, motionSettleMs);
+        this.pressHoldMs = Math.max(0, pressHoldMs);
+        this.interKeyMs = Math.max(0, interKeyMs);
+    }
 
-	/** Pause after the pointer has moved (and the move has round-tripped) before pressing. */
-	public int motionSettleMs() {
-		return motionSettleMs;
-	}
+    /** Pause after the pointer has moved (and the move has round-tripped) before pressing. */
+    public int motionSettleMs() {
+        return motionSettleMs;
+    }
 
-	/** Pause a button/key is held down between press and release. */
-	public int pressHoldMs() {
-		return pressHoldMs;
-	}
+    /** Pause a button/key is held down between press and release. */
+    public int pressHoldMs() {
+        return pressHoldMs;
+    }
 
-	/** Pause between successive characters while typing a string. */
-	public int interKeyMs() {
-		return interKeyMs;
-	}
+    /** Pause between successive characters while typing a string. */
+    public int interKeyMs() {
+        return interKeyMs;
+    }
 
-	public InputTiming withMotionSettle(int ms) {
-		return new InputTiming(ms, pressHoldMs, interKeyMs);
-	}
+    public InputTiming withMotionSettle(int ms) {
+        return new InputTiming(ms, pressHoldMs, interKeyMs);
+    }
 
-	public InputTiming withPressHold(int ms) {
-		return new InputTiming(motionSettleMs, ms, interKeyMs);
-	}
+    public InputTiming withPressHold(int ms) {
+        return new InputTiming(motionSettleMs, ms, interKeyMs);
+    }
 
-	public InputTiming withInterKey(int ms) {
-		return new InputTiming(motionSettleMs, pressHoldMs, ms);
-	}
+    public InputTiming withInterKey(int ms) {
+        return new InputTiming(motionSettleMs, pressHoldMs, ms);
+    }
 }

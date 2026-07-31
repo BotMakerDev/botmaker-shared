@@ -14,9 +14,9 @@ import java.util.function.Consumer;
  */
 public interface InputListener extends AutoCloseable {
 
-	/** Begins delivering events to {@code sink} on a background thread. Call once. */
-	void start(Consumer<InputEvent> sink);
+    /** Begins delivering events to {@code sink} on a background thread. Call once. */
+    void start(Consumer<InputEvent> sink);
 
-	@Override
-	void close();
+    @Override
+    void close();
 }

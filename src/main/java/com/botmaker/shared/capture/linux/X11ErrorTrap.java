@@ -35,68 +35,68 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class X11ErrorTrap {
 
-	// Strong reference kept so the JNA callback is never GC'd while native code holds its pointer.
-	private static X11.XErrorHandler handler;
-	private static boolean installed;
+    // Strong reference kept so the JNA callback is never GC'd while native code holds its pointer.
+    private static X11.XErrorHandler handler;
+    private static boolean installed;
 
-	/** {@code (error, request, minor)} triples already logged — each is reported once, then stays quiet. */
-	private static final Set<Integer> reported = ConcurrentHashMap.newKeySet();
+    /** {@code (error, request, minor)} triples already logged — each is reported once, then stays quiet. */
+    private static final Set<Integer> reported = ConcurrentHashMap.newKeySet();
 
-	private X11ErrorTrap() {}
+    private X11ErrorTrap() {}
 
-	/** Idempotently installs the trapping handler. Best-effort — never throws. */
-	public static synchronized void install() {
-		if (installed) {
-			return;
-		}
-		try {
-			handler = X11ErrorTrap::report;
-			X11.INSTANCE.XSetErrorHandler(handler);
-			installed = true;
-		} catch (Throwable ignored) {
-			// Non-Linux, headless, or libX11 not present — nothing to trap.
-		}
-	}
+    /** Idempotently installs the trapping handler. Best-effort — never throws. */
+    public static synchronized void install() {
+        if (installed) {
+            return;
+        }
+        try {
+            handler = X11ErrorTrap::report;
+            X11.INSTANCE.XSetErrorHandler(handler);
+            installed = true;
+        } catch (Throwable ignored) {
+            // Non-Linux, headless, or libX11 not present — nothing to trap.
+        }
+    }
 
-	/** Whether the trap is in place. */
-	public static synchronized boolean isInstalled() {
-		return installed;
-	}
+    /** Whether the trap is in place. */
+    public static synchronized boolean isInstalled() {
+        return installed;
+    }
 
-	/**
-	 * The handler itself: log the first occurrence of each error shape, then return so Xlib unwinds normally
-	 * (the failing call returns null/0 to its caller) instead of exiting the process.
-	 */
-	private static int report(Pointer display, X11.XErrorEvent event) {
-		try {
-			int error = event.error_code & 0xFF;
-			int request = event.request_code & 0xFF;
-			int minor = event.minor_code & 0xFF;
-			if (reported.add((error << 16) | (request << 8) | minor)) {
-				Diag.error("[Linux/X11] " + describe(display, error) + " on request " + request
-					+ (minor == 0 ? "" : "." + minor) + " — trapped, not fatal (first occurrence only)");
-			}
-		} catch (Throwable ignored) {
-			// A handler that throws would be worse than the error it is reporting.
-		}
-		return 0;
-	}
+    /**
+     * The handler itself: log the first occurrence of each error shape, then return so Xlib unwinds normally
+     * (the failing call returns null/0 to its caller) instead of exiting the process.
+     */
+    private static int report(Pointer display, X11.XErrorEvent event) {
+        try {
+            int error = event.error_code & 0xFF;
+            int request = event.request_code & 0xFF;
+            int minor = event.minor_code & 0xFF;
+            if (reported.add((error << 16) | (request << 8) | minor)) {
+                Diag.error("[Linux/X11] " + describe(display, error) + " on request " + request
+                    + (minor == 0 ? "" : "." + minor) + " — trapped, not fatal (first occurrence only)");
+            }
+        } catch (Throwable ignored) {
+            // A handler that throws would be worse than the error it is reporting.
+        }
+        return 0;
+    }
 
-	/** Xlib's own text for an error code ("BadMatch (invalid parameter attributes)"), or just the number. */
-	private static String describe(Pointer display, int error) {
-		try {
-			byte[] buffer = new byte[128];
-			X11.INSTANCE.XGetErrorText(display, error, buffer, buffer.length);
-			int end = 0;
-			while (end < buffer.length && buffer[end] != 0) {
-				end++;
-			}
-			if (end > 0) {
-				return new String(buffer, 0, end, StandardCharsets.UTF_8);
-			}
-		} catch (Throwable ignored) {
-			// fall through to the numeric form
-		}
-		return "X error " + error;
-	}
+    /** Xlib's own text for an error code ("BadMatch (invalid parameter attributes)"), or just the number. */
+    private static String describe(Pointer display, int error) {
+        try {
+            byte[] buffer = new byte[128];
+            X11.INSTANCE.XGetErrorText(display, error, buffer, buffer.length);
+            int end = 0;
+            while (end < buffer.length && buffer[end] != 0) {
+                end++;
+            }
+            if (end > 0) {
+                return new String(buffer, 0, end, StandardCharsets.UTF_8);
+            }
+        } catch (Throwable ignored) {
+            // fall through to the numeric form
+        }
+        return "X error " + error;
+    }
 }

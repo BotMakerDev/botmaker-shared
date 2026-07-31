@@ -46,1123 +46,1123 @@ import java.util.function.Supplier;
  */
 public class LinuxController implements NativeController, AutoCloseable {
 
-	static {
-		// Before the first X call in this process. Xlib's default error handler exits(1) on any protocol error,
-		// so without this a BadMatch from a capture race kills the bot outright — see X11ErrorTrap. Studio
-		// installs it earlier still (before JavaFX/GDK initializes); this covers everyone else.
-		X11ErrorTrap.install();
-	}
-
-	private final Pointer display;
-	private final boolean x11Available;
-	/** Not final: {@link #useReliableInput()} can swap it for a cursor-moving backend at runtime. */
-	private volatile LinuxInputBackend inputBackend;
-	private volatile boolean closed = false;
-
-	/** The X11 display this controller drives — {@code null} for the default {@code $DISPLAY}, or a name like {@code ":9"}. */
-	private final String displayName;
-
-	/** How this display reads an absolute warp; every XTest backend this controller builds is given it. */
-	private final PointerWarp warp;
-
-	/** Click/keystroke pacing for every backend this controller builds ({@code null} → {@code InputTiming.DEFAULT}). */
-	private final InputTiming timing;
-
-	/** Remembered so an escalation ({@link #useReliableInput()}) doesn't drop it with the replaced backend. */
-	private volatile Supplier<Pointer> drivenWindow;
-
-	/** Opens the default display named by {@code $DISPLAY} — the host session. */
-	public LinuxController() {
-		this(null, null);
-	}
-
-	/**
-	 * Opens a specific X11 display by name (e.g. {@code ":9"} for a nested Xephyr/gamescope server). Every
-	 * backend and X11 helper this controller uses already threads the resulting {@code Display*}, so an
-	 * instance bound to {@code :9} does its input, capture and window management entirely on {@code :9},
-	 * independently of a {@code :0}-bound instance living in the same JVM. Passing {@code null} is the same as
-	 * {@link #LinuxController()} — the default display.
-	 */
-	public LinuxController(String displayName) {
-		this(displayName, null);
-	}
-
-	/**
-	 * Opens {@code displayName} and forces a specific input backend ({@code "xtest"}, {@code "xsendevent"},
-	 * {@code "uinput"}, {@code "xdotool"}), bypassing the {@code botmaker.linux.input} property. A nested
-	 * {@code :N} server uses this to pin {@link XTestBackend}: on a private display the global cursor is the
-	 * bot's alone, so device-level XTest is both accepted by games <em>and</em> non-intrusive — and the
-	 * process-wide property that steers {@code :0} must not decide a nested display's backend. {@code null}
-	 * {@code backendChoice} falls back to the property, i.e. exactly {@link #LinuxController(String)}.
-	 */
-	public LinuxController(String displayName, String backendChoice) {
-		this(displayName, backendChoice, PointerWarp.ROOT_ABSOLUTE);
-	}
-
-	/**
-	 * {@link #LinuxController(String, String)} with the server's warp convention pinned. Only a nested display
-	 * needs this: gamescope's Xwayland reads an injected absolute warp as <em>window-relative</em>, so a
-	 * controller bound to a gamescope {@code :N} passes {@link PointerWarp#FOCUS_RELATIVE} and its XTest backend
-	 * corrects for the focused window's origin. A real server, Xvfb and Xephyr are all
-	 * {@link PointerWarp#ROOT_ABSOLUTE} — the default. The policy itself lives in
-	 * {@code SessionBackends.pointerWarpFor(...)}, not here.
-	 */
-	public LinuxController(String displayName, String backendChoice, PointerWarp warp) {
-		this(displayName, backendChoice, warp, null);
-	}
-
-	/**
-	 * {@link #LinuxController(String, String, PointerWarp)} with the backend's click/keystroke timing pinned
-	 * ({@code null} → {@link InputTiming#DEFAULT}). A session passes a longer press hold than the host default,
-	 * because the thing on the other end is a game sampling input on a frame timer rather than a toolkit
-	 * reacting to an event queue; the policy itself lives in {@code SessionBackends.inputTimingFor(...)}, not
-	 * here. Only the XTest backend reads it today — the others have no tunable timing.
-	 */
-	public LinuxController(String displayName, String backendChoice, PointerWarp warp, InputTiming timing) {
-		// Try to open the named X11 display (null → default $DISPLAY).
-		Pointer disp = null;
-		boolean available = false;
-
-		try {
-			disp = X11.INSTANCE.XOpenDisplay(displayName);
-			available = (disp != null);
-
-			if (!available) {
-				Diag.error("[Linux] Warning: Could not open X11 display "
-					+ (displayName == null ? "(default $DISPLAY)" : "'" + displayName + "'")
-					+ ". Falling back to Robot for all operations.");
-				Diag.error("[Linux] Make sure DISPLAY environment variable is set and X11 is running.");
-			}
-		} catch (UnsatisfiedLinkError e) {
-			Diag.error("[Linux] Warning: X11 libraries not found. Install libx11-6 and libxtst-6.");
-			Diag.error("[Linux] Falling back to Robot for all operations.");
-		} catch (Exception e) {
-			Diag.error("[Linux] Warning: Error initializing X11: " + e.getMessage());
-		}
-
-		this.displayName = displayName;
-		this.warp = warp == null ? PointerWarp.ROOT_ABSOLUTE : warp;
-		this.timing = timing;
-		this.display = disp;
-		this.x11Available = available;
-		this.inputBackend = available ? selectBackend(disp, backendChoice, warp, timing) : null;
-	}
-
-	/**
-	 * A {@code LinuxController} bound to the named display (e.g. {@code ":9"}), <b>bypassing</b> the
-	 * {@link com.botmaker.shared.capture.NativeControllerFactory} singleton so a nested-display controller and
-	 * the default host controller coexist in one JVM. The caller owns the returned instance and must
-	 * {@link #close()} it.
-	 */
-	public static LinuxController forDisplay(String displayName) {
-		return new LinuxController(displayName);
-	}
-
-	/**
-	 * {@link #forDisplay(String)} with the input backend pinned (e.g. {@code "xtest"} for a nested display —
-	 * see {@link #LinuxController(String, String)}). The caller owns the returned instance and must
-	 * {@link #close()} it.
-	 */
-	public static LinuxController forDisplay(String displayName, String backendChoice) {
-		return new LinuxController(displayName, backendChoice, PointerWarp.ROOT_ABSOLUTE);
-	}
-
-	/**
-	 * {@link #forDisplay(String, String)} with the server's warp convention pinned — see
-	 * {@link #LinuxController(String, String, PointerWarp)}. The caller owns the returned instance and must
-	 * {@link #close()} it.
-	 */
-	public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp) {
-		return new LinuxController(displayName, backendChoice, warp, null);
-	}
-
-	/**
-	 * {@link #forDisplay(String, String, PointerWarp)} with the backend timing pinned too — see
-	 * {@link #LinuxController(String, String, PointerWarp, InputTiming)}. The caller owns the returned instance
-	 * and must {@link #close()} it.
-	 */
-	public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp,
-											 InputTiming timing) {
-		return new LinuxController(displayName, backendChoice, warp, timing);
-	}
-
-	/** The X11 display name this controller is bound to, or {@code null} for the default {@code $DISPLAY}. */
-	public String displayName() {
-		return displayName;
-	}
-
-	/**
-	 * Declare which window this controller is driving — see
-	 * {@link LinuxInputBackend#setDrivenWindow(Supplier)}. A session sets it to its own re-resolving
-	 * {@code attached()}, so the answer survives the launcher chain swapping one window for another. No-op
-	 * without an X11 display, and ignored by every backend whose coordinates don't depend on a window.
-	 */
-	public void setDrivenWindow(Supplier<Pointer> window) {
-		this.drivenWindow = window;
-		LinuxInputBackend backend = inputBackend;
-		if (backend != null) {
-			backend.setDrivenWindow(window);
-		}
-	}
-
-	/**
-	 * Pick the input backend. When {@code forced} is non-null it wins outright (a nested display pins
-	 * {@code "xtest"}); otherwise the choice comes from {@code botmaker.linux.input} / {@code BOTMAKER_LINUX_INPUT}
-	 * (default {@code auto} → cursor-safe xsendevent).
-	 */
-	private static LinuxInputBackend selectBackend(Pointer display, String forced, PointerWarp warp,
-												   InputTiming timing) {
-		String choice;
-		if (forced != null && !forced.isBlank()) {
-			choice = forced.trim().toLowerCase();
-		} else {
-			String env = System.getenv("BOTMAKER_LINUX_INPUT");
-			choice = System.getProperty("botmaker.linux.input", env != null ? env : "auto")
-				.trim().toLowerCase();
-		}
-
-		LinuxInputBackend backend;
-		switch (choice) {
-			case "xtest":
-				backend = new XTestBackend(display, timing, warp);
-				break;
-			case "xdotool": {
-				LinuxInputBackend x = XdotoolBackend.tryCreate(display);
-				if (x == null) {
-					Diag.error("[Linux] xdotool not found on PATH (install it: "
-						+ "dnf install xdotool / apt install xdotool); falling back to in-process XTest.");
-					backend = new XTestBackend(display, timing, warp);
-				} else {
-					backend = x;
-				}
-				break;
-			}
-			case "uinput": {
-				int screen = X11.INSTANCE.XDefaultScreen(display);
-				int w = X11.INSTANCE.XDisplayWidth(display, screen);
-				int h = X11.INSTANCE.XDisplayHeight(display, screen);
-				UinputBackend u = UinputBackend.tryCreate(w, h, display);
-				if (u == null) {
-					Diag.error("[Linux] uinput unavailable (can't open /dev/uinput); "
-						+ "falling back to cursor-safe xsendevent.");
-					backend = new XSendEventBackend(display);
-				} else {
-					backend = u;
-				}
-				break;
-			}
-			case "auto":
-			case "xsendevent":
-			default:
-				backend = new XSendEventBackend(display);
-				break;
-		}
-		Diag.log("[Linux] input backend = " + backend.name()
-			+ " (preservesCursor=" + backend.preservesCursor() + ")");
-		return backend;
-	}
-
-	@Override
-	public GenericWindow getForegroundWindow() {
-		checkNotClosed();
-
-		if (!x11Available) {
-			Diag.log("[Linux] X11 not available, returning mock window.");
-			return new GenericWindow(-1, "Mock Linux Window", new Rectangle(0, 0, 800, 600));
-		}
-
-		try {
-			// Try to get active window via _NET_ACTIVE_WINDOW (EWMH)
-			Pointer activeWindow = X11Utils.getActiveWindow(display);
-
-			if (activeWindow == null || Pointer.nativeValue(activeWindow) == 0) {
-				// Fallback to XGetInputFocus
-				PointerByReference focusReturn = new PointerByReference();
-				IntByReference revertToReturn = new IntByReference();
-				X11.INSTANCE.XGetInputFocus(display, focusReturn, revertToReturn);
-				activeWindow = focusReturn.getValue();
-			}
-
-			if (activeWindow == null || Pointer.nativeValue(activeWindow) == 0 || Pointer.nativeValue(activeWindow) == 1) {
-				Diag.log("[Linux] No active window found.");
-				return null;
-			}
-
-			return toGenericWindow(activeWindow);
-		} catch (Exception e) {
-			Diag.error("[Linux] Error getting foreground window: " + e.getMessage(), e);
-			return null;
-		}
-	}
-
-	@Override
-	public List<GenericWindow> getChildWindows(GenericWindow parent) {
-		checkNotClosed();
-
-		List<GenericWindow> result = new ArrayList<>();
-
-		if (!x11Available || parent == null) {
-			return result;
-		}
-
-		try {
-			Pointer parentWindow = (Pointer) parent.getNativeHandle();
-
-			PointerByReference rootReturn = new PointerByReference();
-			PointerByReference parentReturn = new PointerByReference();
-			PointerByReference childrenReturn = new PointerByReference();
-			IntByReference nChildrenReturn = new IntByReference();
-
-			int status = X11.INSTANCE.XQueryTree(
-				display, parentWindow,
-				rootReturn, parentReturn,
-				childrenReturn, nChildrenReturn
-			);
-
-			if (status == 0) {
-				return result;
-			}
-
-			Pointer children = childrenReturn.getValue();
-			int nChildren = nChildrenReturn.getValue();
-
-			if (children != null && nChildren > 0) {
-				long[] childIds = children.getLongArray(0, nChildren);
-
-				for (long childId : childIds) {
-					Pointer childWindow = new Pointer(childId);
-
-					// Only include viewable windows with titles
-					if (X11Utils.isWindowViewable(display, childWindow)) {
-						String title = X11Utils.getWindowTitle(display, childWindow);
-						if (title != null && !title.isEmpty()) {
-							GenericWindow gw = toGenericWindow(childWindow);
-							if (gw != null) {
-								result.add(gw);
-							}
-						}
-					}
-				}
-
-				X11.INSTANCE.XFree(children);
-			}
-		} catch (Exception e) {
-			Diag.error("[Linux] Error getting child windows: " + e.getMessage(), e);
-		}
-
-		return result;
-	}
-
-	@Override
-	public List<GenericWindow> getAllWindows() {
-		return getAllWindows(false);
-	}
-
-	@Override
-	public List<GenericWindow> getAllWindows(boolean includeMinimized) {
-		checkNotClosed();
-
-		List<GenericWindow> result = new ArrayList<>();
-
-		if (!x11Available) {
-			return result;
-		}
-
-		try {
-			// Get all client windows from window manager
-			Pointer[] windows = X11Utils.getClientList(display);
-
-			if (windows.length == 0) {
-				// Fallback: enumerate from root window
-				Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
-				windows = enumerateWindowsRecursive(root);
-			}
-
-			for (Pointer window : windows) {
-				// Minimized windows are unmapped (not viewable) so their pixels can't be captured; include
-				// them only when the caller intends to restore them first.
-				if ((includeMinimized || X11Utils.isWindowViewable(display, window)) &&
-					!X11Utils.hasOverrideRedirect(display, window)) {
-
-					String title = X11Utils.getWindowTitle(display, window);
-					if (title != null && !title.isEmpty()) {
-						GenericWindow gw = toGenericWindow(window);
-						if (gw != null) {
-							result.add(gw);
-						}
-					}
-				}
-			}
-		} catch (Exception e) {
-			Diag.error("[Linux] Error getting all windows: " + e.getMessage(), e);
-		}
-
-		return result;
-	}
-
-	/**
-	 * De-iconify a minimized window: {@code XMapWindow} restores it to Normal state (ICCCM 4.1.4), then we
-	 * raise + focus it. After this the window is viewable and {@link #captureWindow} can read its pixels.
-	 */
-	@Override
-	public void restoreWindow(GenericWindow window) {
-		checkNotClosed();
-		if (!x11Available || window == null) {
-			return;
-		}
-		try {
-			Pointer x11Window = (Pointer) window.getNativeHandle();
-			X11.INSTANCE.XMapWindow(display, x11Window);
-			X11.INSTANCE.XRaiseWindow(display, x11Window);
-			X11.INSTANCE.XSetInputFocus(display, x11Window, X11.RevertToParent, 0);
-			activateWindow(x11Window);
-			X11.INSTANCE.XFlush(display);
-		} catch (Exception e) {
-			Diag.error("[Linux] Error restoring window: " + e.getMessage());
-		}
-	}
-
-	/**
-	 * Recursively enumerate windows (fallback method)
-	 */
-	private Pointer[] enumerateWindowsRecursive(Pointer window) {
-		List<Pointer> allWindows = new ArrayList<>();
-
-		try {
-			PointerByReference rootReturn = new PointerByReference();
-			PointerByReference parentReturn = new PointerByReference();
-			PointerByReference childrenReturn = new PointerByReference();
-			IntByReference nChildrenReturn = new IntByReference();
-
-			int status = X11.INSTANCE.XQueryTree(
-				display, window,
-				rootReturn, parentReturn,
-				childrenReturn, nChildrenReturn
-			);
-
-			if (status != 0) {
-				Pointer children = childrenReturn.getValue();
-				int nChildren = nChildrenReturn.getValue();
-
-				if (children != null && nChildren > 0) {
-					long[] childIds = children.getLongArray(0, nChildren);
-
-					for (long childId : childIds) {
-						Pointer childWindow = new Pointer(childId);
-						allWindows.add(childWindow);
-
-						// Recurse into children
-						Pointer[] subWindows = enumerateWindowsRecursive(childWindow);
-						for (Pointer sw : subWindows) {
-							allWindows.add(sw);
-						}
-					}
-
-					X11.INSTANCE.XFree(children);
-				}
-			}
-		} catch (Exception e) {
-			// Ignore errors during recursive enumeration
-		}
-
-		return allWindows.toArray(new Pointer[0]);
-	}
-
-	/**
-	 * Capture a window by reading its X pixmap directly with {@link X11#XGetImage} against the window drawable.
-	 * This is deliberately <b>not</b> AWT {@code Robot}: on Wayland every {@code Robot} grab tunnels through
-	 * xdg-desktop-portal and pops a screen-share prompt (and then fails with a {@code SecurityException}),
-	 * whereas {@code XGetImage} on an X11/XWayland window reads its pixels with no portal and no prompt.
-	 * Returns {@code null} on failure so the caller can apply its own full-desktop fallback.
-	 */
-	@Override
-	public BufferedImage captureWindow(GenericWindow window) {
-		checkNotClosed();
-
-		if (!x11Available || window == null) {
-			return null;
-		}
-
-		X11.XImage image = null;
-		try {
-			Pointer x11Window = (Pointer) window.getNativeHandle();
-
-			// Bail if the window isn't viewable (e.g. it was minimized/unmapped since it was enumerated):
-			// XGetImage on an unmapped drawable raises a BadMatch that Xlib's default handler prints to
-			// stderr. This cheap re-check avoids generating that error at the source. Callers that want a
-			// minimized window shown must restoreWindow(...) first.
-			if (!X11Utils.isWindowViewable(display, x11Window)) {
-				return null;
-			}
-
-			// Geometry gives us the window's size and absolute screen position (via XTranslateCoordinates).
-			Rectangle rect = X11Utils.getWindowGeometry(display, x11Window);
-			if (rect == null || rect.width <= 0 || rect.height <= 0) {
-				Diag.error("[Linux] Invalid window geometry, cannot capture window.");
-				return null;
-			}
-
-			// Ask KWin to keep this window composited (EWMH _NET_WM_BYPASS_COMPOSITOR=2). A fullscreen
-			// Proton/OpenGL game otherwise triggers unredirect, blacking out every window's backing pixmap.
-			X11Utils.setKeepComposited(display, x11Window);
-
-			// Prefer the window's off-screen pixmap (via XComposite) so regions occluded by windows in
-			// front are captured too.
-			image = captureViaComposite(x11Window, rect);
-			BufferedImage result = decode(image);
-			if (image != null) { image.destroyImage(); image = null; }
-
-			if (result != null && !isAllBlack(result)) {
-				return result;
-			}
-
-			// Composite read unavailable or all-black (compositor unredirected / mid-transition). The
-			// root-window crop reads whatever is *visually* at the window's rect — which is correct only
-			// for the foreground window. For a background/occluded window it returns the window sitting in
-			// front, which is exactly what made every window look identical. So gate root-crop on foreground.
-			if (isForeground(x11Window)) {
-				// Clamped to the root: XGetImage answers BadMatch — which Xlib's default handler turns into a
-				// process exit — for any rect that isn't wholly inside the drawable. A window hanging off the
-				// screen edge is enough to trigger it, and gamescope guarantees it (it places the focus window
-				// at (2,2) at full screen size, so the window's rect is 2px past the root on both axes).
-				Rectangle rootRect = X11Utils.getWindowGeometry(display, X11.INSTANCE.XDefaultRootWindow(display));
-				Rectangle crop = rootRect == null ? rect : rect.intersection(rootRect);
-				if (crop.width > 0 && crop.height > 0) {
-					image = X11.INSTANCE.XGetImage(display, X11.INSTANCE.XDefaultRootWindow(display),
-							crop.x, crop.y, crop.width, crop.height,
-							new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
-					BufferedImage rootCrop = decode(image);
-					if (image != null) { image.destroyImage(); image = null; }
-					if (rootCrop != null && !isAllBlack(rootCrop)) {
-						return rootCrop;
-					}
-				}
-			}
-
-			// On-window drawable: this window's own un-occluded pixels. Occluded regions read black, but it
-			// is never *another* window's content — so background windows keep their own (partial) frame.
-			image = X11.INSTANCE.XGetImage(display, x11Window, 0, 0, rect.width, rect.height,
-					new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
-			BufferedImage onWindow = decode(image);
-			if (image != null) { image.destroyImage(); image = null; }
-			if (onWindow != null && !isAllBlack(onWindow)) {
-				return onWindow;
-			}
-
-			// Nothing usable — return the composite frame (even if black) over null so the caller still
-			// gets correct geometry rather than falling all the way back to a full-desktop capture.
-			return result != null ? result : onWindow;
-
-		} catch (Throwable e) {
-			Diag.error("[Linux] Error capturing window: " + e.getMessage());
-			return null;
-		} finally {
-			if (image != null) image.destroyImage();
-		}
-	}
-
-	/** Whether {@code x11Window} is the EWMH active (foreground) window — the only one root-crop is valid for. */
-	private boolean isForeground(Pointer x11Window) {
-		try {
-			Pointer active = X11Utils.getActiveWindow(display);
-			return active != null && Pointer.nativeValue(active) == Pointer.nativeValue(x11Window);
-		} catch (Throwable t) {
-			return false;
-		}
-	}
-
-	/**
-	 * Captures {@code x11Window} from its off-screen backing pixmap via XComposite, so pixels covered by
-	 * windows in front are still read (unlike an on-window {@code XGetImage}, which returns black there).
-	 * Returns {@code null} — so the caller falls back to the on-window path — when libXcomposite is missing,
-	 * no compositor is running, or the pixmap can't be named/read.
-	 */
-	private X11.XImage captureViaComposite(Pointer x11Window, Rectangle rect) {
-		XComposite xc = XComposite.instance();
-		if (xc == null || !compositorActive()) {
-			return null;
-		}
-		try {
-			if (!xc.XCompositeQueryExtension(display, new IntByReference(), new IntByReference())) {
-				return null;
-			}
-			Pointer pixmap = xc.XCompositeNameWindowPixmap(display, x11Window);
-			if (pixmap == null || Pointer.nativeValue(pixmap) == 0) {
-				return null;
-			}
-			try {
-				return X11.INSTANCE.XGetImage(display, pixmap, 0, 0, rect.width, rect.height,
-						new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
-			} finally {
-				X11.INSTANCE.XFreePixmap(display, pixmap);
-			}
-		} catch (Throwable t) {
-			return null;
-		}
-	}
-
-	/**
-	 * Whether a compositing manager owns the {@code _NET_WM_CM_S<screen>} selection. Only when one is running
-	 * does a top-level window have a redirected off-screen pixmap for {@link #captureViaComposite} to read.
-	 */
-	private boolean compositorActive() {
-		try {
-			int screen = X11.INSTANCE.XDefaultScreen(display);
-			Pointer atom = X11.INSTANCE.XInternAtom(display, "_NET_WM_CM_S" + screen, false);
-			if (atom == null) {
-				return false;
-			}
-			Pointer owner = X11.INSTANCE.XGetSelectionOwner(display, atom);
-			return owner != null && Pointer.nativeValue(owner) != 0;
-		} catch (Throwable t) {
-			return false;
-		}
-	}
-
-	/** Null/validity-guards an {@link X11.XImage} then decodes it; returns {@code null} for an unusable frame. */
-	private static BufferedImage decode(X11.XImage image) {
-		if (image == null || image.data == null || image.bits_per_pixel < 24) {
-			return null;
-		}
-		return toBufferedImage(image);
-	}
-
-	/**
-	 * True if every sampled pixel is pure black — the signature of a capture read while the compositor had
-	 * the window unredirected. Samples a sparse grid (≈every 17th pixel per axis) so it's cheap on large
-	 * frames; a single non-black sample short-circuits to false.
-	 */
-	static boolean isAllBlack(BufferedImage img) {
-		if (img == null) {
-			return true;
-		}
-		int step = Math.max(1, Math.min(img.getWidth(), img.getHeight()) / 17);
-		for (int y = 0; y < img.getHeight(); y += step) {
-			for (int x = 0; x < img.getWidth(); x += step) {
-				if ((img.getRGB(x, y) & 0x00FFFFFF) != 0) {
-					return false;
-				}
-			}
-		}
-		return true;
-	}
-
-	/**
-	 * Decodes a ZPixmap {@link X11.XImage} into a {@code TYPE_INT_ARGB} image, extracting channels via the
-	 * image's {@code red/green/blue} masks (handles both 32- and 24-bit-per-pixel packings). Assumes the
-	 * server's byte order matches the JVM (true for a local X/XWayland connection).
-	 */
-	private static BufferedImage toBufferedImage(X11.XImage image) {
-		int w = image.width, h = image.height;
-		if (w <= 0 || h <= 0) return null;
-
-		int bpp = image.bits_per_pixel;
-		int stride = image.bytes_per_line;
-		int bytesPerPixel = bpp / 8;
-		byte[] raw = image.data.getByteArray(0, stride * h);
-
-		int redMask = (int) image.red_mask.longValue();
-		int greenMask = (int) image.green_mask.longValue();
-		int blueMask = (int) image.blue_mask.longValue();
-		int redShift = Integer.numberOfTrailingZeros(redMask == 0 ? 0xFF0000 : redMask);
-		int greenShift = Integer.numberOfTrailingZeros(greenMask == 0 ? 0x00FF00 : greenMask);
-		int blueShift = Integer.numberOfTrailingZeros(blueMask == 0 ? 0x0000FF : blueMask);
-
-		BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-		int[] px = ((java.awt.image.DataBufferInt) out.getRaster().getDataBuffer()).getData();
-		for (int y = 0; y < h; y++) {
-			int rowStart = y * stride;
-			int outRow = y * w;
-			for (int x = 0; x < w; x++) {
-				int p = rowStart + x * bytesPerPixel;
-				// Little-endian assembly of the pixel value from its bytes.
-				int pixel = (raw[p] & 0xFF) | ((raw[p + 1] & 0xFF) << 8) | ((raw[p + 2] & 0xFF) << 16);
-				if (bytesPerPixel >= 4) pixel |= (raw[p + 3] & 0xFF) << 24;
-				int r = (pixel & redMask) >>> redShift;
-				int g = (pixel & greenMask) >>> greenShift;
-				int b = (pixel & blueMask) >>> blueShift;
-				px[outRow + x] = 0xFF000000 | (r << 16) | (g << 8) | b;
-			}
-		}
-		return out;
-	}
-
-	/**
-	 * Post a left click at window-relative coordinates via the selected input backend. With the default
-	 * {@code xsendevent} backend this delivers the click straight to the window without moving the real
-	 * cursor, so it works in the background.
-	 */
-	@Override
-	public void postLeftClick(GenericWindow window, int relativeX, int relativeY) {
-		checkNotClosed();
-		if (inputBackend == null || window == null) {
-			return;
-		}
-		inputBackend.clickWindow((Pointer) window.getNativeHandle(), relativeX, relativeY, 1);
-	}
-
-	/**
-	 * Click at absolute screen coordinates via the selected input backend, leaving the pointer there. The
-	 * default {@code xsendevent} backend resolves the window under the point and clicks it without touching
-	 * the real cursor; {@code uinput}/{@code xtest} move the shared cursor.
-	 *
-	 * <p>Delegating to {@code clickScreen} rather than to the interface's portable default is the point: each
-	 * backend's own sequence rounds the motion through {@code XSync} before pressing and holds for its
-	 * {@link com.botmaker.shared.capture.linux.input.InputTiming}, which a naive move/press/release can't.
-	 */
-	@Override
-	public void click(int xAbs, int yAbs, int button) {
-		checkNotClosed();
-		if (inputBackend == null) {
-			Diag.log("[Linux] X11 not available, cannot click.");
-			return;
-		}
-		inputBackend.clickScreen(xAbs, yAbs, button);
-	}
-
-	/** This display's configured hold, so a caller's own press/release pair matches what {@link #click} does. */
-	@Override
-	public int pressHoldMs() {
-		return timing == null ? NativeController.super.pressHoldMs() : timing.pressHoldMs();
-	}
-
-	@Override
-	public void focusWindow(GenericWindow window) {
-		checkNotClosed();
-		if (!x11Available || window == null) {
-			return;
-		}
-		focusHandle((Pointer) window.getNativeHandle());
-	}
-
-	/** {@link #focusWindow} on a raw X11 handle — the targeted key path already holds one. */
-	private void focusHandle(Pointer x11Window) {
-		try {
-			X11.INSTANCE.XRaiseWindow(display, x11Window);
-			X11.INSTANCE.XSetInputFocus(display, x11Window, X11.RevertToParent, 0);
-			activateWindow(x11Window);
-			X11.INSTANCE.XFlush(display);
-		} catch (Exception e) {
-			Diag.error("[Linux] Error focusing window: " + e.getMessage());
-		}
-	}
-
-	/**
-	 * Best-effort EWMH activation: send a {@code _NET_ACTIVE_WINDOW} client message to the root window so the
-	 * window manager brings {@code x11Window} to the foreground. Many reparenting/EWMH WMs ignore a bare
-	 * {@code XRaiseWindow}/{@code XSetInputFocus} on a background window and only honour this request. No-op
-	 * (silently) when the WM doesn't advertise the atom.
-	 */
-	private void activateWindow(Pointer x11Window) {
-		try {
-			Pointer atom = X11.INSTANCE.XInternAtom(display, "_NET_ACTIVE_WINDOW", true);
-			if (atom == null || Pointer.nativeValue(atom) == 0) {
-				return; // non-EWMH WM
-			}
-			Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
-			X11.XClientMessageEvent ev = new X11.XClientMessageEvent();
-			ev.type = X11.ClientMessage;
-			ev.send_event = 1;
-			ev.display = display;
-			ev.window = new com.sun.jna.NativeLong(Pointer.nativeValue(x11Window));
-			ev.message_type = new com.sun.jna.NativeLong(Pointer.nativeValue(atom));
-			ev.format = 32;
-			ev.data[0] = 2;                 // source indication: pager (honoured past focus-stealing prevention)
-			ev.data[1] = X11.CurrentTime;   // timestamp
-			ev.data[2] = 0;                 // requestor's currently-active window (none)
-			ev.data[3] = 0;
-			ev.data[4] = 0;
-			long mask = X11.SubstructureRedirectMask | X11.SubstructureNotifyMask;
-			X11.INSTANCE.XSendEvent(display, root, false, new com.sun.jna.NativeLong(mask), ev);
-		} catch (Exception e) {
-			// best-effort — leave the plain XRaiseWindow/XSetInputFocus result in place
-		}
-	}
-
-	@Override
-	public void moveWindow(GenericWindow window, int x, int y) {
-		checkNotClosed();
-		if (!x11Available || window == null) {
-			return;
-		}
-		try {
-			X11.INSTANCE.XMoveWindow(display, (Pointer) window.getNativeHandle(), x, y);
-			X11.INSTANCE.XFlush(display);
-		} catch (Exception e) {
-			Diag.error("[Linux] Error moving window: " + e.getMessage());
-		}
-	}
-
-	@Override
-	public void resizeWindow(GenericWindow window, int width, int height) {
-		checkNotClosed();
-		if (!x11Available || window == null) {
-			return;
-		}
-		try {
-			X11.INSTANCE.XResizeWindow(display, (Pointer) window.getNativeHandle(), width, height);
-			X11.INSTANCE.XFlush(display);
-		} catch (Exception e) {
-			Diag.error("[Linux] Error resizing window: " + e.getMessage());
-		}
-	}
-
-	@Override
-	public void promoteOverlayAboveFullscreen(String windowTitle) {
-		checkNotClosed();
-		if (!x11Available || windowTitle == null || windowTitle.isEmpty()) {
-			return;
-		}
-		try {
-			Pointer[] windows = X11Utils.getClientList(display);
-			if (windows == null) {
-				return;
-			}
-			for (Pointer w : windows) {
-				if (windowTitle.equals(X11Utils.getWindowTitle(display, w))) {
-					X11Utils.promoteAboveFullscreen(display, w);
-				}
-			}
-		} catch (Exception e) {
-			Diag.error("[Linux] promoteOverlayAboveFullscreen failed: " + e.getMessage());
-		}
-	}
-
-	// --- Input synthesis (delegated to the selected LinuxInputBackend) ---
-
-	private static final int KEYSYM_SHIFT_L = 0xFFE1;
-
-	@Override
-	public void keyDown(int nativeKeyCode) {
-		checkNotClosed();
-		if (inputBackend != null) {
-			inputBackend.key(nativeKeyCode, true);
-		}
-	}
-
-	@Override
-	public void keyUp(int nativeKeyCode) {
-		checkNotClosed();
-		if (inputBackend != null) {
-			inputBackend.key(nativeKeyCode, false);
-		}
-	}
-
-	@Override
-	public void typeText(String text) {
-		checkNotClosed();
-		if (inputBackend == null || text == null) {
-			return;
-		}
-		typeVia(null, text);
-	}
-
-	// --- Targeted key synthesis (route to a specific window's client via the backend) ---
-
-	@Override
-	public void keyDown(GenericWindow window, int nativeKeyCode) {
-		checkNotClosed();
-		if (inputBackend != null) {
-			keyVia(handleOf(window), nativeKeyCode, true);
-		}
-	}
-
-	@Override
-	public void keyUp(GenericWindow window, int nativeKeyCode) {
-		checkNotClosed();
-		if (inputBackend != null) {
-			keyVia(handleOf(window), nativeKeyCode, false);
-		}
-	}
-
-	@Override
-	public void typeText(GenericWindow window, String text) {
-		checkNotClosed();
-		if (inputBackend == null || text == null) {
-			return;
-		}
-		typeVia(handleOf(window), text);
-	}
-
-	/**
-	 * Type {@code text} into {@code window} (or the focused window when {@code null}), shifting uppercase. The
-	 * whole sequence is wrapped so that however it ends — normal return, an exception mid-string, or an
-	 * interrupt — the backend releases anything it left held (a stuck Shift is the archetypal "typed fine for a
-	 * while then everything broke" failure). Characters the active layout can't map are still delivered by the
-	 * backend borrowing a spare keycode (see {@link com.botmaker.shared.capture.linux.input.Keymap}).
-	 */
-	private void typeVia(Pointer window, String text) {
-		int perKey = inputBackend.interKeyDelayMs();
-		try {
-			for (int i = 0; i < text.length(); i++) {
-				char c = text.charAt(i);
-				// For Latin-1 the X keysym equals the code point; uppercase letters need Shift held.
-				boolean needShift = Character.isUpperCase(c);
-				if (needShift) {
-					keyVia(window, KEYSYM_SHIFT_L, true);
-				}
-				keyVia(window, c, true);
-				keyVia(window, c, false);
-				if (needShift) {
-					keyVia(window, KEYSYM_SHIFT_L, false);
-				}
-				if (perKey > 0 && i + 1 < text.length()) {
-					Thread.sleep(perKey);
-				}
-			}
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-		} finally {
-			inputBackend.releaseHeld();
-		}
-	}
-
-	/**
-	 * Deliver one key event to {@code window}, or the focused window when {@code null}.
-	 *
-	 * <p>Only {@link XSendEventBackend} can address a window; the cursor-moving backends drive one real
-	 * device and deliver wherever the compositor routes input. For those, "targeted" has to mean <em>raise
-	 * the target, then type</em> — the keyboard analogue of what {@code clickWindow} already does. Without
-	 * this, a targeted key under uinput/xdotool silently went to whatever held focus (the Studio), which is
-	 * why {@code Keyboard.press} appeared to do nothing in a game while clicks worked.
-	 */
-	private void keyVia(Pointer window, int keysym, boolean press) {
-		if (window == null) {
-			inputBackend.key(keysym, press);
-			return;
-		}
-		if (inputBackend.preservesCursor()) {
-			inputBackend.key(window, keysym, press);
-			return;
-		}
-		raiseForTypingIfStale(window);
-		inputBackend.key(keysym, press);
-	}
-
-	/** Target of the last raise done for a key event, and when — see {@link #raiseForTypingIfStale}. */
-	private volatile Pointer lastKeyTarget;
-	private volatile long lastKeyTargetAt;
-
-	/**
-	 * Focus {@code window} unless we already did so for this same target moments ago. Raising per keystroke
-	 * would make {@code typeText} flicker and cost a WM round-trip per character; never re-raising would let
-	 * focus drift away mid-sequence (the user clicks elsewhere) and silently send the rest of the string
-	 * there. Re-raising when the target changes or the gap exceeds {@link #KEY_FOCUS_TTL_MS} covers both.
-	 */
-	private void raiseForTypingIfStale(Pointer window) {
-		long now = System.currentTimeMillis();
-		if (window.equals(lastKeyTarget) && now - lastKeyTargetAt < KEY_FOCUS_TTL_MS) {
-			lastKeyTargetAt = now;
-			return;
-		}
-		focusHandle(window);
-		lastKeyTarget = window;
-		lastKeyTargetAt = now;
-		try {
-			// Let the WM actually transfer focus before the first key lands; a key sent in the same instant
-			// as the activation request is delivered to the window that is still focused.
-			Thread.sleep(KEY_FOCUS_SETTLE_MS);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-		}
-	}
-
-	/** How long a raise-for-typing is trusted before the target is raised again. */
-	private static final long KEY_FOCUS_TTL_MS = 1000;
-	/** Pause after raising a window so the WM has transferred focus before the key is sent. */
-	private static final long KEY_FOCUS_SETTLE_MS = 60;
-
-	private static Pointer handleOf(GenericWindow window) {
-		return window == null ? null : (Pointer) window.getNativeHandle();
-	}
-
-	@Override
-	public void mouseMove(int xAbs, int yAbs) {
-		checkNotClosed();
-		if (inputBackend != null) {
-			inputBackend.move(xAbs, yAbs);
-		}
-	}
-
-	/**
-	 * Move the pointer by a relative delta. Prefers the backend's true relative-motion injection (XTest can do
-	 * it), which keeps working under a game's pointer grab/warp (mouselook) where reading an absolute position
-	 * to add the delta to is unreliable; falls back to the portable read-back-then-warp when the backend can't.
-	 */
-	@Override
-	public void mouseMoveRelative(int dx, int dy) {
-		checkNotClosed();
-		if (inputBackend != null && inputBackend.moveRelative(dx, dy)) {
-			return;
-		}
-		NativeController.super.mouseMoveRelative(dx, dy);
-	}
-
-	@Override
-	public void mouseButton(int button, boolean press) {
-		checkNotClosed();
-		if (inputBackend != null) {
-			inputBackend.button(button, press);
-		}
-	}
-
-	@Override
-	public void scroll(int amount) {
-		checkNotClosed();
-		if (inputBackend != null) {
-			inputBackend.scroll(amount);
-		}
-	}
-
-	/**
-	 * Convert X11 window to GenericWindow
-	 */
-	private GenericWindow toGenericWindow(Pointer window) {
-		if (window == null || Pointer.nativeValue(window) == 0) {
-			return null;
-		}
-
-		try {
-			String title = X11Utils.getWindowTitle(display, window);
-			Rectangle rect = X11Utils.getWindowGeometry(display, window);
-
-			if (rect == null) {
-				rect = new Rectangle(0, 0, 0, 0);
-			}
-
-			return new GenericWindow(window, title != null ? title : "", rect);
-		} catch (Exception e) {
-			Diag.error("[Linux] Error converting to GenericWindow: " + e.getMessage());
-			return null;
-		}
-	}
-
-	/**
-	 * Cleanup X11 resources
-	 * This method is safe to call multiple times.
-	 */
-	@Override
-	public void close() {
-		if (!closed && x11Available && display != null) {
-			synchronized (this) {
-				if (!closed) {
-					try {
-						if (inputBackend != null) {
-							inputBackend.close(); // destroy the uinput device, if any
-						}
-					} catch (Exception e) {
-						Diag.error("[Linux] Error closing input backend: " + e.getMessage());
-					}
-					try {
-						X11.INSTANCE.XCloseDisplay(display);
-					} catch (Exception e) {
-						Diag.error("[Linux] Error closing X11 display: " + e.getMessage());
-					} finally {
-						closed = true;
-					}
-				}
-			}
-		}
-	}
-
-	/**
-	 * The pointer's absolute position via {@code XQueryPointer} on the root window, or {@code null} if X11
-	 * isn't available. When the active backend is xdotool its own {@code getmouselocation} is used, so the
-	 * read and the subsequent warp go through the same mechanism.
-	 */
-	@Override
-	public Point cursorPosition() {
-		if (inputBackend instanceof XdotoolBackend xdotool) {
-			Point p = xdotool.cursorPosition();
-			if (p != null) {
-				return p;
-			}
-		}
-		if (!x11Available || closed) {
-			return null;
-		}
-		Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
-		PointerByReference rootReturn = new PointerByReference();
-		PointerByReference childReturn = new PointerByReference();
-		IntByReference rootX = new IntByReference();
-		IntByReference rootY = new IntByReference();
-		IntByReference winX = new IntByReference();
-		IntByReference winY = new IntByReference();
-		IntByReference mask = new IntByReference();
-		boolean ok = X11.INSTANCE.XQueryPointer(display, root, rootReturn, childReturn,
-			rootX, rootY, winX, winY, mask);
-		return ok ? new Point(rootX.getValue(), rootY.getValue()) : null;
-	}
-
-	/** True if the active input backend leaves the user's real cursor untouched (background-capable). */
-	@Override
-	public boolean supportsBackgroundInput() {
-		return inputBackend != null && inputBackend.preservesCursor();
-	}
-
-	/**
-	 * Escalate to an input backend whose events are not ignored: <b>uinput</b> first (a kernel virtual device,
-	 * so it reaches everything incl. native Wayland and Wine/Proton games), then xdotool, then in-process
-	 * XTest, else keep {@link XSendEventBackend} and report failure. {@code XSendEvent}'s events carry
-	 * {@code send_event=True}, which every Wine/Proton game and many toolkits drop on the floor — that is why
-	 * the cursor-safe default clicks nothing in the pilot's Interact mode.
-	 *
-	 * <p>Idempotent, and a no-op once the active backend is already a cursor-moving one (including when the
-	 * user opted into {@code botmaker.linux.input=uinput/xtest} at startup). The swap is process-wide, so
-	 * {@link #supportsBackgroundInput()} starts reporting {@code false} afterwards — callers surface that.
-	 */
-	@Override
-	public synchronized boolean useReliableInput() {
-		if (!x11Available || inputBackend == null) return false;
-		if (!inputBackend.preservesCursor()) return true; // already uinput/xtest
-
-		// uinput first: it is a kernel-level virtual device, so its events are indistinguishable from a real
-		// mouse/keyboard and reach Wine/Proton games and native Wayland clients. xdotool and XTest both go
-		// through XTEST, which a game running under XWayland may still ignore — they are the fallbacks for
-		// when /dev/uinput can't be opened, not the preference. (This order was reversed until keyboard input
-		// was found to reach nothing in a game: xdotool was winning and its keys were being dropped.)
-		int screen = X11.INSTANCE.XDefaultScreen(display);
-		LinuxInputBackend escalated = UinputBackend.tryCreate(
-			X11.INSTANCE.XDisplayWidth(display, screen),
-			X11.INSTANCE.XDisplayHeight(display, screen), display);
-		if (escalated == null) {
-			Diag.log("[Linux] /dev/uinput not writable (add yourself to the 'input' group, or install a udev "
-				+ "rule: KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"input\"); trying xdotool.");
-			escalated = XdotoolBackend.tryCreate(display);
-		}
-		if (escalated == null) {
-			Diag.log("[Linux] xdotool not on PATH (install it: dnf install xdotool / apt install xdotool); "
-				+ "trying in-process XTest.");
-			try {
-				escalated = new XTestBackend(display, timing, warp);
-			} catch (Exception | UnsatisfiedLinkError e) {
-				Diag.error("[Linux] XTest unavailable (" + e.getMessage() + ").");
-			}
-		}
-		if (escalated == null) {
-			Diag.error("[Linux] no reliable input backend available; "
-				+ "staying on xsendevent — clicks may not reach the target.");
-			return false;
-		}
-		LinuxInputBackend previous = inputBackend;
-		escalated.setDrivenWindow(drivenWindow); // the new backend starts blank; carry the caller's answer over
-		inputBackend = escalated;
-		try {
-			previous.close();
-		} catch (Exception e) {
-			Diag.error("[Linux] Error closing previous input backend: " + e.getMessage());
-		}
-		Diag.log("[Linux] input backend = " + escalated.name()
-			+ " (preservesCursor=" + escalated.preservesCursor() + ") — escalated for reliable input");
-		return true;
-	}
-
-	/**
-	 * Check if resources have been closed
-	 */
-	private void checkNotClosed() {
-		if (closed) {
-			throw new IllegalStateException("LinuxController has been closed and cannot be used");
-		}
-	}
+    static {
+        // Before the first X call in this process. Xlib's default error handler exits(1) on any protocol error,
+        // so without this a BadMatch from a capture race kills the bot outright — see X11ErrorTrap. Studio
+        // installs it earlier still (before JavaFX/GDK initializes); this covers everyone else.
+        X11ErrorTrap.install();
+    }
+
+    private final Pointer display;
+    private final boolean x11Available;
+    /** Not final: {@link #useReliableInput()} can swap it for a cursor-moving backend at runtime. */
+    private volatile LinuxInputBackend inputBackend;
+    private volatile boolean closed = false;
+
+    /** The X11 display this controller drives — {@code null} for the default {@code $DISPLAY}, or a name like {@code ":9"}. */
+    private final String displayName;
+
+    /** How this display reads an absolute warp; every XTest backend this controller builds is given it. */
+    private final PointerWarp warp;
+
+    /** Click/keystroke pacing for every backend this controller builds ({@code null} → {@code InputTiming.DEFAULT}). */
+    private final InputTiming timing;
+
+    /** Remembered so an escalation ({@link #useReliableInput()}) doesn't drop it with the replaced backend. */
+    private volatile Supplier<Pointer> drivenWindow;
+
+    /** Opens the default display named by {@code $DISPLAY} — the host session. */
+    public LinuxController() {
+        this(null, null);
+    }
+
+    /**
+     * Opens a specific X11 display by name (e.g. {@code ":9"} for a nested Xephyr/gamescope server). Every
+     * backend and X11 helper this controller uses already threads the resulting {@code Display*}, so an
+     * instance bound to {@code :9} does its input, capture and window management entirely on {@code :9},
+     * independently of a {@code :0}-bound instance living in the same JVM. Passing {@code null} is the same as
+     * {@link #LinuxController()} — the default display.
+     */
+    public LinuxController(String displayName) {
+        this(displayName, null);
+    }
+
+    /**
+     * Opens {@code displayName} and forces a specific input backend ({@code "xtest"}, {@code "xsendevent"},
+     * {@code "uinput"}, {@code "xdotool"}), bypassing the {@code botmaker.linux.input} property. A nested
+     * {@code :N} server uses this to pin {@link XTestBackend}: on a private display the global cursor is the
+     * bot's alone, so device-level XTest is both accepted by games <em>and</em> non-intrusive — and the
+     * process-wide property that steers {@code :0} must not decide a nested display's backend. {@code null}
+     * {@code backendChoice} falls back to the property, i.e. exactly {@link #LinuxController(String)}.
+     */
+    public LinuxController(String displayName, String backendChoice) {
+        this(displayName, backendChoice, PointerWarp.ROOT_ABSOLUTE);
+    }
+
+    /**
+     * {@link #LinuxController(String, String)} with the server's warp convention pinned. Only a nested display
+     * needs this: gamescope's Xwayland reads an injected absolute warp as <em>window-relative</em>, so a
+     * controller bound to a gamescope {@code :N} passes {@link PointerWarp#FOCUS_RELATIVE} and its XTest backend
+     * corrects for the focused window's origin. A real server, Xvfb and Xephyr are all
+     * {@link PointerWarp#ROOT_ABSOLUTE} — the default. The policy itself lives in
+     * {@code SessionBackends.pointerWarpFor(...)}, not here.
+     */
+    public LinuxController(String displayName, String backendChoice, PointerWarp warp) {
+        this(displayName, backendChoice, warp, null);
+    }
+
+    /**
+     * {@link #LinuxController(String, String, PointerWarp)} with the backend's click/keystroke timing pinned
+     * ({@code null} → {@link InputTiming#DEFAULT}). A session passes a longer press hold than the host default,
+     * because the thing on the other end is a game sampling input on a frame timer rather than a toolkit
+     * reacting to an event queue; the policy itself lives in {@code SessionBackends.inputTimingFor(...)}, not
+     * here. Only the XTest backend reads it today — the others have no tunable timing.
+     */
+    public LinuxController(String displayName, String backendChoice, PointerWarp warp, InputTiming timing) {
+        // Try to open the named X11 display (null → default $DISPLAY).
+        Pointer disp = null;
+        boolean available = false;
+
+        try {
+            disp = X11.INSTANCE.XOpenDisplay(displayName);
+            available = (disp != null);
+
+            if (!available) {
+                Diag.error("[Linux] Warning: Could not open X11 display "
+                    + (displayName == null ? "(default $DISPLAY)" : "'" + displayName + "'")
+                    + ". Falling back to Robot for all operations.");
+                Diag.error("[Linux] Make sure DISPLAY environment variable is set and X11 is running.");
+            }
+        } catch (UnsatisfiedLinkError e) {
+            Diag.error("[Linux] Warning: X11 libraries not found. Install libx11-6 and libxtst-6.");
+            Diag.error("[Linux] Falling back to Robot for all operations.");
+        } catch (Exception e) {
+            Diag.error("[Linux] Warning: Error initializing X11: " + e.getMessage());
+        }
+
+        this.displayName = displayName;
+        this.warp = warp == null ? PointerWarp.ROOT_ABSOLUTE : warp;
+        this.timing = timing;
+        this.display = disp;
+        this.x11Available = available;
+        this.inputBackend = available ? selectBackend(disp, backendChoice, warp, timing) : null;
+    }
+
+    /**
+     * A {@code LinuxController} bound to the named display (e.g. {@code ":9"}), <b>bypassing</b> the
+     * {@link com.botmaker.shared.capture.NativeControllerFactory} singleton so a nested-display controller and
+     * the default host controller coexist in one JVM. The caller owns the returned instance and must
+     * {@link #close()} it.
+     */
+    public static LinuxController forDisplay(String displayName) {
+        return new LinuxController(displayName);
+    }
+
+    /**
+     * {@link #forDisplay(String)} with the input backend pinned (e.g. {@code "xtest"} for a nested display —
+     * see {@link #LinuxController(String, String)}). The caller owns the returned instance and must
+     * {@link #close()} it.
+     */
+    public static LinuxController forDisplay(String displayName, String backendChoice) {
+        return new LinuxController(displayName, backendChoice, PointerWarp.ROOT_ABSOLUTE);
+    }
+
+    /**
+     * {@link #forDisplay(String, String)} with the server's warp convention pinned — see
+     * {@link #LinuxController(String, String, PointerWarp)}. The caller owns the returned instance and must
+     * {@link #close()} it.
+     */
+    public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp) {
+        return new LinuxController(displayName, backendChoice, warp, null);
+    }
+
+    /**
+     * {@link #forDisplay(String, String, PointerWarp)} with the backend timing pinned too — see
+     * {@link #LinuxController(String, String, PointerWarp, InputTiming)}. The caller owns the returned instance
+     * and must {@link #close()} it.
+     */
+    public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp,
+                                             InputTiming timing) {
+        return new LinuxController(displayName, backendChoice, warp, timing);
+    }
+
+    /** The X11 display name this controller is bound to, or {@code null} for the default {@code $DISPLAY}. */
+    public String displayName() {
+        return displayName;
+    }
+
+    /**
+     * Declare which window this controller is driving — see
+     * {@link LinuxInputBackend#setDrivenWindow(Supplier)}. A session sets it to its own re-resolving
+     * {@code attached()}, so the answer survives the launcher chain swapping one window for another. No-op
+     * without an X11 display, and ignored by every backend whose coordinates don't depend on a window.
+     */
+    public void setDrivenWindow(Supplier<Pointer> window) {
+        this.drivenWindow = window;
+        LinuxInputBackend backend = inputBackend;
+        if (backend != null) {
+            backend.setDrivenWindow(window);
+        }
+    }
+
+    /**
+     * Pick the input backend. When {@code forced} is non-null it wins outright (a nested display pins
+     * {@code "xtest"}); otherwise the choice comes from {@code botmaker.linux.input} / {@code BOTMAKER_LINUX_INPUT}
+     * (default {@code auto} → cursor-safe xsendevent).
+     */
+    private static LinuxInputBackend selectBackend(Pointer display, String forced, PointerWarp warp,
+                                                   InputTiming timing) {
+        String choice;
+        if (forced != null && !forced.isBlank()) {
+            choice = forced.trim().toLowerCase();
+        } else {
+            String env = System.getenv("BOTMAKER_LINUX_INPUT");
+            choice = System.getProperty("botmaker.linux.input", env != null ? env : "auto")
+                .trim().toLowerCase();
+        }
+
+        LinuxInputBackend backend;
+        switch (choice) {
+            case "xtest":
+                backend = new XTestBackend(display, timing, warp);
+                break;
+            case "xdotool": {
+                LinuxInputBackend x = XdotoolBackend.tryCreate(display);
+                if (x == null) {
+                    Diag.error("[Linux] xdotool not found on PATH (install it: "
+                        + "dnf install xdotool / apt install xdotool); falling back to in-process XTest.");
+                    backend = new XTestBackend(display, timing, warp);
+                } else {
+                    backend = x;
+                }
+                break;
+            }
+            case "uinput": {
+                int screen = X11.INSTANCE.XDefaultScreen(display);
+                int w = X11.INSTANCE.XDisplayWidth(display, screen);
+                int h = X11.INSTANCE.XDisplayHeight(display, screen);
+                UinputBackend u = UinputBackend.tryCreate(w, h, display);
+                if (u == null) {
+                    Diag.error("[Linux] uinput unavailable (can't open /dev/uinput); "
+                        + "falling back to cursor-safe xsendevent.");
+                    backend = new XSendEventBackend(display);
+                } else {
+                    backend = u;
+                }
+                break;
+            }
+            case "auto":
+            case "xsendevent":
+            default:
+                backend = new XSendEventBackend(display);
+                break;
+        }
+        Diag.log("[Linux] input backend = " + backend.name()
+            + " (preservesCursor=" + backend.preservesCursor() + ")");
+        return backend;
+    }
+
+    @Override
+    public GenericWindow getForegroundWindow() {
+        checkNotClosed();
+
+        if (!x11Available) {
+            Diag.log("[Linux] X11 not available, returning mock window.");
+            return new GenericWindow(-1, "Mock Linux Window", new Rectangle(0, 0, 800, 600));
+        }
+
+        try {
+            // Try to get active window via _NET_ACTIVE_WINDOW (EWMH)
+            Pointer activeWindow = X11Utils.getActiveWindow(display);
+
+            if (activeWindow == null || Pointer.nativeValue(activeWindow) == 0) {
+                // Fallback to XGetInputFocus
+                PointerByReference focusReturn = new PointerByReference();
+                IntByReference revertToReturn = new IntByReference();
+                X11.INSTANCE.XGetInputFocus(display, focusReturn, revertToReturn);
+                activeWindow = focusReturn.getValue();
+            }
+
+            if (activeWindow == null || Pointer.nativeValue(activeWindow) == 0 || Pointer.nativeValue(activeWindow) == 1) {
+                Diag.log("[Linux] No active window found.");
+                return null;
+            }
+
+            return toGenericWindow(activeWindow);
+        } catch (Exception e) {
+            Diag.error("[Linux] Error getting foreground window: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    @Override
+    public List<GenericWindow> getChildWindows(GenericWindow parent) {
+        checkNotClosed();
+
+        List<GenericWindow> result = new ArrayList<>();
+
+        if (!x11Available || parent == null) {
+            return result;
+        }
+
+        try {
+            Pointer parentWindow = (Pointer) parent.getNativeHandle();
+
+            PointerByReference rootReturn = new PointerByReference();
+            PointerByReference parentReturn = new PointerByReference();
+            PointerByReference childrenReturn = new PointerByReference();
+            IntByReference nChildrenReturn = new IntByReference();
+
+            int status = X11.INSTANCE.XQueryTree(
+                display, parentWindow,
+                rootReturn, parentReturn,
+                childrenReturn, nChildrenReturn
+            );
+
+            if (status == 0) {
+                return result;
+            }
+
+            Pointer children = childrenReturn.getValue();
+            int nChildren = nChildrenReturn.getValue();
+
+            if (children != null && nChildren > 0) {
+                long[] childIds = children.getLongArray(0, nChildren);
+
+                for (long childId : childIds) {
+                    Pointer childWindow = new Pointer(childId);
+
+                    // Only include viewable windows with titles
+                    if (X11Utils.isWindowViewable(display, childWindow)) {
+                        String title = X11Utils.getWindowTitle(display, childWindow);
+                        if (title != null && !title.isEmpty()) {
+                            GenericWindow gw = toGenericWindow(childWindow);
+                            if (gw != null) {
+                                result.add(gw);
+                            }
+                        }
+                    }
+                }
+
+                X11.INSTANCE.XFree(children);
+            }
+        } catch (Exception e) {
+            Diag.error("[Linux] Error getting child windows: " + e.getMessage(), e);
+        }
+
+        return result;
+    }
+
+    @Override
+    public List<GenericWindow> getAllWindows() {
+        return getAllWindows(false);
+    }
+
+    @Override
+    public List<GenericWindow> getAllWindows(boolean includeMinimized) {
+        checkNotClosed();
+
+        List<GenericWindow> result = new ArrayList<>();
+
+        if (!x11Available) {
+            return result;
+        }
+
+        try {
+            // Get all client windows from window manager
+            Pointer[] windows = X11Utils.getClientList(display);
+
+            if (windows.length == 0) {
+                // Fallback: enumerate from root window
+                Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
+                windows = enumerateWindowsRecursive(root);
+            }
+
+            for (Pointer window : windows) {
+                // Minimized windows are unmapped (not viewable) so their pixels can't be captured; include
+                // them only when the caller intends to restore them first.
+                if ((includeMinimized || X11Utils.isWindowViewable(display, window)) &&
+                    !X11Utils.hasOverrideRedirect(display, window)) {
+
+                    String title = X11Utils.getWindowTitle(display, window);
+                    if (title != null && !title.isEmpty()) {
+                        GenericWindow gw = toGenericWindow(window);
+                        if (gw != null) {
+                            result.add(gw);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Diag.error("[Linux] Error getting all windows: " + e.getMessage(), e);
+        }
+
+        return result;
+    }
+
+    /**
+     * De-iconify a minimized window: {@code XMapWindow} restores it to Normal state (ICCCM 4.1.4), then we
+     * raise + focus it. After this the window is viewable and {@link #captureWindow} can read its pixels.
+     */
+    @Override
+    public void restoreWindow(GenericWindow window) {
+        checkNotClosed();
+        if (!x11Available || window == null) {
+            return;
+        }
+        try {
+            Pointer x11Window = (Pointer) window.getNativeHandle();
+            X11.INSTANCE.XMapWindow(display, x11Window);
+            X11.INSTANCE.XRaiseWindow(display, x11Window);
+            X11.INSTANCE.XSetInputFocus(display, x11Window, X11.RevertToParent, 0);
+            activateWindow(x11Window);
+            X11.INSTANCE.XFlush(display);
+        } catch (Exception e) {
+            Diag.error("[Linux] Error restoring window: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Recursively enumerate windows (fallback method)
+     */
+    private Pointer[] enumerateWindowsRecursive(Pointer window) {
+        List<Pointer> allWindows = new ArrayList<>();
+
+        try {
+            PointerByReference rootReturn = new PointerByReference();
+            PointerByReference parentReturn = new PointerByReference();
+            PointerByReference childrenReturn = new PointerByReference();
+            IntByReference nChildrenReturn = new IntByReference();
+
+            int status = X11.INSTANCE.XQueryTree(
+                display, window,
+                rootReturn, parentReturn,
+                childrenReturn, nChildrenReturn
+            );
+
+            if (status != 0) {
+                Pointer children = childrenReturn.getValue();
+                int nChildren = nChildrenReturn.getValue();
+
+                if (children != null && nChildren > 0) {
+                    long[] childIds = children.getLongArray(0, nChildren);
+
+                    for (long childId : childIds) {
+                        Pointer childWindow = new Pointer(childId);
+                        allWindows.add(childWindow);
+
+                        // Recurse into children
+                        Pointer[] subWindows = enumerateWindowsRecursive(childWindow);
+                        for (Pointer sw : subWindows) {
+                            allWindows.add(sw);
+                        }
+                    }
+
+                    X11.INSTANCE.XFree(children);
+                }
+            }
+        } catch (Exception e) {
+            // Ignore errors during recursive enumeration
+        }
+
+        return allWindows.toArray(new Pointer[0]);
+    }
+
+    /**
+     * Capture a window by reading its X pixmap directly with {@link X11#XGetImage} against the window drawable.
+     * This is deliberately <b>not</b> AWT {@code Robot}: on Wayland every {@code Robot} grab tunnels through
+     * xdg-desktop-portal and pops a screen-share prompt (and then fails with a {@code SecurityException}),
+     * whereas {@code XGetImage} on an X11/XWayland window reads its pixels with no portal and no prompt.
+     * Returns {@code null} on failure so the caller can apply its own full-desktop fallback.
+     */
+    @Override
+    public BufferedImage captureWindow(GenericWindow window) {
+        checkNotClosed();
+
+        if (!x11Available || window == null) {
+            return null;
+        }
+
+        X11.XImage image = null;
+        try {
+            Pointer x11Window = (Pointer) window.getNativeHandle();
+
+            // Bail if the window isn't viewable (e.g. it was minimized/unmapped since it was enumerated):
+            // XGetImage on an unmapped drawable raises a BadMatch that Xlib's default handler prints to
+            // stderr. This cheap re-check avoids generating that error at the source. Callers that want a
+            // minimized window shown must restoreWindow(...) first.
+            if (!X11Utils.isWindowViewable(display, x11Window)) {
+                return null;
+            }
+
+            // Geometry gives us the window's size and absolute screen position (via XTranslateCoordinates).
+            Rectangle rect = X11Utils.getWindowGeometry(display, x11Window);
+            if (rect == null || rect.width <= 0 || rect.height <= 0) {
+                Diag.error("[Linux] Invalid window geometry, cannot capture window.");
+                return null;
+            }
+
+            // Ask KWin to keep this window composited (EWMH _NET_WM_BYPASS_COMPOSITOR=2). A fullscreen
+            // Proton/OpenGL game otherwise triggers unredirect, blacking out every window's backing pixmap.
+            X11Utils.setKeepComposited(display, x11Window);
+
+            // Prefer the window's off-screen pixmap (via XComposite) so regions occluded by windows in
+            // front are captured too.
+            image = captureViaComposite(x11Window, rect);
+            BufferedImage result = decode(image);
+            if (image != null) { image.destroyImage(); image = null; }
+
+            if (result != null && !isAllBlack(result)) {
+                return result;
+            }
+
+            // Composite read unavailable or all-black (compositor unredirected / mid-transition). The
+            // root-window crop reads whatever is *visually* at the window's rect — which is correct only
+            // for the foreground window. For a background/occluded window it returns the window sitting in
+            // front, which is exactly what made every window look identical. So gate root-crop on foreground.
+            if (isForeground(x11Window)) {
+                // Clamped to the root: XGetImage answers BadMatch — which Xlib's default handler turns into a
+                // process exit — for any rect that isn't wholly inside the drawable. A window hanging off the
+                // screen edge is enough to trigger it, and gamescope guarantees it (it places the focus window
+                // at (2,2) at full screen size, so the window's rect is 2px past the root on both axes).
+                Rectangle rootRect = X11Utils.getWindowGeometry(display, X11.INSTANCE.XDefaultRootWindow(display));
+                Rectangle crop = rootRect == null ? rect : rect.intersection(rootRect);
+                if (crop.width > 0 && crop.height > 0) {
+                    image = X11.INSTANCE.XGetImage(display, X11.INSTANCE.XDefaultRootWindow(display),
+                            crop.x, crop.y, crop.width, crop.height,
+                            new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
+                    BufferedImage rootCrop = decode(image);
+                    if (image != null) { image.destroyImage(); image = null; }
+                    if (rootCrop != null && !isAllBlack(rootCrop)) {
+                        return rootCrop;
+                    }
+                }
+            }
+
+            // On-window drawable: this window's own un-occluded pixels. Occluded regions read black, but it
+            // is never *another* window's content — so background windows keep their own (partial) frame.
+            image = X11.INSTANCE.XGetImage(display, x11Window, 0, 0, rect.width, rect.height,
+                    new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
+            BufferedImage onWindow = decode(image);
+            if (image != null) { image.destroyImage(); image = null; }
+            if (onWindow != null && !isAllBlack(onWindow)) {
+                return onWindow;
+            }
+
+            // Nothing usable — return the composite frame (even if black) over null so the caller still
+            // gets correct geometry rather than falling all the way back to a full-desktop capture.
+            return result != null ? result : onWindow;
+
+        } catch (Throwable e) {
+            Diag.error("[Linux] Error capturing window: " + e.getMessage());
+            return null;
+        } finally {
+            if (image != null) image.destroyImage();
+        }
+    }
+
+    /** Whether {@code x11Window} is the EWMH active (foreground) window — the only one root-crop is valid for. */
+    private boolean isForeground(Pointer x11Window) {
+        try {
+            Pointer active = X11Utils.getActiveWindow(display);
+            return active != null && Pointer.nativeValue(active) == Pointer.nativeValue(x11Window);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Captures {@code x11Window} from its off-screen backing pixmap via XComposite, so pixels covered by
+     * windows in front are still read (unlike an on-window {@code XGetImage}, which returns black there).
+     * Returns {@code null} — so the caller falls back to the on-window path — when libXcomposite is missing,
+     * no compositor is running, or the pixmap can't be named/read.
+     */
+    private X11.XImage captureViaComposite(Pointer x11Window, Rectangle rect) {
+        XComposite xc = XComposite.instance();
+        if (xc == null || !compositorActive()) {
+            return null;
+        }
+        try {
+            if (!xc.XCompositeQueryExtension(display, new IntByReference(), new IntByReference())) {
+                return null;
+            }
+            Pointer pixmap = xc.XCompositeNameWindowPixmap(display, x11Window);
+            if (pixmap == null || Pointer.nativeValue(pixmap) == 0) {
+                return null;
+            }
+            try {
+                return X11.INSTANCE.XGetImage(display, pixmap, 0, 0, rect.width, rect.height,
+                        new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
+            } finally {
+                X11.INSTANCE.XFreePixmap(display, pixmap);
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether a compositing manager owns the {@code _NET_WM_CM_S<screen>} selection. Only when one is running
+     * does a top-level window have a redirected off-screen pixmap for {@link #captureViaComposite} to read.
+     */
+    private boolean compositorActive() {
+        try {
+            int screen = X11.INSTANCE.XDefaultScreen(display);
+            Pointer atom = X11.INSTANCE.XInternAtom(display, "_NET_WM_CM_S" + screen, false);
+            if (atom == null) {
+                return false;
+            }
+            Pointer owner = X11.INSTANCE.XGetSelectionOwner(display, atom);
+            return owner != null && Pointer.nativeValue(owner) != 0;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Null/validity-guards an {@link X11.XImage} then decodes it; returns {@code null} for an unusable frame. */
+    private static BufferedImage decode(X11.XImage image) {
+        if (image == null || image.data == null || image.bits_per_pixel < 24) {
+            return null;
+        }
+        return toBufferedImage(image);
+    }
+
+    /**
+     * True if every sampled pixel is pure black — the signature of a capture read while the compositor had
+     * the window unredirected. Samples a sparse grid (≈every 17th pixel per axis) so it's cheap on large
+     * frames; a single non-black sample short-circuits to false.
+     */
+    static boolean isAllBlack(BufferedImage img) {
+        if (img == null) {
+            return true;
+        }
+        int step = Math.max(1, Math.min(img.getWidth(), img.getHeight()) / 17);
+        for (int y = 0; y < img.getHeight(); y += step) {
+            for (int x = 0; x < img.getWidth(); x += step) {
+                if ((img.getRGB(x, y) & 0x00FFFFFF) != 0) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Decodes a ZPixmap {@link X11.XImage} into a {@code TYPE_INT_ARGB} image, extracting channels via the
+     * image's {@code red/green/blue} masks (handles both 32- and 24-bit-per-pixel packings). Assumes the
+     * server's byte order matches the JVM (true for a local X/XWayland connection).
+     */
+    private static BufferedImage toBufferedImage(X11.XImage image) {
+        int w = image.width, h = image.height;
+        if (w <= 0 || h <= 0) return null;
+
+        int bpp = image.bits_per_pixel;
+        int stride = image.bytes_per_line;
+        int bytesPerPixel = bpp / 8;
+        byte[] raw = image.data.getByteArray(0, stride * h);
+
+        int redMask = (int) image.red_mask.longValue();
+        int greenMask = (int) image.green_mask.longValue();
+        int blueMask = (int) image.blue_mask.longValue();
+        int redShift = Integer.numberOfTrailingZeros(redMask == 0 ? 0xFF0000 : redMask);
+        int greenShift = Integer.numberOfTrailingZeros(greenMask == 0 ? 0x00FF00 : greenMask);
+        int blueShift = Integer.numberOfTrailingZeros(blueMask == 0 ? 0x0000FF : blueMask);
+
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        int[] px = ((java.awt.image.DataBufferInt) out.getRaster().getDataBuffer()).getData();
+        for (int y = 0; y < h; y++) {
+            int rowStart = y * stride;
+            int outRow = y * w;
+            for (int x = 0; x < w; x++) {
+                int p = rowStart + x * bytesPerPixel;
+                // Little-endian assembly of the pixel value from its bytes.
+                int pixel = (raw[p] & 0xFF) | ((raw[p + 1] & 0xFF) << 8) | ((raw[p + 2] & 0xFF) << 16);
+                if (bytesPerPixel >= 4) pixel |= (raw[p + 3] & 0xFF) << 24;
+                int r = (pixel & redMask) >>> redShift;
+                int g = (pixel & greenMask) >>> greenShift;
+                int b = (pixel & blueMask) >>> blueShift;
+                px[outRow + x] = 0xFF000000 | (r << 16) | (g << 8) | b;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Post a left click at window-relative coordinates via the selected input backend. With the default
+     * {@code xsendevent} backend this delivers the click straight to the window without moving the real
+     * cursor, so it works in the background.
+     */
+    @Override
+    public void postLeftClick(GenericWindow window, int relativeX, int relativeY) {
+        checkNotClosed();
+        if (inputBackend == null || window == null) {
+            return;
+        }
+        inputBackend.clickWindow((Pointer) window.getNativeHandle(), relativeX, relativeY, 1);
+    }
+
+    /**
+     * Click at absolute screen coordinates via the selected input backend, leaving the pointer there. The
+     * default {@code xsendevent} backend resolves the window under the point and clicks it without touching
+     * the real cursor; {@code uinput}/{@code xtest} move the shared cursor.
+     *
+     * <p>Delegating to {@code clickScreen} rather than to the interface's portable default is the point: each
+     * backend's own sequence rounds the motion through {@code XSync} before pressing and holds for its
+     * {@link com.botmaker.shared.capture.linux.input.InputTiming}, which a naive move/press/release can't.
+     */
+    @Override
+    public void click(int xAbs, int yAbs, int button) {
+        checkNotClosed();
+        if (inputBackend == null) {
+            Diag.log("[Linux] X11 not available, cannot click.");
+            return;
+        }
+        inputBackend.clickScreen(xAbs, yAbs, button);
+    }
+
+    /** This display's configured hold, so a caller's own press/release pair matches what {@link #click} does. */
+    @Override
+    public int pressHoldMs() {
+        return timing == null ? NativeController.super.pressHoldMs() : timing.pressHoldMs();
+    }
+
+    @Override
+    public void focusWindow(GenericWindow window) {
+        checkNotClosed();
+        if (!x11Available || window == null) {
+            return;
+        }
+        focusHandle((Pointer) window.getNativeHandle());
+    }
+
+    /** {@link #focusWindow} on a raw X11 handle — the targeted key path already holds one. */
+    private void focusHandle(Pointer x11Window) {
+        try {
+            X11.INSTANCE.XRaiseWindow(display, x11Window);
+            X11.INSTANCE.XSetInputFocus(display, x11Window, X11.RevertToParent, 0);
+            activateWindow(x11Window);
+            X11.INSTANCE.XFlush(display);
+        } catch (Exception e) {
+            Diag.error("[Linux] Error focusing window: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Best-effort EWMH activation: send a {@code _NET_ACTIVE_WINDOW} client message to the root window so the
+     * window manager brings {@code x11Window} to the foreground. Many reparenting/EWMH WMs ignore a bare
+     * {@code XRaiseWindow}/{@code XSetInputFocus} on a background window and only honour this request. No-op
+     * (silently) when the WM doesn't advertise the atom.
+     */
+    private void activateWindow(Pointer x11Window) {
+        try {
+            Pointer atom = X11.INSTANCE.XInternAtom(display, "_NET_ACTIVE_WINDOW", true);
+            if (atom == null || Pointer.nativeValue(atom) == 0) {
+                return; // non-EWMH WM
+            }
+            Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
+            X11.XClientMessageEvent ev = new X11.XClientMessageEvent();
+            ev.type = X11.ClientMessage;
+            ev.send_event = 1;
+            ev.display = display;
+            ev.window = new com.sun.jna.NativeLong(Pointer.nativeValue(x11Window));
+            ev.message_type = new com.sun.jna.NativeLong(Pointer.nativeValue(atom));
+            ev.format = 32;
+            ev.data[0] = 2;                 // source indication: pager (honoured past focus-stealing prevention)
+            ev.data[1] = X11.CurrentTime;   // timestamp
+            ev.data[2] = 0;                 // requestor's currently-active window (none)
+            ev.data[3] = 0;
+            ev.data[4] = 0;
+            long mask = X11.SubstructureRedirectMask | X11.SubstructureNotifyMask;
+            X11.INSTANCE.XSendEvent(display, root, false, new com.sun.jna.NativeLong(mask), ev);
+        } catch (Exception e) {
+            // best-effort — leave the plain XRaiseWindow/XSetInputFocus result in place
+        }
+    }
+
+    @Override
+    public void moveWindow(GenericWindow window, int x, int y) {
+        checkNotClosed();
+        if (!x11Available || window == null) {
+            return;
+        }
+        try {
+            X11.INSTANCE.XMoveWindow(display, (Pointer) window.getNativeHandle(), x, y);
+            X11.INSTANCE.XFlush(display);
+        } catch (Exception e) {
+            Diag.error("[Linux] Error moving window: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void resizeWindow(GenericWindow window, int width, int height) {
+        checkNotClosed();
+        if (!x11Available || window == null) {
+            return;
+        }
+        try {
+            X11.INSTANCE.XResizeWindow(display, (Pointer) window.getNativeHandle(), width, height);
+            X11.INSTANCE.XFlush(display);
+        } catch (Exception e) {
+            Diag.error("[Linux] Error resizing window: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void promoteOverlayAboveFullscreen(String windowTitle) {
+        checkNotClosed();
+        if (!x11Available || windowTitle == null || windowTitle.isEmpty()) {
+            return;
+        }
+        try {
+            Pointer[] windows = X11Utils.getClientList(display);
+            if (windows == null) {
+                return;
+            }
+            for (Pointer w : windows) {
+                if (windowTitle.equals(X11Utils.getWindowTitle(display, w))) {
+                    X11Utils.promoteAboveFullscreen(display, w);
+                }
+            }
+        } catch (Exception e) {
+            Diag.error("[Linux] promoteOverlayAboveFullscreen failed: " + e.getMessage());
+        }
+    }
+
+    // --- Input synthesis (delegated to the selected LinuxInputBackend) ---
+
+    private static final int KEYSYM_SHIFT_L = 0xFFE1;
+
+    @Override
+    public void keyDown(int nativeKeyCode) {
+        checkNotClosed();
+        if (inputBackend != null) {
+            inputBackend.key(nativeKeyCode, true);
+        }
+    }
+
+    @Override
+    public void keyUp(int nativeKeyCode) {
+        checkNotClosed();
+        if (inputBackend != null) {
+            inputBackend.key(nativeKeyCode, false);
+        }
+    }
+
+    @Override
+    public void typeText(String text) {
+        checkNotClosed();
+        if (inputBackend == null || text == null) {
+            return;
+        }
+        typeVia(null, text);
+    }
+
+    // --- Targeted key synthesis (route to a specific window's client via the backend) ---
+
+    @Override
+    public void keyDown(GenericWindow window, int nativeKeyCode) {
+        checkNotClosed();
+        if (inputBackend != null) {
+            keyVia(handleOf(window), nativeKeyCode, true);
+        }
+    }
+
+    @Override
+    public void keyUp(GenericWindow window, int nativeKeyCode) {
+        checkNotClosed();
+        if (inputBackend != null) {
+            keyVia(handleOf(window), nativeKeyCode, false);
+        }
+    }
+
+    @Override
+    public void typeText(GenericWindow window, String text) {
+        checkNotClosed();
+        if (inputBackend == null || text == null) {
+            return;
+        }
+        typeVia(handleOf(window), text);
+    }
+
+    /**
+     * Type {@code text} into {@code window} (or the focused window when {@code null}), shifting uppercase. The
+     * whole sequence is wrapped so that however it ends — normal return, an exception mid-string, or an
+     * interrupt — the backend releases anything it left held (a stuck Shift is the archetypal "typed fine for a
+     * while then everything broke" failure). Characters the active layout can't map are still delivered by the
+     * backend borrowing a spare keycode (see {@link com.botmaker.shared.capture.linux.input.Keymap}).
+     */
+    private void typeVia(Pointer window, String text) {
+        int perKey = inputBackend.interKeyDelayMs();
+        try {
+            for (int i = 0; i < text.length(); i++) {
+                char c = text.charAt(i);
+                // For Latin-1 the X keysym equals the code point; uppercase letters need Shift held.
+                boolean needShift = Character.isUpperCase(c);
+                if (needShift) {
+                    keyVia(window, KEYSYM_SHIFT_L, true);
+                }
+                keyVia(window, c, true);
+                keyVia(window, c, false);
+                if (needShift) {
+                    keyVia(window, KEYSYM_SHIFT_L, false);
+                }
+                if (perKey > 0 && i + 1 < text.length()) {
+                    Thread.sleep(perKey);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            inputBackend.releaseHeld();
+        }
+    }
+
+    /**
+     * Deliver one key event to {@code window}, or the focused window when {@code null}.
+     *
+     * <p>Only {@link XSendEventBackend} can address a window; the cursor-moving backends drive one real
+     * device and deliver wherever the compositor routes input. For those, "targeted" has to mean <em>raise
+     * the target, then type</em> — the keyboard analogue of what {@code clickWindow} already does. Without
+     * this, a targeted key under uinput/xdotool silently went to whatever held focus (the Studio), which is
+     * why {@code Keyboard.press} appeared to do nothing in a game while clicks worked.
+     */
+    private void keyVia(Pointer window, int keysym, boolean press) {
+        if (window == null) {
+            inputBackend.key(keysym, press);
+            return;
+        }
+        if (inputBackend.preservesCursor()) {
+            inputBackend.key(window, keysym, press);
+            return;
+        }
+        raiseForTypingIfStale(window);
+        inputBackend.key(keysym, press);
+    }
+
+    /** Target of the last raise done for a key event, and when — see {@link #raiseForTypingIfStale}. */
+    private volatile Pointer lastKeyTarget;
+    private volatile long lastKeyTargetAt;
+
+    /**
+     * Focus {@code window} unless we already did so for this same target moments ago. Raising per keystroke
+     * would make {@code typeText} flicker and cost a WM round-trip per character; never re-raising would let
+     * focus drift away mid-sequence (the user clicks elsewhere) and silently send the rest of the string
+     * there. Re-raising when the target changes or the gap exceeds {@link #KEY_FOCUS_TTL_MS} covers both.
+     */
+    private void raiseForTypingIfStale(Pointer window) {
+        long now = System.currentTimeMillis();
+        if (window.equals(lastKeyTarget) && now - lastKeyTargetAt < KEY_FOCUS_TTL_MS) {
+            lastKeyTargetAt = now;
+            return;
+        }
+        focusHandle(window);
+        lastKeyTarget = window;
+        lastKeyTargetAt = now;
+        try {
+            // Let the WM actually transfer focus before the first key lands; a key sent in the same instant
+            // as the activation request is delivered to the window that is still focused.
+            Thread.sleep(KEY_FOCUS_SETTLE_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** How long a raise-for-typing is trusted before the target is raised again. */
+    private static final long KEY_FOCUS_TTL_MS = 1000;
+    /** Pause after raising a window so the WM has transferred focus before the key is sent. */
+    private static final long KEY_FOCUS_SETTLE_MS = 60;
+
+    private static Pointer handleOf(GenericWindow window) {
+        return window == null ? null : (Pointer) window.getNativeHandle();
+    }
+
+    @Override
+    public void mouseMove(int xAbs, int yAbs) {
+        checkNotClosed();
+        if (inputBackend != null) {
+            inputBackend.move(xAbs, yAbs);
+        }
+    }
+
+    /**
+     * Move the pointer by a relative delta. Prefers the backend's true relative-motion injection (XTest can do
+     * it), which keeps working under a game's pointer grab/warp (mouselook) where reading an absolute position
+     * to add the delta to is unreliable; falls back to the portable read-back-then-warp when the backend can't.
+     */
+    @Override
+    public void mouseMoveRelative(int dx, int dy) {
+        checkNotClosed();
+        if (inputBackend != null && inputBackend.moveRelative(dx, dy)) {
+            return;
+        }
+        NativeController.super.mouseMoveRelative(dx, dy);
+    }
+
+    @Override
+    public void mouseButton(int button, boolean press) {
+        checkNotClosed();
+        if (inputBackend != null) {
+            inputBackend.button(button, press);
+        }
+    }
+
+    @Override
+    public void scroll(int amount) {
+        checkNotClosed();
+        if (inputBackend != null) {
+            inputBackend.scroll(amount);
+        }
+    }
+
+    /**
+     * Convert X11 window to GenericWindow
+     */
+    private GenericWindow toGenericWindow(Pointer window) {
+        if (window == null || Pointer.nativeValue(window) == 0) {
+            return null;
+        }
+
+        try {
+            String title = X11Utils.getWindowTitle(display, window);
+            Rectangle rect = X11Utils.getWindowGeometry(display, window);
+
+            if (rect == null) {
+                rect = new Rectangle(0, 0, 0, 0);
+            }
+
+            return new GenericWindow(window, title != null ? title : "", rect);
+        } catch (Exception e) {
+            Diag.error("[Linux] Error converting to GenericWindow: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Cleanup X11 resources
+     * This method is safe to call multiple times.
+     */
+    @Override
+    public void close() {
+        if (!closed && x11Available && display != null) {
+            synchronized (this) {
+                if (!closed) {
+                    try {
+                        if (inputBackend != null) {
+                            inputBackend.close(); // destroy the uinput device, if any
+                        }
+                    } catch (Exception e) {
+                        Diag.error("[Linux] Error closing input backend: " + e.getMessage());
+                    }
+                    try {
+                        X11.INSTANCE.XCloseDisplay(display);
+                    } catch (Exception e) {
+                        Diag.error("[Linux] Error closing X11 display: " + e.getMessage());
+                    } finally {
+                        closed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The pointer's absolute position via {@code XQueryPointer} on the root window, or {@code null} if X11
+     * isn't available. When the active backend is xdotool its own {@code getmouselocation} is used, so the
+     * read and the subsequent warp go through the same mechanism.
+     */
+    @Override
+    public Point cursorPosition() {
+        if (inputBackend instanceof XdotoolBackend xdotool) {
+            Point p = xdotool.cursorPosition();
+            if (p != null) {
+                return p;
+            }
+        }
+        if (!x11Available || closed) {
+            return null;
+        }
+        Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
+        PointerByReference rootReturn = new PointerByReference();
+        PointerByReference childReturn = new PointerByReference();
+        IntByReference rootX = new IntByReference();
+        IntByReference rootY = new IntByReference();
+        IntByReference winX = new IntByReference();
+        IntByReference winY = new IntByReference();
+        IntByReference mask = new IntByReference();
+        boolean ok = X11.INSTANCE.XQueryPointer(display, root, rootReturn, childReturn,
+            rootX, rootY, winX, winY, mask);
+        return ok ? new Point(rootX.getValue(), rootY.getValue()) : null;
+    }
+
+    /** True if the active input backend leaves the user's real cursor untouched (background-capable). */
+    @Override
+    public boolean supportsBackgroundInput() {
+        return inputBackend != null && inputBackend.preservesCursor();
+    }
+
+    /**
+     * Escalate to an input backend whose events are not ignored: <b>uinput</b> first (a kernel virtual device,
+     * so it reaches everything incl. native Wayland and Wine/Proton games), then xdotool, then in-process
+     * XTest, else keep {@link XSendEventBackend} and report failure. {@code XSendEvent}'s events carry
+     * {@code send_event=True}, which every Wine/Proton game and many toolkits drop on the floor — that is why
+     * the cursor-safe default clicks nothing in the pilot's Interact mode.
+     *
+     * <p>Idempotent, and a no-op once the active backend is already a cursor-moving one (including when the
+     * user opted into {@code botmaker.linux.input=uinput/xtest} at startup). The swap is process-wide, so
+     * {@link #supportsBackgroundInput()} starts reporting {@code false} afterwards — callers surface that.
+     */
+    @Override
+    public synchronized boolean useReliableInput() {
+        if (!x11Available || inputBackend == null) return false;
+        if (!inputBackend.preservesCursor()) return true; // already uinput/xtest
+
+        // uinput first: it is a kernel-level virtual device, so its events are indistinguishable from a real
+        // mouse/keyboard and reach Wine/Proton games and native Wayland clients. xdotool and XTest both go
+        // through XTEST, which a game running under XWayland may still ignore — they are the fallbacks for
+        // when /dev/uinput can't be opened, not the preference. (This order was reversed until keyboard input
+        // was found to reach nothing in a game: xdotool was winning and its keys were being dropped.)
+        int screen = X11.INSTANCE.XDefaultScreen(display);
+        LinuxInputBackend escalated = UinputBackend.tryCreate(
+            X11.INSTANCE.XDisplayWidth(display, screen),
+            X11.INSTANCE.XDisplayHeight(display, screen), display);
+        if (escalated == null) {
+            Diag.log("[Linux] /dev/uinput not writable (add yourself to the 'input' group, or install a udev "
+                + "rule: KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"input\"); trying xdotool.");
+            escalated = XdotoolBackend.tryCreate(display);
+        }
+        if (escalated == null) {
+            Diag.log("[Linux] xdotool not on PATH (install it: dnf install xdotool / apt install xdotool); "
+                + "trying in-process XTest.");
+            try {
+                escalated = new XTestBackend(display, timing, warp);
+            } catch (Exception | UnsatisfiedLinkError e) {
+                Diag.error("[Linux] XTest unavailable (" + e.getMessage() + ").");
+            }
+        }
+        if (escalated == null) {
+            Diag.error("[Linux] no reliable input backend available; "
+                + "staying on xsendevent — clicks may not reach the target.");
+            return false;
+        }
+        LinuxInputBackend previous = inputBackend;
+        escalated.setDrivenWindow(drivenWindow); // the new backend starts blank; carry the caller's answer over
+        inputBackend = escalated;
+        try {
+            previous.close();
+        } catch (Exception e) {
+            Diag.error("[Linux] Error closing previous input backend: " + e.getMessage());
+        }
+        Diag.log("[Linux] input backend = " + escalated.name()
+            + " (preservesCursor=" + escalated.preservesCursor() + ") — escalated for reliable input");
+        return true;
+    }
+
+    /**
+     * Check if resources have been closed
+     */
+    private void checkNotClosed() {
+        if (closed) {
+            throw new IllegalStateException("LinuxController has been closed and cannot be used");
+        }
+    }
 }

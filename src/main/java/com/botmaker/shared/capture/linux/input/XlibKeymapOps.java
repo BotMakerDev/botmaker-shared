@@ -17,68 +17,68 @@ import com.sun.jna.ptr.IntByReference;
  */
 final class XlibKeymapOps implements KeymapOps {
 
-	private final Pointer display;
-	private final int minKeycode;
-	private final int maxKeycode;
-	private final int perKeycode;
+    private final Pointer display;
+    private final int minKeycode;
+    private final int maxKeycode;
+    private final int perKeycode;
 
-	XlibKeymapOps(Pointer display) {
-		this.display = display;
-		IntByReference min = new IntByReference();
-		IntByReference max = new IntByReference();
-		X11.INSTANCE.XDisplayKeycodes(display, min, max);
-		this.minKeycode = min.getValue();
-		this.maxKeycode = max.getValue();
-		// The row width is reported by the same call that reads a mapping; read one keycode to learn it.
-		IntByReference per = new IntByReference();
-		Pointer syms = X11.INSTANCE.XGetKeyboardMapping(display, (byte) this.minKeycode, 1, per);
-		this.perKeycode = Math.max(1, per.getValue());
-		if (syms != null) {
-			X11.INSTANCE.XFree(syms);
-		}
-	}
+    XlibKeymapOps(Pointer display) {
+        this.display = display;
+        IntByReference min = new IntByReference();
+        IntByReference max = new IntByReference();
+        X11.INSTANCE.XDisplayKeycodes(display, min, max);
+        this.minKeycode = min.getValue();
+        this.maxKeycode = max.getValue();
+        // The row width is reported by the same call that reads a mapping; read one keycode to learn it.
+        IntByReference per = new IntByReference();
+        Pointer syms = X11.INSTANCE.XGetKeyboardMapping(display, (byte) this.minKeycode, 1, per);
+        this.perKeycode = Math.max(1, per.getValue());
+        if (syms != null) {
+            X11.INSTANCE.XFree(syms);
+        }
+    }
 
-	@Override
-	public int minKeycode() {
-		return minKeycode;
-	}
+    @Override
+    public int minKeycode() {
+        return minKeycode;
+    }
 
-	@Override
-	public int maxKeycode() {
-		return maxKeycode;
-	}
+    @Override
+    public int maxKeycode() {
+        return maxKeycode;
+    }
 
-	@Override
-	public int keysymsPerKeycode() {
-		return perKeycode;
-	}
+    @Override
+    public int keysymsPerKeycode() {
+        return perKeycode;
+    }
 
-	@Override
-	public long[] keysymsFor(int keycode) {
-		IntByReference per = new IntByReference();
-		Pointer syms = X11.INSTANCE.XGetKeyboardMapping(display, (byte) keycode, 1, per);
-		if (syms == null) {
-			return new long[perKeycode];
-		}
-		try {
-			return syms.getLongArray(0, perKeycode);
-		} finally {
-			X11.INSTANCE.XFree(syms);
-		}
-	}
+    @Override
+    public long[] keysymsFor(int keycode) {
+        IntByReference per = new IntByReference();
+        Pointer syms = X11.INSTANCE.XGetKeyboardMapping(display, (byte) keycode, 1, per);
+        if (syms == null) {
+            return new long[perKeycode];
+        }
+        try {
+            return syms.getLongArray(0, perKeycode);
+        } finally {
+            X11.INSTANCE.XFree(syms);
+        }
+    }
 
-	@Override
-	public void rebind(int keycode, long[] keysyms) {
-		try (Memory mem = new Memory((long) perKeycode * Native.LONG_SIZE)) {
-			for (int i = 0; i < perKeycode; i++) {
-				mem.setLong((long) i * Native.LONG_SIZE, i < keysyms.length ? keysyms[i] : 0L);
-			}
-			X11.INSTANCE.XChangeKeyboardMapping(display, keycode, perKeycode, mem, 1);
-		}
-	}
+    @Override
+    public void rebind(int keycode, long[] keysyms) {
+        try (Memory mem = new Memory((long) perKeycode * Native.LONG_SIZE)) {
+            for (int i = 0; i < perKeycode; i++) {
+                mem.setLong((long) i * Native.LONG_SIZE, i < keysyms.length ? keysyms[i] : 0L);
+            }
+            X11.INSTANCE.XChangeKeyboardMapping(display, keycode, perKeycode, mem, 1);
+        }
+    }
 
-	@Override
-	public void sync() {
-		X11.INSTANCE.XSync(display, false);
-	}
+    @Override
+    public void sync() {
+        X11.INSTANCE.XSync(display, false);
+    }
 }

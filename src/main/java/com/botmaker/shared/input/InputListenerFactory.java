@@ -14,18 +14,18 @@ import com.sun.jna.Platform;
  */
 public final class InputListenerFactory {
 
-	private InputListenerFactory() {}
+    private InputListenerFactory() {}
 
-	/** True when a global input listener is available on this platform (currently Linux/X11 only). */
-	public static boolean isSupported() {
-		return Platform.isLinux();
-	}
+    /** True when a global input listener is available on this platform (currently Linux/X11 only). */
+    public static boolean isSupported() {
+        return Platform.isLinux();
+    }
 
-	/** Creates a fresh, un-started listener. Throws {@link UnsupportedOperationException} off Linux. */
-	public static InputListener create() {
-		if (Platform.isLinux()) {
-			return new X11InputListener();
-		}
-		throw new UnsupportedOperationException("Global input recording is only supported on Linux/X11.");
-	}
+    /** Creates a fresh, un-started listener. Throws {@link UnsupportedOperationException} off Linux. */
+    public static InputListener create() {
+        if (Platform.isLinux()) {
+            return new X11InputListener();
+        }
+        throw new UnsupportedOperationException("Global input recording is only supported on Linux/X11.");
+    }
 }

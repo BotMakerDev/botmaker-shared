@@ -19,37 +19,37 @@ import com.sun.jna.ptr.IntByReference;
  */
 public interface XComposite extends Library {
 
-	/** Redirect modes for XCompositeRedirectWindow (Xcomposite.h). */
-	int CompositeRedirectAutomatic = 0;
-	int CompositeRedirectManual = 1;
+    /** Redirect modes for XCompositeRedirectWindow (Xcomposite.h). */
+    int CompositeRedirectAutomatic = 0;
+    int CompositeRedirectManual = 1;
 
-	/** True (non-zero) when the Composite extension is present on the display. */
-	boolean XCompositeQueryExtension(Pointer display, IntByReference eventBase, IntByReference errorBase);
+    /** True (non-zero) when the Composite extension is present on the display. */
+    boolean XCompositeQueryExtension(Pointer display, IntByReference eventBase, IntByReference errorBase);
 
-	/**
-	 * Allocates and returns a Pixmap XID that names {@code window}'s current off-screen contents. Only
-	 * valid when the window is redirected (which a running compositor does for every top-level window).
-	 * Free the returned pixmap with {@link X11#XFreePixmap}.
-	 */
-	Pointer XCompositeNameWindowPixmap(Pointer display, Pointer window);
+    /**
+     * Allocates and returns a Pixmap XID that names {@code window}'s current off-screen contents. Only
+     * valid when the window is redirected (which a running compositor does for every top-level window).
+     * Free the returned pixmap with {@link X11#XFreePixmap}.
+     */
+    Pointer XCompositeNameWindowPixmap(Pointer display, Pointer window);
 
-	/** Lazily-loaded singleton; {@code null} when libXcomposite could not be loaded. */
-	static XComposite instance() {
-		return Holder.INSTANCE;
-	}
+    /** Lazily-loaded singleton; {@code null} when libXcomposite could not be loaded. */
+    static XComposite instance() {
+        return Holder.INSTANCE;
+    }
 
-	/** Deferred, exception-safe load so a missing libXcomposite doesn't break window capture. */
-	final class Holder {
-		static final XComposite INSTANCE = load();
+    /** Deferred, exception-safe load so a missing libXcomposite doesn't break window capture. */
+    final class Holder {
+        static final XComposite INSTANCE = load();
 
-		private static XComposite load() {
-			try {
-				return Native.load("Xcomposite", XComposite.class);
-			} catch (Throwable t) {
-				return null;
-			}
-		}
+        private static XComposite load() {
+            try {
+                return Native.load("Xcomposite", XComposite.class);
+            } catch (Throwable t) {
+                return null;
+            }
+        }
 
-		private Holder() {}
-	}
+        private Holder() {}
+    }
 }

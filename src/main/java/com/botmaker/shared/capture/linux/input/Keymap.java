@@ -22,100 +22,100 @@ import java.util.Map;
  */
 final class Keymap {
 
-	private final KeymapOps ops;
-	/** keysym → the keycode currently borrowed for it, plus that keycode's original mapping for restore. */
-	private final Map<Long, Reservation> borrowed = new HashMap<>();
+    private final KeymapOps ops;
+    /** keysym → the keycode currently borrowed for it, plus that keycode's original mapping for restore. */
+    private final Map<Long, Reservation> borrowed = new HashMap<>();
 
-	Keymap(KeymapOps ops) {
-		this.ops = ops;
-	}
+    Keymap(KeymapOps ops) {
+        this.ops = ops;
+    }
 
-	private record Reservation(int keycode, long[] original) { }
+    private record Reservation(int keycode, long[] original) { }
 
-	/**
-	 * Bind a spare keycode to {@code keysym} and return it (idempotent: a keysym already borrowed returns its
-	 * existing keycode without touching the server again). Returns {@code 0} when the keymap has no unbound
-	 * keycode to borrow, in which case the caller drops the character.
-	 */
-	int rebind(long keysym) {
-		Reservation existing = borrowed.get(keysym);
-		if (existing != null) {
-			return existing.keycode();
-		}
-		int spare = findSpare();
-		if (spare == 0) {
-			return 0;
-		}
-		long[] original = ops.keysymsFor(spare);
-		long[] replacement = new long[Math.max(1, ops.keysymsPerKeycode())];
-		// Bind every shift level to the same keysym so the injected key produces it whether or not a modifier
-		// happens to be held — a borrowed key carries no layout semantics of its own.
-		for (int i = 0; i < replacement.length; i++) {
-			replacement[i] = keysym;
-		}
-		ops.rebind(spare, replacement);
-		ops.sync();
-		borrowed.put(keysym, new Reservation(spare, original));
-		return spare;
-	}
+    /**
+     * Bind a spare keycode to {@code keysym} and return it (idempotent: a keysym already borrowed returns its
+     * existing keycode without touching the server again). Returns {@code 0} when the keymap has no unbound
+     * keycode to borrow, in which case the caller drops the character.
+     */
+    int rebind(long keysym) {
+        Reservation existing = borrowed.get(keysym);
+        if (existing != null) {
+            return existing.keycode();
+        }
+        int spare = findSpare();
+        if (spare == 0) {
+            return 0;
+        }
+        long[] original = ops.keysymsFor(spare);
+        long[] replacement = new long[Math.max(1, ops.keysymsPerKeycode())];
+        // Bind every shift level to the same keysym so the injected key produces it whether or not a modifier
+        // happens to be held — a borrowed key carries no layout semantics of its own.
+        for (int i = 0; i < replacement.length; i++) {
+            replacement[i] = keysym;
+        }
+        ops.rebind(spare, replacement);
+        ops.sync();
+        borrowed.put(keysym, new Reservation(spare, original));
+        return spare;
+    }
 
-	/** Put the keycode borrowed for {@code keysym} back the way it was and release the reservation. No-op if none. */
-	void restore(long keysym) {
-		Reservation r = borrowed.remove(keysym);
-		if (r == null) {
-			return;
-		}
-		ops.rebind(r.keycode(), r.original());
-		ops.sync();
-	}
+    /** Put the keycode borrowed for {@code keysym} back the way it was and release the reservation. No-op if none. */
+    void restore(long keysym) {
+        Reservation r = borrowed.remove(keysym);
+        if (r == null) {
+            return;
+        }
+        ops.rebind(r.keycode(), r.original());
+        ops.sync();
+    }
 
-	/** Restore every outstanding borrowed keycode — the safety net when a session or backend is torn down. */
-	void restoreAll() {
-		if (borrowed.isEmpty()) {
-			return;
-		}
-		for (Reservation r : borrowed.values()) {
-			ops.rebind(r.keycode(), r.original());
-		}
-		ops.sync();
-		borrowed.clear();
-	}
+    /** Restore every outstanding borrowed keycode — the safety net when a session or backend is torn down. */
+    void restoreAll() {
+        if (borrowed.isEmpty()) {
+            return;
+        }
+        for (Reservation r : borrowed.values()) {
+            ops.rebind(r.keycode(), r.original());
+        }
+        ops.sync();
+        borrowed.clear();
+    }
 
-	/** Whether {@code keysym} is currently served by a borrowed keycode (so the caller knows to {@link #restore}). */
-	boolean isBorrowed(long keysym) {
-		return borrowed.containsKey(keysym);
-	}
+    /** Whether {@code keysym} is currently served by a borrowed keycode (so the caller knows to {@link #restore}). */
+    boolean isBorrowed(long keysym) {
+        return borrowed.containsKey(keysym);
+    }
 
-	/**
-	 * The first keycode in the server's range whose every shift level is NoSymbol (unbound) and that we haven't
-	 * already borrowed — searched high-to-low because unused keycodes cluster at the top of the range. Returns
-	 * {@code 0} when the keymap is fully populated.
-	 */
-	private int findSpare() {
-		for (int kc = ops.maxKeycode(); kc >= ops.minKeycode(); kc--) {
-			if (isReserved(kc) || !isUnbound(kc)) {
-				continue;
-			}
-			return kc;
-		}
-		return 0;
-	}
+    /**
+     * The first keycode in the server's range whose every shift level is NoSymbol (unbound) and that we haven't
+     * already borrowed — searched high-to-low because unused keycodes cluster at the top of the range. Returns
+     * {@code 0} when the keymap is fully populated.
+     */
+    private int findSpare() {
+        for (int kc = ops.maxKeycode(); kc >= ops.minKeycode(); kc--) {
+            if (isReserved(kc) || !isUnbound(kc)) {
+                continue;
+            }
+            return kc;
+        }
+        return 0;
+    }
 
-	private boolean isReserved(int keycode) {
-		for (Reservation r : borrowed.values()) {
-			if (r.keycode() == keycode) {
-				return true;
-			}
-		}
-		return false;
-	}
+    private boolean isReserved(int keycode) {
+        for (Reservation r : borrowed.values()) {
+            if (r.keycode() == keycode) {
+                return true;
+            }
+        }
+        return false;
+    }
 
-	private boolean isUnbound(int keycode) {
-		for (long sym : ops.keysymsFor(keycode)) {
-			if (sym != 0L) {
-				return false;
-			}
-		}
-		return true;
-	}
+    private boolean isUnbound(int keycode) {
+        for (long sym : ops.keysymsFor(keycode)) {
+            if (sym != 0L) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

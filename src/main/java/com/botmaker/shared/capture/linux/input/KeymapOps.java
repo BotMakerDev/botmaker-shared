@@ -11,21 +11,21 @@ package com.botmaker.shared.capture.linux.input;
  */
 interface KeymapOps {
 
-	/** Lowest physical keycode the server uses. */
-	int minKeycode();
+    /** Lowest physical keycode the server uses. */
+    int minKeycode();
 
-	/** Highest physical keycode the server uses. */
-	int maxKeycode();
+    /** Highest physical keycode the server uses. */
+    int maxKeycode();
 
-	/** How many keysyms (shift levels) each keycode carries — the row width of the mapping table. */
-	int keysymsPerKeycode();
+    /** How many keysyms (shift levels) each keycode carries — the row width of the mapping table. */
+    int keysymsPerKeycode();
 
-	/** The keysyms currently bound to {@code keycode}, one per shift level (length {@link #keysymsPerKeycode()}). */
-	long[] keysymsFor(int keycode);
+    /** The keysyms currently bound to {@code keycode}, one per shift level (length {@link #keysymsPerKeycode()}). */
+    long[] keysymsFor(int keycode);
 
-	/** Install {@code keysyms} (length {@link #keysymsPerKeycode()}) as {@code keycode}'s new mapping. */
-	void rebind(int keycode, long[] keysyms);
+    /** Install {@code keysyms} (length {@link #keysymsPerKeycode()}) as {@code keycode}'s new mapping. */
+    void rebind(int keycode, long[] keysyms);
 
-	/** Round-trip to the server so a preceding {@link #rebind} has taken effect before the key is injected. */
-	void sync();
+    /** Round-trip to the server so a preceding {@link #rebind} has taken effect before the key is injected. */
+    void sync();
 }
