@@ -1,8 +1,8 @@
 package com.botmaker.shared.emulator;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
+import com.botmaker.shared.Spawn;
+
+import java.time.Duration;
 
 /**
  * A tiny, best-effort reader for single Windows registry values via {@code reg query}. Emulator discovery uses
@@ -12,6 +12,9 @@ import java.nio.charset.StandardCharsets;
  * <p>Never throws: a missing key, a non-Windows OS, or a {@code reg} that can't run all yield {@code null}.
  */
 public final class WindowsRegistry {
+
+    /** {@code reg query} answers instantly or not at all; discovery must not wait on the "not at all". */
+    private static final Duration QUERY_TIMEOUT = Duration.ofSeconds(10);
 
     private WindowsRegistry() {}
 
@@ -24,17 +27,12 @@ public final class WindowsRegistry {
             return null;
         }
         try {
-            Process process = new ProcessBuilder("reg", "query", keyPath, "/v", valueName)
-                    .redirectErrorStream(true)
-                    .start();
-            String output;
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                output = reader.lines().reduce("", (a, b) -> a + "\n" + b);
+            Spawn.Completed query = Spawn.run(QUERY_TIMEOUT, "reg", "query", keyPath, "/v", valueName);
+            if (query == null) {
+                return null; // a discovery probe that hangs would hang the whole scan
             }
-            process.waitFor();
             // A matching line looks like:  "    ValueName    REG_SZ    C:\Some\Path"
-            for (String line : output.split("\n")) {
+            for (String line : query.output().split("\\R")) {
                 int typeIdx = indexOfRegType(line);
                 if (line.contains(valueName) && typeIdx >= 0) {
                     String data = line.substring(typeIdx);

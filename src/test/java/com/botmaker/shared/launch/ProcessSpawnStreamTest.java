@@ -1,6 +1,5 @@
 package com.botmaker.shared.launch;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -17,9 +16,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>That is invisible from here, which is what makes it expensive: the symptom is <em>the game hung on
  * startup</em>, several layers away from the {@code ProcessBuilder} that caused it. Five sites in this module
- * spawn without draining or redirecting ({@code GameLauncher.exe}, {@code tryStart}, the two
- * {@code isProcessRunning} probes, {@code SpectacleCapture}); the two that are correct —
- * {@code EmulatorLauncher} and {@code UriLauncher} — already show the pattern the other five need.
+ * spawned without draining or redirecting ({@code GameLauncher.exe}, {@code tryStart}, the two
+ * {@code isProcessRunning} probes, {@code SpectacleCapture}); the two that were correct —
+ * {@code EmulatorLauncher} and {@code UriLauncher} — were the pattern the other five were missing.
+ *
+ * <p>Phase 4 (S6) routed all of them through {@link com.botmaker.shared.Spawn}, whose own contract is tested in
+ * {@code SpawnTest}. These three were written {@code @Disabled} against the commit that logged B7, verified red
+ * there, and enabled by the fix; they stay because they assert it through the caller a bot actually reaches.
  *
  * <p>The chatty child here writes ~256 KB, comfortably past every buffer size in play. A drained or
  * {@code DISCARD}-redirected spawn lets it run to completion in milliseconds; an undrained one wedges it and
@@ -44,22 +47,18 @@ class ProcessSpawnStreamTest {
     }
 
     @Test
-    @Disabled("B7 is unfixed: verified red on this commit (the child wedges at 64 KB and exe() leaves it there). "
-            + "Delete this line in Phase 4 with S6's fix.")
     void exeDoesNotWedgeAChattyChildOnStdout() throws Exception {
         Process p = GameLauncher.exe(SH, "-c", floodStdout());
         assertExitsPromptly(p, "stdout");
     }
 
     @Test
-    @Disabled("B7, as above — re-enable with S6 in Phase 4.")
     void exeDoesNotWedgeAChattyChildOnStderr() throws Exception {
         Process p = GameLauncher.exe(SH, "-c", floodStderr());
         assertExitsPromptly(p, "stderr");
     }
 
     @Test
-    @Disabled("B7, as above — re-enable with S6 in Phase 4.")
     void exeDoesNotWedgeAChildChattyOnBothPipes() throws Exception {
         Process p = GameLauncher.exe(SH, "-c", floodStdout() + "; " + floodStderr());
         assertExitsPromptly(p, "both pipes");

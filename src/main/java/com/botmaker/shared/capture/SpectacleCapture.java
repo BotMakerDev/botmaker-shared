@@ -2,10 +2,12 @@ package com.botmaker.shared.capture;
 
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.Executables;
+import com.botmaker.shared.Spawn;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 
 /**
  * Full-desktop capture on KDE Wayland via Spectacle.
@@ -17,6 +19,9 @@ import java.nio.file.Path;
  */
 public final class SpectacleCapture implements CaptureBackend {
 
+    /** A desktop grab is a fraction of a second; past this, the Robot fallback is the better answer. */
+    private static final Duration CAPTURE_TIMEOUT = Duration.ofSeconds(15);
+
     /** True when running under Wayland with the {@code spectacle} binary on PATH. */
     static boolean isAvailable() {
         return System.getenv("WAYLAND_DISPLAY") != null && Executables.onPath("spectacle");
@@ -27,17 +32,20 @@ public final class SpectacleCapture implements CaptureBackend {
         Path out = null;
         try {
             out = Files.createTempFile("botcap", ".png");
-            Process p = new ProcessBuilder("spectacle", "-b", "-n", "-f", "-o", out.toString())
-                    .redirectErrorStream(true)
-                    .start();
-            int exit = p.waitFor();
-            if (exit == 0 && Files.size(out) > 0) {
+            // Drained and bounded: Spectacle's merged stream used to be started and never read, so a chatty
+            // build (a Wayland warning, a KDE debug build) filled the pipe and hung the capture for good.
+            Spawn.Completed shot = Spawn.run(CAPTURE_TIMEOUT, "spectacle", "-b", "-n", "-f", "-o", out.toString());
+            if (shot == null) {
+                Diag.error("[capture] Spectacle did not finish in " + CAPTURE_TIMEOUT + "; falling back to Robot.");
+                return new RobotCapture().captureDesktop();
+            }
+            if (shot.ok() && Files.size(out) > 0) {
                 BufferedImage image = ImageIO.read(out.toFile());
                 if (image != null) {
                     return image;
                 }
             }
-            Diag.error("[capture] Spectacle returned no image (exit " + exit + "); falling back to Robot.");
+            Diag.error("[capture] Spectacle returned no image (exit " + shot.exitCode() + "); falling back to Robot.");
         } catch (Exception e) {
             Diag.error("[capture] Spectacle capture failed: " + e.getMessage() + "; falling back to Robot.");
         } finally {

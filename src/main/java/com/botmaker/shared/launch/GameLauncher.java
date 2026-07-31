@@ -1,7 +1,9 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.Spawn;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -19,6 +21,13 @@ import java.util.Set;
  * the trace is what makes it diagnosable instead of "nothing happened".
  */
 public final class GameLauncher {
+
+    /**
+     * How long a "is it running?" probe may take before we answer "no". {@code tasklist} and {@code pgrep}
+     * return in milliseconds on a healthy machine; the bound exists so a wedged one costs a wrong answer
+     * rather than a bot that never advances.
+     */
+    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
 
     private GameLauncher() {}
 
@@ -43,7 +52,7 @@ public final class GameLauncher {
         }
         try {
             Diag.log("[Game] launch: " + String.join(" ", command));
-            return new ProcessBuilder(command).start();
+            return Spawn.detached(command);
         } catch (Exception e) {
             throw new RuntimeException("Failed to launch '" + executablePath + "': " + e.getMessage(), e);
         }
@@ -219,19 +228,23 @@ public final class GameLauncher {
         String name = require(processName, "processName");
         try {
             if (isWindows()) {
-                Process p = new ProcessBuilder("tasklist", "/FI", "IMAGENAME eq " + name).start();
-                String out = new String(p.getInputStream().readAllBytes());
-                p.waitFor();
-                return out.toLowerCase().contains(name.toLowerCase());
+                Spawn.Completed probe = Spawn.run(PROBE_TIMEOUT, "tasklist", "/FI", "IMAGENAME eq " + name);
+                if (probe == null) {
+                    Diag.log("[Game] isRunning(" + name + "): tasklist did not answer in " + PROBE_TIMEOUT);
+                    return false;
+                }
+                return probe.output().toLowerCase().contains(name.toLowerCase());
             }
             // `--` so a name starting with '-' isn't read as a flag. pgrep -f matches whole command lines,
             // which includes our own JVM when the name appears in its arguments — so read the pids and discard
             // our own rather than trusting the exit code.
-            Process p = new ProcessBuilder("pgrep", "-f", "--", name).start();
-            String out = new String(p.getInputStream().readAllBytes());
-            p.waitFor();
+            Spawn.Completed probe = Spawn.run(PROBE_TIMEOUT, "pgrep", "-f", "--", name);
+            if (probe == null) {
+                Diag.log("[Game] isRunning(" + name + "): pgrep did not answer in " + PROBE_TIMEOUT);
+                return false;
+            }
             long self = ProcessHandle.current().pid();
-            for (String line : out.split("\\R")) {
+            for (String line : probe.output().split("\\R")) {
                 String pid = line.trim();
                 if (!pid.isEmpty() && Long.parseLong(pid) != self) {
                     return true;
@@ -257,7 +270,7 @@ public final class GameLauncher {
     /** Best-effort {@link ProcessBuilder#start()}; logs and returns false rather than throwing on failure. */
     private static boolean tryStart(List<String> command) {
         try {
-            new ProcessBuilder(command).start();
+            Spawn.detached(command);
             Diag.log("[Game] ran: " + String.join(" ", command));
             return true;
         } catch (Exception e) {

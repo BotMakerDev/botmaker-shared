@@ -8,6 +8,38 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-01 — refactor Phase 4: B7, the spawns that could hang on a full pipe (S6)
+
+**177 → 181 tests** (three un-disabled, four added). New: `com.botmaker.shared.Spawn`.
+
+### Done
+
+- **B7 — five spawns could block forever on an undrained pipe.** A child writes into a ~64 KB pipe buffer
+  (as little as 4 KB on Windows); if nobody reads it the child blocks in `write()` and a parent in an untimed
+  `waitFor()` blocks with it. `GameLauncher.exe` and `tryStart` redirected neither stream, the `tasklist` and
+  `pgrep` probes in `isProcessRunning` read stdout but never stderr, and `SpectacleCapture` merged both streams
+  into a pipe it never read at all. None of them crash — the symptom arrives layers away as "the game froze on
+  startup".
+- **One helper, not five patches.** `Spawn.detached(command)` (both streams `DISCARD`, no wait) for the
+  fire-and-forget launches; `Spawn.run(timeout, command)` (merged, drained, bounded, child killed on expiry)
+  for the probes. `DISCARD` rather than `inheritIO()` deliberately: inheriting spills a game's chatter into the
+  bot's own stdout, where it reads as the bot's. `Executables` is the precedent — one answer in shared, because
+  the private copies had already drifted.
+- **`WindowsRegistry.read` came along.** It drained its pipe but waited untimed, which is the same defect one
+  wedged `reg query` away, and emulator discovery calls it in a loop.
+- **The drain runs off the calling thread**, which is not an optimisation. Reading the pipe to EOF and *then*
+  calling `waitFor(timeout)` leaves the timeout unreachable — EOF arrives when the child exits, so the read is
+  the unbounded wait, and B7 has simply moved one line down. `SpawnTest` pins it: a `sleep 120` bounded at
+  300 ms returns in well under 5 s with no child left behind.
+
+### Finding
+
+The bug and its fix had opposite shapes. B7 was five copies of a missing line; the fix was one type, and the
+only hard part was the part the audit could not see — that the natural implementation of the helper reproduces
+the bug it exists to remove. Worth remembering when the next "apply this pattern at N sites" item comes up.
+
+---
+
 ## 2026-08-01 — refactor Phase 4: B6, the resilience that stopped at the wire (S7)
 
 **176 → 177 tests** (two un-disabled, one added), and the first production change here since Phase 3.
