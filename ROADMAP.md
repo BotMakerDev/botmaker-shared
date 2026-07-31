@@ -8,6 +8,60 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-07-31 — refactor Phase 3: the test floor (S1, S2, S3)
+
+Part of the repo-wide refactor scheduled in `../docs/refactor/02-execution-order.md`; this module's share is
+units **S1–S3**, all test-only. **142 → 176 tests**, no production code touched.
+
+### Done
+
+- **MISSING 1 — `LinuxControllerCaptureTest`.** `captureWindow` has four exits (composite pixmap, root crop,
+  on-window drawable, give up) and all four are chosen by one predicate, `isAllBlack`. It is pure, so it is
+  now covered exhaustively — including the two cases that pin the **sparse grid** (`min(w,h)/17`): content
+  between grid points on a large frame is *missed*, and below 17px the step floors to 1 and nothing is. That
+  approximation is a deliberate trade against scanning a 4K frame per capture, and it reads as sloppiness to
+  anyone who has not measured the alternative. The exits themselves are live-gated on `DISPLAY`.
+- **MISSING 2 — `ProcessSpawnStreamTest`, and B7 is reproduced rather than argued.** A child writing 256 KB
+  through `GameLauncher.exe` never exits: it blocks in `write()` at the 64 KB pipe buffer and stays there.
+  Three tests red on this commit, `@Disabled` pending **S6** in Phase 4. Two *reference* tests (the `DISCARD`
+  and drain patterns the fix must apply) stay live, so the shape the fix targets is itself proven.
+- **MISSING 3 — `SharedNoOcvLeakTest`.** session's pom excludes our OpenCV and Tess4J; nothing verified that
+  `capture/` and `launch/` stay free of those types, so the contract was a comment. It now scans the compiled
+  **constant pools** — which sees a field type, a cast or a caught exception, none of which need an `import`
+  line — and fails at build time instead of at a standalone consumer's runtime.
+- **MISSING 4 — `InputBackendChoiceTest`.** S11's enum does not exist yet and testing it afterwards would
+  prove nothing, so what is pinned is what S11 must *preserve*: the four wire ids, the trim-then-lowercase
+  normalisation, the total parse, and the precedence ladder — including that the property beats the
+  environment variable, because the env var is read first and passed as `getProperty`'s **default**. Inverting
+  those two while refactoring is invisible: the wrong backend still works, it just stops preserving the cursor.
+- **MISSING 5 — `TelemetryServerResilienceTest`.** Two tests red on this commit (B6), `@Disabled` pending
+  **S7**; the healthy-stream case stays live.
+- **MISSING 6 — `WindowsControllerTest`.** `capture.windows` is 0.0% over 251 lines. This raises what can be
+  raised (the Win32 constants the alt-tab filter is written in terms of — a wrong one does not throw, it
+  silently changes which windows the picker offers) and **says why the rest stays zero**: `WindowFinder`'s
+  filter reads `User32.INSTANCE`, which binds `user32.dll` at class-load, so on Linux there is nothing to
+  assert against. Those are `@EnabledOnOs(WINDOWS)` and will not run until there is a Windows runner. An
+  unexplained 0.0% reads as neglect and gets re-derived by the next person.
+- **MISSING 7 — `X11InputListenerLifecycleTest`, which found B15** (see below).
+- **S3 — `LinuxControllerTest` deleted, not reworked.** It covered `isAllBlack` in three cases and nothing
+  else; all three are in `LinuxControllerCaptureTest`. Two test classes on one predicate is how the two drift.
+
+### Found: B15 — every recording session leaks three X connections and a live thread
+
+The audit read this code and logged a **race**: "`close()` returns before `cleanupDisplays()` has run"
+(item 4), a window of milliseconds. Measuring it found something else. `XRecordEnableContext` **never
+returns**, so the cleanup never runs at all — the fd count grows by exactly three per start/close cycle and
+never comes back, and a thread dump shows every `botmaker-input-recorder` still `alive` and `RUNNABLE` inside
+the JNA call. Invisible because the thread is a daemon (it never delays JVM exit) and `close()` returns
+promptly reporting success; the cost lands on Studio as three fds and one thread per interaction-recording
+session, surfacing much later as "too many open files" somewhere unrelated. Full evidence in
+`../docs/refactor/bugs.md` § B15; the leak test is `@Disabled` pending the fix, scheduled beside **S8**.
+
+This is the case for writing the test floor before the refactors rather than after: the same code had already
+been read carefully, and reading it produced the wrong severity.
+
+---
+
 ## 2026-07-30 — the session stack moved out into `botmaker-session`
 
 `com.botmaker.shared.session` (25 main + 16 test files) is now its own module and repo,
