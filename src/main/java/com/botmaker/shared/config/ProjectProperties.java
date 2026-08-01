@@ -32,6 +32,10 @@ import java.util.Properties;
  *       on a private nested display instead of the shared {@code :0}</li>
  *   <li>{@link #KEY_SESSION_BACKEND} — {@code gamescope} | {@code xephyr}: an explicit backend override for the
  *       nested display; normally unset, letting the launch kind pick (see {@code session.SessionBackends})</li>
+ *   <li>the <b>bot tuning</b> keys the SDK's {@code api.BotSettings} reads on first use —
+ *       {@link #KEY_CLICKS_FOUND_DELAY}, {@link #KEY_CLICKS_NOT_FOUND_DELAY}, {@link #KEY_CLICKS_RANDOMIZE},
+ *       {@link #KEY_VISION_CONFIDENCE}, {@link #KEY_VISION_COMPARE_MARGIN}, {@link #KEY_BOT_MAX_RETRY_ATTEMPTS},
+ *       {@link #KEY_INPUT_REAL} and {@link #KEY_INPUT_LINUX_BACKEND}</li>
  * </ul>
  */
 public final class ProjectProperties {
@@ -50,6 +54,39 @@ public final class ProjectProperties {
     public static final String KEY_SESSION_ISOLATED = "session.isolated";
     public static final String KEY_SESSION_BACKEND = "session.backend";
 
+    /**
+     * The bot's runtime tuning — what used to be a generated {@code BotSettings.java} calling the SDK facade,
+     * and is now eight keys in this file.
+     *
+     * <p>The generated class was a worse form of the same data: Studio wrote Java source and read its own
+     * values back out with a per-statement regex, so the storage format was "whatever that parser still
+     * recognises". These keys are read by {@code api.BotSettings} at first use, which is before the first
+     * click — the ordering {@link #KEY_INPUT_REAL} depends on (see that key).
+     */
+    public static final String KEY_CLICKS_FOUND_DELAY = "clicks.foundDelay";
+    public static final String KEY_CLICKS_NOT_FOUND_DELAY = "clicks.notFoundDelay";
+    public static final String KEY_CLICKS_RANDOMIZE = "clicks.randomize";
+    public static final String KEY_VISION_CONFIDENCE = "vision.confidence";
+    public static final String KEY_VISION_COMPARE_MARGIN = "vision.compareMargin";
+    public static final String KEY_BOT_MAX_RETRY_ATTEMPTS = "bot.maxRetryAttempts";
+
+    /**
+     * Whether the bot drives the <b>real</b> mouse and keyboard rather than posting quiet synthetic events.
+     *
+     * <p>It is the one setting here whose <em>timing</em> matters: on Linux it swaps the process-wide input
+     * backend, one-way, and must happen before the first click or the click is silently dropped. That is why
+     * {@code api.BotSettings} applies it as part of its lazy initialisation rather than leaving it to a
+     * generated call the user could move.
+     */
+    public static final String KEY_INPUT_REAL = "input.real";
+
+    /**
+     * Which Linux backend delivers real input — {@code uinput} | {@code xdotool} | {@code xtest}, or absent for
+     * {@code LinuxController}'s own ladder. Read into the {@code botmaker.linux.input} system property the
+     * controller consults, and therefore, like {@link #KEY_INPUT_REAL}, only meaningful before the first click.
+     */
+    public static final String KEY_INPUT_LINUX_BACKEND = "input.linuxBackend";
+
     private static volatile Properties cached;
     private static volatile boolean loaded;
 
@@ -58,8 +95,12 @@ public final class ProjectProperties {
     /**
      * Test seam: inject the parsed properties directly, bypassing the one-time classpath load — mirrors
      * {@code NativeControllerFactory.setForTesting}. Pass {@code null} to reset back to the classpath source.
+     *
+     * <p>Public because the SDK's {@code api.BotSettings} seeds itself from these keys and its
+     * <em>ordering</em> is what needs testing (the real-input swap must precede the first click), which cannot
+     * be exercised from inside this module.
      */
-    static void setForTesting(Properties p) {
+    public static void setForTesting(Properties p) {
         synchronized (ProjectProperties.class) {
             cached = p;
             loaded = p != null;
@@ -127,6 +168,47 @@ public final class ProjectProperties {
         return get(KEY_SESSION_BACKEND);
     }
 
+    /** Pause after a successful match, in ms, or {@code null} when unset — see {@link #KEY_CLICKS_FOUND_DELAY}. */
+    public static Integer clicksFoundDelay() {
+        return nonNegative(parseInt(KEY_CLICKS_FOUND_DELAY));
+    }
+
+    /** Pause after a failed match, in ms, or {@code null} when unset. */
+    public static Integer clicksNotFoundDelay() {
+        return nonNegative(parseInt(KEY_CLICKS_NOT_FOUND_DELAY));
+    }
+
+    /** Whether clicks land on a random point inside the match rather than its centre; {@code null} when unset. */
+    public static Boolean clicksRandomize() {
+        return parseBool(KEY_CLICKS_RANDOMIZE);
+    }
+
+    /** Default template-match confidence (0..1), or {@code null} when unset/out of range. */
+    public static Double visionConfidence() {
+        return inRange(parseDouble(KEY_VISION_CONFIDENCE), 0.0, 1.0);
+    }
+
+    /** Default compare margin (0..1) a good template must beat a distractor by, or {@code null} when unset. */
+    public static Double visionCompareMargin() {
+        return inRange(parseDouble(KEY_VISION_COMPARE_MARGIN), 0.0, 1.0);
+    }
+
+    /** How many no-progress checks the watchdog tolerates (at least 1), or {@code null} when unset. */
+    public static Integer botMaxRetryAttempts() {
+        Integer parsed = parseInt(KEY_BOT_MAX_RETRY_ATTEMPTS);
+        return parsed == null || parsed < 1 ? null : parsed;
+    }
+
+    /** Whether to drive the real mouse and keyboard; {@code null} when unset — see {@link #KEY_INPUT_REAL}. */
+    public static Boolean inputReal() {
+        return parseBool(KEY_INPUT_REAL);
+    }
+
+    /** The pinned Linux input backend id, or {@code null} to let the controller choose. */
+    public static String inputLinuxBackend() {
+        return get(KEY_INPUT_LINUX_BACKEND);
+    }
+
     /**
      * Parses {@code key} as a boolean: {@code true}/{@code 1}/{@code yes}/{@code on} → {@link Boolean#TRUE};
      * {@code false}/{@code 0}/{@code no}/{@code off} → {@link Boolean#FALSE}; absent or unrecognised →
@@ -142,6 +224,48 @@ public final class ProjectProperties {
             case "false", "0", "no", "off" -> Boolean.FALSE;
             default -> null;
         };
+    }
+
+    /**
+     * Parses {@code key} as an {@code int}, or {@code null} when absent/unparseable.
+     *
+     * <p>Out-of-domain values are filtered by the accessors ({@link #nonNegative}, {@link #inRange}) rather than
+     * here, and they filter to {@code null} — the caller's own default — because the SDK setters these feed
+     * <em>throw</em> on a bad value. A hand-typed {@code vision.confidence=5} must leave the bot on its default,
+     * not fail its first vision call with an exception raised inside a static initialiser.
+     */
+    private static Integer parseInt(String key) {
+        String spec = get(key);
+        if (spec == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(spec);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Parses {@code key} as a {@code double}, or {@code null} when absent/unparseable. See {@link #parseInt}. */
+    private static Double parseDouble(String key) {
+        String spec = get(key);
+        if (spec == null) {
+            return null;
+        }
+        try {
+            double value = Double.parseDouble(spec);
+            return Double.isFinite(value) ? value : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Integer nonNegative(Integer value) {
+        return value == null || value < 0 ? null : value;
+    }
+
+    private static Double inRange(Double value, double min, double max) {
+        return value == null || value < min || value > max ? null : value;
     }
 
     /**

@@ -8,6 +8,33 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-01 — improvements Phase 7: the bot's tuning becomes eight project keys
+
+### Done
+
+- **Eight new `ProjectProperties` keys**, plus their typed accessors: `clicks.foundDelay`,
+  `clicks.notFoundDelay`, `clicks.randomize`, `vision.confidence`, `vision.compareMargin`,
+  `bot.maxRetryAttempts`, `input.real` and `input.linuxBackend`. They carry what Studio used to write as a
+  generated `BotSettings.java` and read back with a per-statement regex — a storage format that was, in
+  effect, "whatever that parser still recognises", while this file was already the thing both sides speak.
+  The SDK's new `api.BotSettings` reads them on first use.
+- **Out-of-domain values filter to `null`, not to a clamp.** The accessors reject a negative delay, a
+  confidence outside 0–1, a retry budget below 1 — and return `null` so the *caller's* default applies. The
+  SDK setters these feed throw on a bad value, and the load happens inside whatever call first reads a
+  setting, so a hand-typed `vision.confidence=5` must leave the bot on its default rather than raise an
+  exception out of a bot's first vision call.
+- **`setForTesting` is public.** The SDK seeds `api.BotSettings` from these keys and it is the *ordering*
+  that needs testing — the real-input swap has to precede the first click — which cannot be exercised from
+  inside this module.
+
+### Deferred / next
+
+- Nothing new. The remaining bot-facing setting that is still a system property rather than a key is
+  `botmaker.linux.input`, and `input.linuxBackend` now feeds it; the property still wins when set explicitly
+  on the command line, which is deliberate.
+
+---
+
 ## 2026-08-01 — refactor Phase 4: B7, the spawns that could hang on a full pipe (S6)
 
 **177 → 181 tests** (three un-disabled, four added). New: `com.botmaker.shared.Spawn`.
