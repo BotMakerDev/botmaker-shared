@@ -9,8 +9,9 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Exercises the colour engine's two independent precision knobs: {@code tolerance} (CIELAB ΔE, colour
- * precision) and {@code minPixels} (smallest connected blob, location precision).
+ * Exercises the colour engine's precision knobs: {@code tolerance} (CIELAB ΔE, colour precision) and the two
+ * quantity gates, {@code minArea} (smallest connected blob) and {@code minCount} (matching pixels anywhere in
+ * the frame).
  */
 class ColorMatcherTest {
 
@@ -33,7 +34,7 @@ class ColorMatcherTest {
         BufferedImage img = filled(Color.WHITE);
         paintRect(img, 20, 30, 40, 25, Color.RED);
 
-        List<RawColorMatch> found = ColorMatcher.findClusters(img, Color.RED, 5.0, 4);
+        List<RawColorMatch> found = ColorMatcher.findClusters(img, Color.RED, 5.0, 4, 0);
         assertEquals(1, found.size(), "expected exactly one red cluster");
 
         RawColorMatch m = found.get(0);
@@ -53,23 +54,73 @@ class ColorMatcherTest {
         paintRect(img, 5, 5, 10, 10, Color.BLUE);     // 100 px
         paintRect(img, 60, 60, 20, 20, Color.BLUE);   // 400 px
 
-        List<RawColorMatch> found = ColorMatcher.findClusters(img, Color.BLUE, 5.0, 4);
+        List<RawColorMatch> found = ColorMatcher.findClusters(img, Color.BLUE, 5.0, 4, 0);
         assertEquals(2, found.size());
         assertEquals(400, found.get(0).pixelCount(), "largest cluster must come first");
         assertEquals(100, found.get(1).pixelCount());
     }
 
+    /** {@code n} isolated single pixels of {@code c}, spaced so 8-connectivity keeps every one its own blob. */
+    private static void paintSpeckle(BufferedImage img, int n, Color c) {
+        for (int i = 0; i < n; i++) {
+            img.setRGB(2 + (i % 20) * 3, 2 + (i / 20) * 3, c.getRGB());
+        }
+    }
+
     @Test
-    void minPixelsRejectsSpeckleButKeepsTheRealPatch() {
+    void theCountGateAndTheAreaFilterAnswerDifferentQuestions() {
+        // 50 scattered single pixels: plenty of this colour on screen, but not one real patch of it. The two
+        // gates disagree about this frame, which is the whole reason there are two.
+        BufferedImage img = filled(Color.WHITE);
+        paintSpeckle(img, 50, Color.GREEN);
+
+        assertEquals(50, ColorMatcher.findClusters(img, Color.GREEN, 5.0, 1, 0).size(),
+                "no gates: every speck is its own cluster");
+        assertTrue(ColorMatcher.findClusters(img, Color.GREEN, 5.0, 10, 0).isEmpty(),
+                "an area floor of 10 rejects a frame made entirely of 1-pixel blobs");
+        assertEquals(50, ColorMatcher.findClusters(img, Color.GREEN, 5.0, 1, 40).size(),
+                "50 matching pixels satisfies a count gate of 40, however they are clumped");
+        assertTrue(ColorMatcher.findClusters(img, Color.GREEN, 5.0, 1, 60).isEmpty(),
+                "50 matching pixels cannot satisfy a count gate of 60");
+    }
+
+    @Test
+    void thePassingCountGateDoesNotPromiseThatAnythingSurvivesTheAreaFilter() {
+        // The trap the javadoc calls out: minCount is measured on the mask, minArea on the blobs. Here the
+        // count gate passes comfortably and the result is still empty — reading minCount as "the total area
+        // of what comes back" would predict 50 pixels' worth of clusters.
+        BufferedImage img = filled(Color.WHITE);
+        paintSpeckle(img, 50, Color.GREEN);
+
+        assertEquals(50, ColorMatcher.matchCount(img, Color.GREEN, 5.0));
+        assertTrue(ColorMatcher.findClusters(img, Color.GREEN, 5.0, 10, 40).isEmpty());
+    }
+
+    @Test
+    void matchCountIsTheNumberTheCountGateCompares() {
+        // The editor shows this count to explain a threshold; if it were computed differently from the gate it
+        // would advertise a value that then didn't match.
+        BufferedImage img = filled(Color.WHITE);
+        paintRect(img, 10, 10, 30, 20, Color.RED);   // 600 px
+
+        assertEquals(600, ColorMatcher.matchCount(img, Color.RED, 5.0));
+        assertEquals(600 / (double) (W * H), ColorMatcher.coverage(img, Color.RED, 5.0), 1e-9,
+                "coverage is that same count over the frame");
+        assertFalse(ColorMatcher.findClusters(img, Color.RED, 5.0, 1, 600).isEmpty(), "the gate is inclusive");
+        assertTrue(ColorMatcher.findClusters(img, Color.RED, 5.0, 1, 601).isEmpty());
+    }
+
+    @Test
+    void minAreaRejectsSpeckleButKeepsTheRealPatch() {
         BufferedImage img = filled(Color.WHITE);
         paintRect(img, 10, 10, 30, 30, Color.GREEN);  // the real patch
         img.setRGB(90, 90, Color.GREEN.getRGB());     // a single stray pixel
         img.setRGB(95, 20, Color.GREEN.getRGB());     // another
 
-        // minPixels=1 sees everything...
-        assertEquals(3, ColorMatcher.findClusters(img, Color.GREEN, 5.0, 1).size());
-        // ...minPixels=10 keeps only the genuine patch. This is location precision, not colour precision.
-        List<RawColorMatch> strict = ColorMatcher.findClusters(img, Color.GREEN, 5.0, 10);
+        // minArea=1 sees everything...
+        assertEquals(3, ColorMatcher.findClusters(img, Color.GREEN, 5.0, 1, 0).size());
+        // ...minArea=10 keeps only the genuine patch. This is location precision, not colour precision.
+        List<RawColorMatch> strict = ColorMatcher.findClusters(img, Color.GREEN, 5.0, 10, 0);
         assertEquals(1, strict.size());
         assertEquals(900, strict.get(0).pixelCount());
     }
@@ -84,9 +135,9 @@ class ColorMatcherTest {
         BufferedImage img = filled(Color.WHITE);
         paintRect(img, 10, 10, 20, 20, nearRed);
 
-        assertTrue(ColorMatcher.findClusters(img, Color.RED, 10.0, 4).isEmpty() == false,
+        assertTrue(ColorMatcher.findClusters(img, Color.RED, 10.0, 4, 0).isEmpty() == false,
                 "a loose-enough tolerance must match the near-red patch");
-        assertTrue(ColorMatcher.findClusters(img, Color.RED, 0.0, 4).isEmpty(),
+        assertTrue(ColorMatcher.findClusters(img, Color.RED, 0.0, 4, 0).isEmpty(),
                 "EXACT tolerance must not match a different colour");
     }
 
@@ -97,7 +148,7 @@ class ColorMatcherTest {
 
         BufferedImage img = filled(Color.WHITE);
         paintRect(img, 10, 10, 20, 20, Color.GREEN);
-        assertTrue(ColorMatcher.findClusters(img, Color.RED, 25.0, 4).isEmpty(),
+        assertTrue(ColorMatcher.findClusters(img, Color.RED, 25.0, 4, 0).isEmpty(),
                 "a green patch must not match red even at LOOSE tolerance");
     }
 
@@ -107,7 +158,7 @@ class ColorMatcherTest {
         paintRect(img, 10, 10, 20, 20, new Color(200, 30, 30));
 
         List<RawColorMatch> found = ColorMatcher.findClustersInRange(
-                img, new Color(150, 0, 0), new Color(255, 80, 80), 4);
+                img, new Color(150, 0, 0), new Color(255, 80, 80), 4, 0);
         assertEquals(1, found.size());
         assertEquals(400, found.get(0).pixelCount());
     }
@@ -132,7 +183,7 @@ class ColorMatcherTest {
                 img.setRGB(x, y, new Color(r, 0, 0).getRGB());
             }
 
-        List<RawColorMatch> found = ColorMatcher.findClusters(img, Color.RED, 10.0, 4);
+        List<RawColorMatch> found = ColorMatcher.findClusters(img, Color.RED, 10.0, 4, 0);
         assertEquals(1, found.size());
         RawColorMatch m = found.get(0);
         assertTrue(m.width() < W / 3,

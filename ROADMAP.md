@@ -8,6 +8,27 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-02 — `ColorMatcher` gains the count gate
+
+**181 → 184 tests.** Changed: `opencv/ColorMatcher.java`, `opencv/ColorMatcherTest.java`.
+
+### Done
+
+- **`findClusters` / `findClustersInRange` take `minArea` *and* `minCount`.** The area filter (renamed from
+  `minPixels`, so the unit is in the name where the filter is applied) drops connected components below a
+  size; the new count gate runs on the raw mask *before* clustering and returns nothing at all when fewer
+  than `minCount` pixels match. Two gates, one job each: "is there one real patch?" and "is there enough of
+  this colour?". The SDK's `MinMatch` is the pair as one value.
+- **The gates deliberately do not compose,** and the javadoc says so: a frame of scattered specks can pass
+  the count and still yield no blob large enough to keep, so `minCount` is not "the total area of what comes
+  back". Wrong only at the boundary, right everywhere else — the kind of thing nobody infers correctly.
+  `ColorMatcherTest` pins both directions of the independence.
+- **`matchCount(image, target, tolerance)`** — the absolute number of matching pixels, which is what an
+  editor needs to explain a `minCount` threshold (`coverage` gives the fraction). Both now come off one
+  private `tally(...)` so the number shown and the number compared cannot drift.
+
+---
+
 ## 2026-08-01 — improvements Phase 7: the bot's tuning becomes eight project keys
 
 ### Done
