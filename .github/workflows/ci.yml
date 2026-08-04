@@ -1,0 +1,40 @@
+name: CI
+
+# One workflow per repo, two jobs: `build` runs on every push and PR, `jitpack` only on a version tag.
+# They were separate files (build.yml + publish.yml) purely because their triggers differ, which a job-level
+# `if:` expresses just as well — and with one file there is one entry in the Actions tab to read.
+#
+# Tests are deliberately NOT run here (`-DskipTests`): CI is a compile gate, and the suite is run locally.
+# Note that -DskipTests still *compiles* the tests, so test code that no longer builds is still caught.
+# shared has no BotMaker dependency of its own, so this is the one Java repo whose build is a plain one.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build
+        run: mvn -B -DskipTests package
+
+  # JitPack builds the artifact itself from the pushed tag; this just asks it to start eagerly so the first
+  # consumer (the SDK / Studio build) doesn't wait. No secrets required.
+  jitpack:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger JitPack build for ${{ github.ref_name }}
+        run: |
+          curl -sf "https://jitpack.io/api/builds/com.github.${{ github.repository_owner }}/${{ github.event.repository.name }}/${{ github.ref_name }}" || true
