@@ -8,6 +8,37 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-04 — CI: `Spawn.run` leaked the shell's child; two tests assumed a desktop
+
+**184 tests, unchanged.** Changed: `Spawn.java`, `launch/ProcessOriginTest.java`, `ocr/OcrEngineTest.java`,
+`.github/workflows/build.yml`. This module's GitHub Actions run was red on all three counts.
+
+### Done
+
+- **`Spawn.run`'s timeout now kills the process *tree*, not just the direct child.** It did
+  `p.destroyForcibly()` alone, which is enough only when the shell exec-optimized into the command. On this
+  desktop `/bin/sh` is bash, which does exec a lone `sleep 120`, so `SpawnTest` passed locally; on
+  `ubuntu-latest` `/bin/sh` is dash, which forks, so the kill hit the shell and orphaned the worker — the
+  exact leak the timeout's javadoc promises not to trade the hang for. The test was right and the production
+  code was wrong. Descendants are collected *before* the parent dies: killing it reparents them to init,
+  where `descendants()` no longer reaches them. Not a test-only concern — any compound command (a probe
+  pipeline, `floodBothPipes()`) forks under every shell.
+- **`ProcessOriginTest.aProcessOnAnotherDisplayIsNotOnTheHostDesktop` now assumes a host `DISPLAY`.** Here
+  the production code was right: `onHostDisplay` deliberately answers "on the host" when it cannot read a
+  host display, so on a headless runner a `:9` process is indistinguishable from a local one and the
+  assertion cannot hold. The test's old comment claimed `:9` "holds on a desktop and in CI alike", which is
+  false once `DISPLAY` is unset entirely. Guarded, not weakened — changing the null-display fallback would
+  alter a deliberate safety property.
+- **`OcrEngineTest` skips instead of erroring where there is no system `libtesseract`,** via a `@BeforeEach`
+  assumption probing `Class.forName("net.sourceforge.tess4j.TessAPI")`. The probe catches `Throwable`: the
+  binding loads lazily and fails as an `UnsatisfiedLinkError` (then `NoClassDefFoundError` on every later
+  attempt), which surefire counts as an *error*, and `OcrEngine` intentionally does not catch it.
+- **CI installs the OCR natives** (`libtesseract-dev libleptonica-dev`) so the guard above never fires there
+  — a skipped test is not a passing one. The `-dev` packages carry the unversioned `.so` symlinks JNA
+  resolves by bare name; no language package is needed, since the traineddata is bundled in the jar.
+
+---
+
 ## 2026-08-02 — `ColorMatcher` gains the count gate
 
 **181 → 184 tests.** Changed: `opencv/ColorMatcher.java`, `opencv/ColorMatcherTest.java`.

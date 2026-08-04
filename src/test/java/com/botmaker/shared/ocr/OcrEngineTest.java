@@ -1,5 +1,6 @@
 package com.botmaker.shared.ocr;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Color;
@@ -11,12 +12,32 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Exercises the whole OCR path — OpenCV native load, preprocessing, Tesseract — with no screen dependency
  * by rendering known text into a {@link BufferedImage} via Java2D and recognizing it back.
  */
 class OcrEngineTest {
+
+    /**
+     * Windows is self-contained (Tess4J bundles the DLLs); a Linux box without system {@code libtesseract} has
+     * no OCR to test. The binding loads its native lazily, and the failure is an {@code Error} that
+     * {@link OcrEngine} deliberately does not catch — so probe for it here rather than let every test error.
+     */
+    private static boolean tesseractAvailable() {
+        try {
+            Class.forName("net.sourceforge.tess4j.TessAPI"); // initializes INSTANCE, which loads the library
+            return true;
+        } catch (Throwable noNative) { // UnsatisfiedLinkError, then NoClassDefFoundError on every later attempt
+            return false;
+        }
+    }
+
+    @BeforeEach
+    void requireTesseract() {
+        assumeTrue(tesseractAvailable(), "no system libtesseract on this machine");
+    }
 
     /** Renders {@code text} as large black-on-white text into a fresh image. */
     private static BufferedImage render(String text) {

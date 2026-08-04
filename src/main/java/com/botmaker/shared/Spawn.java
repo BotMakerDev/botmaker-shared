@@ -93,7 +93,13 @@ public final class Spawn {
             return new Completed(p.exitValue(), sink.get());
         } finally {
             if (p.isAlive()) {
+                // The whole tree, and collected *before* the parent dies: killing it reparents its children to
+                // init, where descendants() can no longer reach them. A shell that could not exec-optimize the
+                // command (dash forks where bash execs; any pipeline forks everywhere) would otherwise leave the
+                // real worker running — the leak this timeout exists to prevent, traded for the hang.
+                List<ProcessHandle> tree = p.descendants().toList();
                 p.destroyForcibly();
+                tree.forEach(ProcessHandle::destroyForcibly);
             }
         }
     }

@@ -22,6 +22,12 @@ jobs:
           java-version: '21'
           cache: maven
 
+      # The OCR tests skip themselves without these (ocr/OcrEngineTest), and skipped is not covered. -dev is the
+      # package carrying the unversioned libtesseract.so/liblept.so symlinks JNA resolves by bare name; the
+      # traineddata is bundled in the jar, so no tesseract-ocr-* language package is needed.
+      - name: Install OCR natives
+        run: sudo apt-get update && sudo apt-get install -y libtesseract-dev libleptonica-dev
+
       - name: Verify
         run: mvn -B verify
 

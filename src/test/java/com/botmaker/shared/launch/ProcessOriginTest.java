@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * The {@code /proc} readings both launch probes now filter on. Asserted against real children rather than a
@@ -40,16 +41,17 @@ class ProcessOriginTest {
 
     @Test
     void aProcessOnAnotherDisplayIsNotOnTheHostDesktop() throws Exception {
-        // ":9" is chosen to differ from any plausible host DISPLAY, so this holds on a desktop and in CI alike.
+        // Needs a desktop: with no host DISPLAY to compare against, onHostDisplay() deliberately answers "on the
+        // host" (see anUnreadableOrDisplaylessProcessCountsAsTheHost), so "elsewhere" is indistinguishable here.
+        assumeTrue(ProcessOrigin.hostDisplay() != null, "no host DISPLAY to be elsewhere from");
+        // ":9" is chosen to differ from any plausible host DISPLAY.
         Process elsewhere = sleeperOn(":9");
-        Process here = sleeperOn(ProcessOrigin.hostDisplay() == null ? ":0" : ProcessOrigin.hostDisplay());
+        Process here = sleeperOn(ProcessOrigin.hostDisplay());
         try {
             assertFalse(ProcessOrigin.onHostDisplay(elsewhere.toHandle()),
                     "a launcher on a private display can't swallow a launch aimed at that same display");
-            if (ProcessOrigin.hostDisplay() != null) {
-                assertTrue(ProcessOrigin.onHostDisplay(here.toHandle()),
-                        "a process on our own DISPLAY is exactly what the refusal is about");
-            }
+            assertTrue(ProcessOrigin.onHostDisplay(here.toHandle()),
+                    "a process on our own DISPLAY is exactly what the refusal is about");
         } finally {
             elsewhere.destroyForcibly();
             here.destroyForcibly();
