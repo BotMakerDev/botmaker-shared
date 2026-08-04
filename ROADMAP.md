@@ -8,6 +8,65 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-04 — Waydroid as an emulator platform, plus its troubleshooting probes
+
+**201 tests (+17).** Added: `emulator/WaydroidPlatform.java`, `WaydroidCli.java`, `WaydroidStatus.java`,
+`WaydroidResolution.java`, `WaydroidDiagnostics.java` and two test classes. Changed: `PlatformId.java`,
+`Platforms.java`, `EmulatorPlatform.java`. Improvements plan phase 6.
+
+### Done
+
+- **`PlatformId.WAYDROID` + `WaydroidPlatform`.** Waydroid is a Linux Android container, not a Windows
+  emulator, and it breaks every assumption the other five implementations share: no registry key, no install
+  directory, no per-instance config (one container per machine), and — the one that would bite silently —
+  **not on loopback**. Its `adbd` is on the container's own LXC address (`192.168.240.112:5555`), so keying it
+  to `127.0.0.1:5555` would have connected to whatever else was listening there, LDPlayer's instance 0 being
+  the obvious candidate. The install probe is `waydroid` on `PATH`.
+- **`EmulatorPlatform.discover()`'s javadoc no longer promises "empty on non-Windows".** That was true only
+  because every implementation opened with a `WindowsRegistry` read behind an OS gate; the contract is now
+  per-implementation, and each class states which OS it can appear on.
+- **The launch argv is the verified one-liner.** `gamescope [-W…-h…] --expose-wayland waydroid show-full-ui` —
+  gamescope is the *parent* of the Waydroid UI, not something it attaches to afterwards. `show-full-ui` is a
+  Wayland-only client, so on an X11 desktop a compositor of its own is the only place it can run at all.
+  Without gamescope on `PATH` it falls back to the bare `waydroid show-full-ui`, which works on a real Wayland
+  desktop and fails *visibly* on X11 — better than offering no launch.
+- **`WaydroidResolution` keeps Android's framebuffer and gamescope's window the same size.** A mismatch puts a
+  scaler between the pixels a template was authored against and the pixels a tap lands on: matching is
+  scale-tolerant so it keeps succeeding while the click goes somewhere else, which is the worst shape a bug
+  can have. `read()` returns **null** when the properties are unset rather than a fabricated default (a wrong
+  guess is worse than gamescope's own sizing), and the platform then omits the sizing flags. `apply()` is a
+  no-op when the values already match — the `prop set` + session restart it otherwise does is user-visible, so
+  it must not fire on every launch.
+- **`WaydroidDiagnostics` detects and *presents*; it never executes.** Five probes — container down, session
+  stopped, no internet (host `ip_forward` off), no ARM native bridge, resolution mismatch — each returning a
+  `Finding` with the symptom, the remedy and the commands **as strings**. Every fix but the last needs `sudo`
+  and reaches outside anything BotMaker owns (the host packet filter, the Android system image); prompting for
+  a root password to silently rewrite either is not a trade worth making for a convenience, and a fix applied
+  without being read is a fix the user cannot undo. `RESOLUTION_MISMATCH` is the one exception (`selfFixable()`)
+  — no root, entirely inside Waydroid's own configuration.
+- **The network remedy is the sequence verified on a live Fedora/KDE box**, deliberately *not* upstream's
+  troubleshooting page, which did not fix it there: nftables NAT masquerade out of the default-route interface
+  (parsed from `ip route`) plus `net.ipv4.ip_forward=1`, with `ufw` down while the rule is added and back up
+  afterwards — dropping either `ufw` half was the trap.
+- **Every probe is pure over the text it examines**, with a thin reader around it, so all 17 tests run on a
+  machine with no Waydroid. What they mostly pin down is the *negative* half: an unreadable `waydroid.cfg`, a
+  missing `systemctl` and an unasked-about resolution are all asserted **silent**. A probe that always fires
+  teaches the user to ignore the panel.
+
+### Deferred / next
+
+- **Emulator capture is still `exec:screencap -p`, whose ~1s is device-side PNG encoding.** The ladder, in
+  order: (1) raw `exec:screencap` without `-p` — skips the encode for a header + raw pixel buffer, lossless,
+  no new dependency, ~30 lines in `AdbDevice`; (2) host-window capture via `NativeController.captureWindow`,
+  lossless and an order of magnitude faster, ADB kept only for `input tap`, cost is client-area → device-pixel
+  mapping — and it is the *same* mechanism as the deferred gamescope-window capture in
+  `../botmaker-session/ROADMAP.md`, so one backend serves both. (3) `adb screenrecord` is **not** suitable for
+  the matching path: H.264 4:2:0 chroma subsampling smears exactly the thin coloured HUD edges `Pixel` /
+  `Precision.EXACT` read, the encode/decode pipeline makes the "latest" frame stale, it needs an H.264 decoder
+  in the JVM, and it caps at 180s. Viable only for a live preview pane.
+
+---
+
 ## 2026-08-04 — CI: `Spawn.run` leaked the shell's child; two tests assumed a desktop
 
 **184 tests, unchanged.** Changed: `Spawn.java`, `launch/ProcessOriginTest.java`, `ocr/OcrEngineTest.java`,

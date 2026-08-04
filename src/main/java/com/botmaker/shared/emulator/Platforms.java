@@ -7,6 +7,9 @@ import java.util.List;
  * The registry of known {@link EmulatorPlatform}s and the one place to enumerate instances across all of
  * them. BlueStacks, LDPlayer, MEmu, MuMu and Gameloop all discover for real today (Gameloop is limited to
  * its single primary instance). Add a product by adding it to {@link #ALL}.
+ *
+ * <p>The list is <b>not</b> Windows-only: {@link WaydroidPlatform} is a Linux Android container and each
+ * platform gates on its own OS, so a scan on either OS simply reports the products that can exist there.
  */
 public final class Platforms {
 
@@ -18,7 +21,8 @@ public final class Platforms {
             new LdPlayerPlatform(),
             new MemuPlatform(),
             new MuMuPlatform(),
-            new GameloopPlatform());
+            new GameloopPlatform(),
+            new WaydroidPlatform());
 
     /** Every discovered instance across every platform. Never throws; empty if nothing is installed. */
     public static List<EmulatorInstance> discoverAll() {

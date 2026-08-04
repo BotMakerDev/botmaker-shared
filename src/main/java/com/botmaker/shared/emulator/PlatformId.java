@@ -22,6 +22,15 @@ public enum PlatformId {
     MUMU("mumu", "MuMu Player"),
     GAMELOOP("gameloop", "Gameloop"),
 
+    /**
+     * Waydroid — the odd one out. It is a Linux-native Android container rather than a Windows emulator
+     * product, so it has no registry key, no install directory to scan and no per-instance config: there is
+     * one container per machine. It is here anyway because from a bot's point of view it is exactly the same
+     * thing — an Android surface reachable over ADB — and treating it as a separate concept would fork every
+     * picker and every launch path for no gain.
+     */
+    WAYDROID("waydroid", "Waydroid"),
+
     /** A product this build doesn't know — e.g. an id from a newer or hand-edited config. */
     UNKNOWN("unknown", "Emulator");
 
