@@ -8,6 +8,32 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-04 — App launcher icons over ADB, without pulling the APK
+
+**207 tests (+6).** Added `emulator/ApkIcon.java` + `ApkIconTest.java`; `AdbDevice` gains `appIcon`,
+`apkPath`, `fileSize`, `readBytes` and the package-private `parseApkPath`.
+
+**Done.** A package list is a list of reverse-DNS strings, and `com.supercell.clashofclans` only reads as a
+game if you already know it — the icon is what identifies one at a glance. Android has no command that will
+hand an icon over (`pm` lists, `dumpsys` describes, neither renders a resource), so it has to come out of the
+APK. **Not by pulling it:** a game APK is routinely hundreds of megabytes and the icon is a few kilobytes.
+An APK is a ZIP and a ZIP is read backwards, so `ApkIcon` walks end-of-central-directory → central directory
+→ one local header → one entry: four bounded byte ranges regardless of archive size (a test asserts it reads
+under a tenth of a 4 MB archive). The ranges come over `exec:dd` on the binary-safe channel `screencap`
+already uses — widened to 512-byte blocks and trimmed in Java, since toybox `dd` counts in blocks and
+`iflag=skip_bytes` is not portable.
+
+Entry choice is by file name (`res/mipmap-<density>/ic_launcher.png` and neighbours), *not* by resolving the
+manifest's `android:icon`: that is binary XML pointing at a resource id needing `resources.arsc` and a
+density pass — two more formats to parse, for a thumbnail. Largest density wins; an adaptive icon's
+*foreground* layer outranks its background (the background is a flat colour, and the foreground is often the
+only raster left). Everything returns `null` rather than throwing — Zip64, a vector-only icon, an odd `dd`
+are all just a missing thumbnail.
+
+**Deferred / next.** The app *label* has the same motivation and is strictly harder: it needs the
+`resources.arsc` string pool, which is the parser this deliberately avoided. Icon plus package name is
+already enough to recognise a game.
+
 ## 2026-08-04 — Waydroid as an emulator platform, plus its troubleshooting probes
 
 **201 tests (+17).** Added: `emulator/WaydroidPlatform.java`, `WaydroidCli.java`, `WaydroidStatus.java`,

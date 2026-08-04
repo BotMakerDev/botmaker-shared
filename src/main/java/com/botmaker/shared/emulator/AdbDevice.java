@@ -127,6 +127,113 @@ public final class AdbDevice implements AutoCloseable {
         }
     }
 
+    /**
+     * {@code packageName}'s launcher icon, or {@code null} when it has none we can read.
+     *
+     * <p>Reads it straight out of the installed APK over four bounded byte ranges rather than pulling the
+     * file — see {@link ApkIcon} for why a hundreds-of-megabytes game is not an obstacle. Best-effort like
+     * everything else here: an unreadable archive is a missing thumbnail, never an exception.
+     */
+    public BufferedImage appIcon(String packageName) {
+        String path = apkPath(packageName);
+        if (path == null) {
+            return null;
+        }
+        return ApkIcon.read(new ApkIcon.Reader() {
+            @Override
+            public long size() {
+                return fileSize(path);
+            }
+
+            @Override
+            public byte[] read(long offset, int length) {
+                return readBytes(path, offset, length);
+            }
+        });
+    }
+
+    /** The on-device path of {@code packageName}'s base APK ({@code pm path}), or {@code null}. */
+    public String apkPath(String packageName) {
+        if (packageName == null || packageName.isBlank()) {
+            return null;
+        }
+        try {
+            return parseApkPath(shell("pm path " + packageName.trim()));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * A file's length in bytes, or {@code -1}. {@code stat -c %s} is toybox's spelling and is what Android
+     * ships; a device without it simply reports "unknown", which every caller treats as "can't read this".
+     */
+    public long fileSize(String path) {
+        try {
+            return Long.parseLong(shell("stat -c %s " + path).trim());
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** ADB's transfer block size for {@link #readBytes} — {@code dd} counts in these, so offsets round to it. */
+    private static final int BLOCK = 512;
+
+    /**
+     * Up to {@code length} bytes of a device file starting at {@code offset}; empty on any failure.
+     *
+     * <p>Goes through {@code dd} on the {@code exec:} service — the same binary-safe channel as
+     * {@link #screencap()}, since {@code shell:} would translate newlines through a PTY and corrupt the
+     * bytes. {@code dd} counts in blocks rather than bytes on Android's toybox, so the range is widened to
+     * block boundaries and trimmed here; that is portable in a way {@code iflag=skip_bytes} is not.
+     */
+    public byte[] readBytes(String path, long offset, int length) {
+        if (path == null || offset < 0 || length <= 0) {
+            return new byte[0];
+        }
+        long firstBlock = offset / BLOCK;
+        int into = (int) (offset - firstBlock * BLOCK);
+        long blocks = ((long) into + length + BLOCK - 1) / BLOCK;
+        try (AdbStream stream = dadb.open("exec:dd if=" + path + " bs=" + BLOCK + " skip=" + firstBlock
+                + " count=" + blocks + " 2>/dev/null")) {
+            byte[] all = stream.getSource().readByteArray();
+            if (all.length <= into) {
+                return new byte[0];
+            }
+            return java.util.Arrays.copyOfRange(all, into, Math.min(all.length, into + length));
+        } catch (Exception e) {
+            return new byte[0];
+        }
+    }
+
+    /**
+     * Picks the base APK out of {@code pm path} output. A split-install app prints several lines; the base is
+     * the one we want, and it is the only one not named {@code split_*}.
+     */
+    static String parseApkPath(String output) {
+        if (output == null || output.isBlank()) {
+            return null;
+        }
+        String fallback = null;
+        for (String line : output.split("\\R")) {
+            String trimmed = line.trim();
+            if (!trimmed.startsWith("package:")) {
+                continue;
+            }
+            String path = trimmed.substring("package:".length()).trim();
+            if (path.isEmpty()) {
+                continue;
+            }
+            if (path.endsWith("/base.apk")) {
+                return path;
+            }
+            if (fallback == null) {
+                fallback = path;
+            }
+        }
+        return fallback;
+    }
+
     /** Whether {@code packageName} is installed (system or user), via an exact {@code pm list packages} match. */
     public boolean isInstalled(String packageName) {
         if (packageName == null || packageName.isBlank()) {
