@@ -8,6 +8,21 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-05 — "No child command" was two different facts wearing one answer
+
+**209 tests (+2).** `launch/LaunchKind.runsOffDesktop()`; `LaunchIsolation.noChildCommandReason` split by it.
+
+**Done.** `LaunchCommands.childLadder` yields an empty ladder for both `epic:` and `emu-app:`, so both got
+`Blocker.NO_CHILD_COMMAND` and one shared sentence about URL openers — which Studio surfaced as a failure.
+The two aren't the same situation. An Epic game does reach a desktop, just not one we handed it: refusing is
+right. An emulator app never maps a window anywhere — it is started, captured and clicked over ADB inside
+the emulator — so a private display has nothing to offer it and the refusal is a category error, not a
+problem to report. `runsOffDesktop()` names that (true for `EMULATOR_APP` alone, asserted over `values()` so
+a later kind must decide), the reason now explains rather than apologises, and Studio's launch surfaces route
+on the property instead of testing the kind themselves.
+
+---
+
 ## 2026-08-04 — App launcher icons over ADB, without pulling the APK
 
 **207 tests (+6).** Added `emulator/ApkIcon.java` + `ApkIconTest.java`; `AdbDevice` gains `appIcon`,

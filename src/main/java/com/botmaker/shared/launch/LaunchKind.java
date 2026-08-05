@@ -50,6 +50,22 @@ public enum LaunchKind {
         return displayName;
     }
 
+    /**
+     * Whether this kind's target lives <em>outside</em> any X display we could give it — true only for
+     * {@link #EMULATOR_APP}, which is started, captured and clicked over ADB inside an Android emulator.
+     *
+     * <p>The distinction matters because "has no child command" is two different facts wearing one answer.
+     * Epic also has no command form ({@link LaunchCommands#childLadder} yields an empty ladder for both), but
+     * an Epic game <em>does</em> end up on a desktop — just not one we handed it, which is a failure worth
+     * refusing. An emulator app never maps a window on any desktop at all: a private {@code :N} display has
+     * nothing to offer it, so being unable to isolate it is the normal case rather than a problem. Consumers
+     * ask this instead of testing the kind, so the fact lives on the closed set (the {@code PlatformId}
+     * pattern) rather than in each launch surface's {@code if}.
+     */
+    public boolean runsOffDesktop() {
+        return this == EMULATOR_APP;
+    }
+
     /** The kind for {@code id}, case-insensitively; {@link #UNKNOWN} for anything else. Never throws. */
     public static LaunchKind fromId(String id) {
         if (id == null || id.isBlank()) {

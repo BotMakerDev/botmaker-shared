@@ -97,6 +97,28 @@ class LaunchIsolationTest {
     }
 
     @Test
+    void anEmulatorAppIsExplainedAsOffDesktopRatherThanAsAFailedIsolation() {
+        // Same blocker as Epic's — the ladder is empty either way — but not the same situation: an emulator app
+        // is already off the user's desktop, so the sentence must not read as a failure or borrow Epic's URL
+        // opener. This is the wording Studio surfaces when the pilot is asked to background one.
+        LaunchIsolation.Verdict v = LaunchIsolation.check(
+                spec(LaunchKind.EMULATOR_APP, "com.app@Pie64"), installed(), NO_HOST_LAUNCHER);
+
+        assertEquals(LaunchIsolation.Blocker.NO_CHILD_COMMAND, v.blocker());
+        assertTrue(v.reason().contains("ADB"), v.reason());
+        assertFalse(v.reason().contains("Epic"), v.reason());
+    }
+
+    @Test
+    void onlyAnEmulatorAppRunsOffTheDesktop() {
+        // A values() sweep on purpose: a kind added later must decide this rather than inherit it. Epic is the
+        // one that looks similar (no child command) and is deliberately false — its game does reach a desktop.
+        for (LaunchKind kind : LaunchKind.values()) {
+            assertEquals(kind == LaunchKind.EMULATOR_APP, kind.runsOffDesktop(), kind.name());
+        }
+    }
+
+    @Test
     void anOpenHostLauncherOutranksEverythingElseAndReusesTheSharedWording() {
         // Installed and otherwise perfectly isolatable, but a single-instance launcher on :0 would take the
         // launch off us regardless — and the refusal must read the same here as everywhere else.

@@ -173,11 +173,21 @@ public final class LaunchIsolation {
                 + "run can take minutes), or it failed to start — run it once on your desktop to see its error.";
     }
 
+    /**
+     * Why an empty ladder blocks isolation — in the words that fit <em>this</em> kind. A
+     * {@link LaunchKind#runsOffDesktop()} target isn't failing at anything: it already runs somewhere no
+     * display of ours reaches, so the sentence explains rather than apologises. Every other empty ladder (Epic)
+     * really is a target that will land on the user's desktop, and keeps the original wording.
+     */
     private static String noChildCommandReason(LaunchSpec spec) {
+        if (spec != null && spec.kind().runsOffDesktop()) {
+            return spec.describe() + " doesn't run on your desktop at all — it runs inside the emulator and is "
+                    + "driven over ADB, so it neither needs nor can use a private display. Start it with "
+                    + "\"▶ Launch now\" instead; background mode doesn't apply to it.";
+        }
         String kind = spec == null ? "that target" : spec.kind().displayName().toLowerCase(Locale.ROOT) + "s";
         return "Can't run " + kind + " in a private display: there is no command form to run as a child process, "
-                + "so there is nothing to hand a private DISPLAY to (Epic hands its launch to a URL opener; "
-                + "emulator apps run over ADB, not on the desktop).";
+                + "so there is nothing to hand a private DISPLAY to (Epic hands its launch to a URL opener).";
     }
 
     private static String portalEscapeReason(LaunchSpec spec) {
