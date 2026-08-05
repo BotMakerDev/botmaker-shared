@@ -8,6 +8,29 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-05 — An open ADB port is not a booted Android
+
+**217 tests (+8).** New `emulator/EmulatorReadiness.java` + `EmulatorReadinessTest`; `PlatformId.bootTimeout()`;
+`AdbDevice.startApp` returns its output, plus `startedApp`/`bootCompleted`; `EmulatorAppLauncher` rewritten
+around an `Outcome`; `Launcher.start` gains a progress consumer and throws for `emu-app:`.
+
+**Done.** An `emu-app:` target brought the emulator up and then never started the app. Three causes, all
+hidden behind the fourth. `EmulatorAppLauncher` treated a TCP connect to the ADB port as "the instance is
+up" — on a container `adbd` listens minutes before the package manager will resolve a launcher intent, so
+the monkey command went to a half-booted Android and did nothing. Its budget was 120 s where Studio's picker
+already allowed Waydroid 240 s (three numbers for one question, in two modules; the launcher held the
+shortest). `AdbDevice.startApp` discarded monkey's output, which is where monkey *reports* "no activities
+found to run". And `start` returned `void`, so every one of those was invisible and the UI said "Launched".
+
+Readiness is now one thing — `EmulatorReadiness.isReady` = port open **and** `sys.boot_completed` — asked by
+both the launcher and Studio's picker, replacing their two byte-identical probes. `awaitReady` re-runs
+discovery on each pass, because a Waydroid instance discovered while stopped carries the fallback address
+rather than the one it comes up on. The budget lives on `PlatformId` beside `id()`/`displayName()`. And
+`start` returns an `Outcome` naming which step failed, which `Launcher.start` raises exactly as an
+uninstalled Steam already does, with an optional progress consumer so a UI can narrate a multi-minute boot.
+
+---
+
 ## 2026-08-05 — "No child command" was two different facts wearing one answer
 
 **209 tests (+2).** `launch/LaunchKind.runsOffDesktop()`; `LaunchIsolation.noChildCommandReason` split by it.

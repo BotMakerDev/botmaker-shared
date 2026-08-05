@@ -3,6 +3,7 @@ package com.botmaker.shared.launch;
 import com.botmaker.shared.Diag;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * The one entry point for "bring this launch target up" and "is it up?", given nothing but a parsed
@@ -27,6 +28,15 @@ public final class Launcher {
      *         {@code null} for every kind that hands off to a launcher and exits
      */
     public static Process start(LaunchSpec spec) {
+        return start(spec, null);
+    }
+
+    /**
+     * {@link #start(LaunchSpec)} with narration for the kinds that take a long time and can say what they are
+     * doing — today only {@code emu-app:}, where a cold container is minutes of otherwise-silent waiting.
+     * {@code progress} is called on the calling thread; a UI consumer marshals it onto its own.
+     */
+    public static Process start(LaunchSpec spec, Consumer<String> progress) {
         if (spec == null) {
             Diag.log("[Target] start: no launch target configured");
             return null;
@@ -36,7 +46,22 @@ public final class Launcher {
             case EPIC -> GameLauncher.epic(spec.token());
             case HEROIC -> GameLauncher.heroic(spec.token());
             case FAUGUS -> GameLauncher.faugus(spec.token());
-            case EMULATOR_APP -> EmulatorAppLauncher.start(spec.emulatorPackage(), spec.emulatorInstance());
+            case EMULATOR_APP -> {
+                // Thrown, not logged: this kind used to be the one that could fail in four different ways and
+                // still report success, because it had no way to say otherwise. Every other kind here already
+                // propagates, and the callers are already written to show it.
+                EmulatorAppLauncher.Outcome outcome =
+                        EmulatorAppLauncher.start(spec.emulatorPackage(), spec.emulatorInstance(), progress);
+                if (!outcome.ok()) {
+                    throw new RuntimeException(outcome.message());
+                }
+                Diag.log("[Target] " + outcome.message());
+                // Also through progress, so a caller narrating the wait ends on what actually happened
+                // ("Started com.x on Waydroid.") rather than on the last thing it was waiting for.
+                if (progress != null) {
+                    progress.accept(outcome.message());
+                }
+            }
             case EXE, CLI -> {
                 // The process we spawn is the target itself (no launcher hand-off), so its handle is worth
                 // keeping as a first-hand "still running" answer.
@@ -88,7 +113,14 @@ public final class Launcher {
                 }
                 start(spec);
             }
-            case EMULATOR_APP -> EmulatorAppLauncher.restart(spec.emulatorPackage(), spec.emulatorInstance());
+            case EMULATOR_APP -> {
+                EmulatorAppLauncher.Outcome outcome =
+                        EmulatorAppLauncher.restart(spec.emulatorPackage(), spec.emulatorInstance());
+                if (!outcome.ok()) {
+                    throw new RuntimeException(outcome.message());
+                }
+                Diag.log("[Target] " + outcome.message());
+            }
             default -> start(spec);
         }
     }

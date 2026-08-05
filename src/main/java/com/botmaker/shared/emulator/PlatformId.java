@@ -1,5 +1,7 @@
 package com.botmaker.shared.emulator;
 
+import java.time.Duration;
+
 /**
  * Which emulator product an instance belongs to. This replaces the free-form {@code String platformId} that
  * used to be stamped onto every {@link EmulatorInstance}: the set of products is closed and known here, so a
@@ -50,6 +52,22 @@ public enum PlatformId {
     /** The product's human-readable name for UI and logs, e.g. {@code "BlueStacks"}. */
     public String displayName() {
         return displayName;
+    }
+
+    /**
+     * How long this product may take to go from "start dispatched" to "ready to be driven" — the ceiling any
+     * caller polling {@link EmulatorReadiness#awaitReady} should use.
+     *
+     * <p>It lives on the product because it <em>is</em> a property of the product, and because the number had
+     * already been guessed three times in two modules: the launcher allowed 120 s, Studio's picker 90 s with a
+     * 240 s Waydroid special case. The launcher held the shortest one, which is why an emulator app never
+     * started — Waydroid was still booting when it gave up. Waydroid is not a process start but a container
+     * start, a session start and a full Android boot behind a compositor, so it routinely takes minutes where
+     * a console-tool product takes seconds; one shared ceiling would either cut it off or leave a dead
+     * LDPlayer spinning for four minutes.
+     */
+    public Duration bootTimeout() {
+        return this == WAYDROID ? Duration.ofSeconds(240) : Duration.ofSeconds(90);
     }
 
     /** The platform for a stored {@link #id()}; {@link #UNKNOWN} for null or anything unrecognised. */

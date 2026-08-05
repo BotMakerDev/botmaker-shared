@@ -105,14 +105,47 @@ public final class AdbDevice implements AutoCloseable {
         shell("input text " + text.replace(" ", "%s"));
     }
 
-    /** Launches an installed app by package via the monkey launcher-intent trick. */
-    public void startApp(String packageName) {
-        shell("monkey -p " + packageName + " -c android.intent.category.LAUNCHER 1");
+    /**
+     * Launches an installed app by package via the monkey launcher-intent trick, returning what monkey said.
+     *
+     * <p>The output is returned rather than discarded because monkey <em>reports</em> its failures on stdout
+     * with a zero exit: a package with no launcher activity (or none installed at all) prints "No activities
+     * found to run", which used to be indistinguishable from a successful start. {@link #startedApp} is the
+     * reading of it; callers that only want the verdict should use that.
+     */
+    public String startApp(String packageName) {
+        return shell("monkey -p " + packageName + " -c android.intent.category.LAUNCHER 1");
+    }
+
+    /** Whether {@link #startApp}'s output reports an actual launch rather than monkey's no-activities notice. */
+    public static boolean startedApp(String monkeyOutput) {
+        if (monkeyOutput == null || monkeyOutput.isBlank()) {
+            return false;
+        }
+        String lower = monkeyOutput.toLowerCase();
+        return !lower.contains("no activities found") && !lower.contains("error:")
+                && !lower.contains("aborted") && !lower.contains("not found");
     }
 
     /** Reads a system property ({@code getprop <key>}), trimmed; empty string if unset. */
     public String getProp(String key) {
         return shell("getprop " + key).trim();
+    }
+
+    /**
+     * Whether Android has finished booting ({@code sys.boot_completed}) — the difference between an emulator
+     * whose {@code adbd} is listening and one that can actually start an app.
+     *
+     * <p>Those are minutes apart on a container: the ADB port answers as soon as the network is up, long
+     * before the package manager will resolve a launcher intent. Every readiness question in the repo used to
+     * be the TCP probe alone, which is why a launch fired into a half-booted system and did nothing.
+     */
+    public boolean bootCompleted() {
+        try {
+            return "1".equals(getProp("sys.boot_completed"));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
