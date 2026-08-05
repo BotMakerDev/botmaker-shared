@@ -8,6 +8,32 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-05 — ADB is the wrong instrument for starting a Waydroid app
+
+**225 tests (+8).** New `emulator/WaydroidApps.java` + `WaydroidAppsTest`; the gamescope wrapping extracted
+to `WaydroidPlatform.gamescoped`; `EmulatorAppLauncher` gains a per-platform start ladder.
+
+**Done.** With the emulator long since up, an `emu-app:` target still didn't start. The waiting wasn't the
+problem — the instrument was. Read out of `tools/actions/app_manager.py`, `waydroid app launch` does three
+things `monkey -p … LAUNCHER 1` does none of: it **unfreezes** the container (Waydroid's default
+`suspend_action = freeze` leaves an idle container frozen — still answering on its ADB port, still "running"
+to every probe we have, and acting on nothing), it sets **`waydroid.active_apps`**, which is what decides
+which app Waydroid actually renders, and it **starts the session** when one isn't up. So a Waydroid cold
+start is now one command — `gamescope --expose-wayland waydroid app launch <pkg>` — with the app, not the
+Android launcher, as the surface.
+
+Verified live: `waydroid app launch com.android.documentsui` returns 0 immediately and
+`waydroid prop get waydroid.active_apps` reports that package. That property is now the primary launch
+verification precisely because it needs no ADB, so it survives the in-guest trust prompt (`ro.adb.secure=1`).
+ADB remains the ladder's second rung — `monkey`, then a `cmd package resolve-activity` + `am start -n` for an
+app whose launcher intent monkey won't match — and the only rung for the console-tool products.
+`WaydroidApps.list()` reads apps *with their display names* from the same CLI, guarded on a running session:
+the command reaches the container through a **session-bus** object lookup, which D-Bus activates — measured,
+running it against a stopped session left the session up, which is fine when launching and startling when
+merely listing.
+
+---
+
 ## 2026-08-05 — An open ADB port is not a booted Android
 
 **217 tests (+8).** New `emulator/EmulatorReadiness.java` + `EmulatorReadinessTest`; `PlatformId.bootTimeout()`;

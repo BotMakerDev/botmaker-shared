@@ -5,9 +5,13 @@ import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorLauncher;
 import com.botmaker.shared.emulator.EmulatorReadiness;
+import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
+import com.botmaker.shared.emulator.WaydroidApps;
+import com.botmaker.shared.emulator.WaydroidStatus;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -61,16 +65,130 @@ public final class EmulatorAppLauncher {
      *                 called on the calling thread, so a UI toolkit consumer marshals it itself
      */
     public static Outcome start(String packageName, String instance, Consumer<String> progress) {
+        Optional<EmulatorInstance> match = find(instance);
+        if (match.isPresent() && match.get().platformId() == PlatformId.WAYDROID) {
+            return startWaydroid(packageName, match.get(), progress);
+        }
         return withReadyEmulator(instance, progress, (device, live) -> {
             report(progress, "Starting " + packageName + " on " + live.name() + "…");
             Diag.log("[Target] emu-app: starting " + packageName + " on " + instance);
-            if (!AdbDevice.startedApp(device.startApp(packageName))) {
-                return Outcome.failed("Android refused to start " + packageName + " on " + live.name()
-                        + " — no launcher activity answered. Check the package name, and that the app is "
-                        + "installed on this instance.");
-            }
-            return awaitForeground(device, packageName, live);
+            return startOverAdb(device, packageName, live);
         });
+    }
+
+    /**
+     * The Waydroid rung: start the app through Waydroid's own CLI rather than over ADB.
+     *
+     * <p>This is not a preference, it is the difference between working and not. {@code waydroid app launch}
+     * unfreezes a container that froze itself ({@code suspend_action = freeze} is the default, and a frozen
+     * container still answers on its ADB port), sets {@code waydroid.active_apps} so the app becomes the
+     * rendered surface, and starts the session when one isn't running — so a cold start is this one command
+     * and needs no separate emulator bring-up. See {@link WaydroidApps} for the whole comparison.
+     *
+     * <p>Verification asks <em>Waydroid</em> first ({@code waydroid.active_apps}), because that needs no ADB
+     * and so survives the in-guest trust prompt; ADB is the second opinion and the fallback rung. A launch we
+     * cannot confirm through either is reported as dispatched, not as failed.
+     */
+    private static Outcome startWaydroid(String packageName, EmulatorInstance instance, Consumer<String> progress) {
+        Optional<String> missing = notInstalled(packageName);
+        if (missing.isPresent()) {
+            return Outcome.failed(missing.get());
+        }
+        boolean wasRunning = WaydroidStatus.read().sessionRunning();
+        report(progress, "Starting " + packageName + " in Waydroid…");
+        Diag.log("[Target] emu-app: waydroid app launch " + packageName);
+        if (!WaydroidApps.launch(packageName)) {
+            return Outcome.failed("Couldn't run Waydroid's own launcher for " + packageName
+                    + ". Check that the 'waydroid' command works from a terminal.");
+        }
+        report(progress, "Waydroid is bringing " + packageName + " up — waiting for it to appear…");
+        Duration budget = wasRunning ? FOREGROUND_TIMEOUT : instance.platformId().bootTimeout();
+        if (awaitActiveApp(packageName, budget)) {
+            // Waydroid's own answer, and the one that needs no ADB — so it still works when the in-guest
+            // trust prompt has blocked every query. If it says the app is the active surface, it is.
+            return Outcome.ok("Started " + packageName + " in Waydroid.");
+        }
+        Optional<EmulatorInstance> ready = EmulatorReadiness.awaitReady(instance, instance.platformId().bootTimeout());
+        if (ready.isEmpty()) {
+            // The launch was dispatched and Waydroid owns the rest; we simply have no channel to confirm it.
+            return Outcome.ok("Asked Waydroid to start " + packageName + ". It didn't answer on ADB within "
+                    + instance.platformId().bootTimeout().toSeconds() + "s, so its state can't be confirmed "
+                    + "from here — check the Waydroid window.");
+        }
+        EmulatorInstance live = ready.get();
+        try (AdbDevice device = connect(live)) {
+            if (reachedForeground(device, packageName)) {
+                return Outcome.ok("Started " + packageName + " in Waydroid.");
+            }
+            // Dispatched, but something else is still in front. Fall through to the ADB rung: it can start
+            // the activity directly, and if that fails too it can say what Android thinks of the package.
+            Diag.log("[Target] emu-app: waydroid launch didn't surface " + packageName + " — trying ADB");
+            return startOverAdb(device, packageName, live);
+        } catch (Exception e) {
+            return Outcome.ok("Asked Waydroid to start " + packageName + " — couldn't confirm over ADB ("
+                    + e.getMessage() + "). Check the Waydroid window.");
+        }
+    }
+
+    /**
+     * The ADB rung, used as-is by every console-tool emulator and as Waydroid's fallback: {@code monkey}
+     * first, then the explicitly resolved component.
+     *
+     * <p>The second try exists because monkey matches a launcher intent and some apps don't publish one the
+     * way it expects — {@code cmd package resolve-activity} asks the package manager the same question
+     * directly, and {@code am start -n} then names the component instead of hoping.
+     */
+    private static Outcome startOverAdb(AdbDevice device, String packageName, EmulatorInstance live) {
+        if (AdbDevice.startedApp(device.startApp(packageName))) {
+            return awaitForeground(device, packageName, live);
+        }
+        String component = resolveLauncherComponent(device, packageName);
+        if (component != null) {
+            Diag.log("[Target] emu-app: monkey declined, starting " + component + " directly");
+            device.shell("am start -n " + component);
+            return awaitForeground(device, packageName, live);
+        }
+        return Outcome.failed("Android refused to start " + packageName + " on " + live.name()
+                + " — no launcher activity answered, and the package manager couldn't resolve one either. "
+                + "Check the package name, and that the app is installed on this instance.");
+    }
+
+    /**
+     * {@code <pkg>/<activity>} for the app's launcher activity, or {@code null} when nothing resolves.
+     * {@code cmd package resolve-activity --brief} prints the component on its last line.
+     */
+    private static String resolveLauncherComponent(AdbDevice device, String packageName) {
+        try {
+            String output = device.shell("cmd package resolve-activity --brief " + packageName.trim());
+            if (output == null) {
+                return null;
+            }
+            for (String raw : output.split("\\R")) {
+                String line = raw.strip();
+                if (line.startsWith(packageName.trim() + "/")) {
+                    return line;
+                }
+            }
+        } catch (Exception e) {
+            Diag.log("[Target] emu-app: resolve-activity failed for " + packageName + ": " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * A sentence naming {@code packageName} as absent, when the host CLI can list the container's apps and it
+     * isn't among them — the one check that can fail fast, before spending a boot timeout on an app that was
+     * never installed. Empty when the list is unavailable (no answer is not evidence of absence).
+     */
+    private static Optional<String> notInstalled(String packageName) {
+        List<WaydroidApps.InstalledApp> apps = WaydroidApps.list();
+        if (apps.isEmpty()) {
+            return Optional.empty();
+        }
+        boolean present = apps.stream().anyMatch(app -> app.packageName().equals(packageName.trim()));
+        return present ? Optional.empty()
+                : Optional.of(packageName + " isn't installed in Waydroid — 'waydroid app list' doesn't "
+                        + "mention it. Re-pick the app in the emulator picker.");
     }
 
     /** {@link #start(String, String, Consumer)} with no progress narration. */
@@ -78,17 +196,24 @@ public final class EmulatorAppLauncher {
         return start(packageName, instance, null);
     }
 
-    /** Force-stops {@code packageName} and starts it again — a clean restart inside a live instance. */
+    /**
+     * Force-stops {@code packageName} and starts it again — a clean restart inside a live instance.
+     *
+     * <p>The stop is always ADB ({@code am force-stop}, which Waydroid's CLI has no equivalent for); the
+     * start then goes through {@link #start}, so it takes the same rung a fresh launch would.
+     */
     public static Outcome restart(String packageName, String instance) {
-        return withReadyEmulator(instance, null, (device, live) -> {
-            Diag.log("[Target] emu-app: restarting " + packageName + " on " + instance);
-            device.shell("am force-stop " + packageName.trim());
-            if (!AdbDevice.startedApp(device.startApp(packageName))) {
-                return Outcome.failed("Android refused to restart " + packageName + " on " + live.name()
-                        + " — no launcher activity answered.");
+        Optional<EmulatorInstance> match = find(instance);
+        if (match.isPresent() && EmulatorReadiness.portOpen(match.get())) {
+            try (AdbDevice device = connect(match.get())) {
+                Diag.log("[Target] emu-app: restarting " + packageName + " on " + instance);
+                device.shell("am force-stop " + packageName.trim());
+            } catch (Exception e) {
+                // A stop we couldn't send isn't fatal: starting an app that is already running is a no-op.
+                Diag.log("[Target] emu-app: force-stop failed on " + instance + ": " + e.getMessage());
             }
-            return awaitForeground(device, packageName, live);
-        });
+        }
+        return start(packageName, instance, null);
     }
 
     /**
@@ -174,21 +299,55 @@ public final class EmulatorAppLauncher {
      * outcome rather than a failure — the intent really was accepted, and a slow game is not an error.
      */
     private static Outcome awaitForeground(AdbDevice device, String packageName, EmulatorInstance live) {
-        long deadline = System.currentTimeMillis() + FOREGROUND_TIMEOUT.toMillis();
+        return reachedForeground(device, packageName)
+                ? Outcome.ok("Started " + packageName + " on " + live.name() + ".")
+                : Outcome.ok("Launched " + packageName + " on " + live.name() + " — it hasn't reached the "
+                        + "foreground yet, which is normal for a game that is still loading.");
+    }
+
+    /**
+     * Waits for Waydroid to report {@code packageName} as its active app.
+     *
+     * <p>The budget depends on what we asked for: a cold start is the whole container coming up, a warm one
+     * should answer within a poll or two. Giving the warm case the cold budget would mean four minutes of
+     * waiting before the ADB fallback rung ever ran.
+     */
+    private static boolean awaitActiveApp(String packageName, Duration budget) {
+        long deadline = System.currentTimeMillis() + budget.toMillis();
         while (System.currentTimeMillis() < deadline) {
-            String current = device.currentApp();
-            if (current != null && current.contains(packageName)) {
-                return Outcome.ok("Started " + packageName + " on " + live.name() + ".");
+            if (packageName.trim().equals(WaydroidApps.activeApp())) {
+                return true;
             }
             try {
                 Thread.sleep(FOREGROUND_POLL_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                break;
+                return false;
             }
         }
-        return Outcome.ok("Launched " + packageName + " on " + live.name() + " — it hasn't reached the "
-                + "foreground yet, which is normal for a game that is still loading.");
+        return false;
+    }
+
+    /**
+     * Whether {@code packageName} became the foreground app within {@link #FOREGROUND_TIMEOUT}. Separate from
+     * the {@link Outcome} above because the Waydroid rung needs the bare fact: a "no" there is not a report to
+     * the user, it is the cue to try the next rung.
+     */
+    private static boolean reachedForeground(AdbDevice device, String packageName) {
+        long deadline = System.currentTimeMillis() + FOREGROUND_TIMEOUT.toMillis();
+        while (System.currentTimeMillis() < deadline) {
+            String current = device.currentApp();
+            if (current != null && current.contains(packageName)) {
+                return true;
+            }
+            try {
+                Thread.sleep(FOREGROUND_POLL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
     }
 
     /** The discovered instance with this name, if any. Names are what the multi-instance manager shows. */

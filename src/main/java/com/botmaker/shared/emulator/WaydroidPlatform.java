@@ -75,9 +75,21 @@ public final class WaydroidPlatform implements EmulatorPlatform {
      * @param gamescopeOnPath whether the compositor is available to host the Wayland client
      */
     static List<String> launchCommand(WaydroidResolution resolution, boolean gamescopeOnPath) {
-        List<String> ui = List.of(WaydroidCli.WAYDROID, "show-full-ui");
+        return gamescoped(List.of(WaydroidCli.WAYDROID, "show-full-ui"), resolution, gamescopeOnPath);
+    }
+
+    /**
+     * {@code waydroidCommand} hosted inside a gamescope sized to the container's framebuffer, or unchanged
+     * when gamescope isn't installed.
+     *
+     * <p>Shared with {@link WaydroidApps#launchCommand}, which needs the identical wrapping for
+     * {@code waydroid app launch}: both are Wayland-only clients that have to bring a session up on an X11
+     * desktop, and the sizing rule below must not exist twice.
+     */
+    static List<String> gamescoped(List<String> waydroidCommand, WaydroidResolution resolution,
+                                   boolean gamescopeOnPath) {
         if (!gamescopeOnPath) {
-            return ui;
+            return List.copyOf(waydroidCommand);
         }
         List<String> command = new ArrayList<>();
         command.add(GAMESCOPE);
@@ -91,7 +103,7 @@ public final class WaydroidPlatform implements EmulatorPlatform {
             command.addAll(List.of("-W", w, "-H", h, "-w", w, "-h", h));
         }
         command.add("--expose-wayland");   // without it gamescope hosts only its Xwayland, and Waydroid is Wayland-only
-        command.addAll(ui);
+        command.addAll(waydroidCommand);
         return List.copyOf(command);
     }
 }
