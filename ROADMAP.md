@@ -8,6 +8,28 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-05 — One owner for "the instance named X", and for the `emulator:` capture-source prefix
+
+**229 tests (+4).** New `emulator/EmulatorInstances.java` + `EmulatorInstancesTest`;
+`ProjectProperties.emulatorInstanceOf` + 2 tests.
+
+**Done.** Resolving a saved emulator *name* to a discovered instance was being done three times — the launch
+stack's private `EmulatorAppLauncher.find`, Studio's capture thumbnail (a hand-rolled scan loop), and now the
+pilot's route. `EmulatorInstances.byName` is the one owner; the launch stack delegates to it and Studio's copy
+is gone. It deliberately matches on the display name (that is what the user picked and what got persisted) and
+returns the first match, documenting that `identity()` is what to use where the answer must be unique.
+
+`ProjectProperties.emulatorInstanceOf(captureSource)` gives the `emulator:<name>` form of `capture.source` a
+parser next to the key that defines it. The prefix was being re-spelled as a literal by everyone who wrote or
+recognised one (Studio's launch-target dialog builds it, its capture codegen reads it, the pilot routes on it).
+Total: any other form, an empty name or `null` is `null`.
+
+**Deferred / next.** The other three `capture.source` forms (`desktop`, `monitor:<i>`, `window:<t>`) still
+spell themselves at each site. A sealed `CaptureSourceSpec` owning the whole grammar is the eventual answer;
+this entry only closes the form that grew a third consumer.
+
+---
+
 ## 2026-08-05 — ADB is the wrong instrument for starting a Waydroid app
 
 **225 tests (+8).** New `emulator/WaydroidApps.java` + `WaydroidAppsTest`; the gamescope wrapping extracted

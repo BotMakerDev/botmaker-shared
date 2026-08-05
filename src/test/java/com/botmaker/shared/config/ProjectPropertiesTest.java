@@ -60,6 +60,24 @@ class ProjectPropertiesTest {
     }
 
     @Test
+    void anEmulatorCaptureSourceYieldsItsInstanceName() {
+        assertEquals("Waydroid", ProjectProperties.emulatorInstanceOf("emulator:Waydroid"));
+        // Studio writes the spec from a picked instance name, which can carry spaces on some products.
+        assertEquals("MuMu Player 12", ProjectProperties.emulatorInstanceOf("  emulator:MuMu Player 12  "));
+    }
+
+    @Test
+    void everyOtherCaptureSourceFormIsNotAnEmulator() {
+        // The other three grammar forms, the degenerate prefix-with-no-name, and an unset key.
+        assertNull(ProjectProperties.emulatorInstanceOf("desktop"));
+        assertNull(ProjectProperties.emulatorInstanceOf("monitor:1"));
+        assertNull(ProjectProperties.emulatorInstanceOf("window:Firestone"));
+        assertNull(ProjectProperties.emulatorInstanceOf("emulator:"));
+        assertNull(ProjectProperties.emulatorInstanceOf("emulator:   "));
+        assertNull(ProjectProperties.emulatorInstanceOf(null));
+    }
+
+    @Test
     void debugStillParsesTrueFalseAndNull() {
         ProjectProperties.setForTesting(new Properties());
         assertNull(ProjectProperties.debug());

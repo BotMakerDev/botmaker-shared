@@ -138,6 +138,31 @@ public final class ProjectProperties {
         return get(KEY_CAPTURE_SOURCE);
     }
 
+    /** The {@code emulator:} prefix of a {@link #KEY_CAPTURE_SOURCE} spec — see {@link #emulatorInstanceOf}. */
+    public static final String EMULATOR_SOURCE_PREFIX = "emulator:";
+
+    /**
+     * The instance name in an {@code emulator:<instanceName>} capture-source spec, or {@code null} for any
+     * other form ({@code desktop}, {@code monitor:<i>}, {@code window:<t>}, an empty name, {@code null}).
+     *
+     * <p>The prefix is defined by this class's key, but was being re-spelled as a literal wherever someone
+     * needed to write or recognise one — Studio's launch-target dialog builds the spec, its capture-expression
+     * codegen reads it, and the pilot now routes on it. A total parse next to the key keeps those from
+     * drifting. (The other three forms still spell themselves; a sealed spec type for the whole grammar is
+     * the eventual answer and is not this.)
+     */
+    public static String emulatorInstanceOf(String captureSource) {
+        if (captureSource == null) {
+            return null;
+        }
+        String spec = captureSource.trim();
+        if (!spec.startsWith(EMULATOR_SOURCE_PREFIX)) {
+            return null;
+        }
+        String name = spec.substring(EMULATOR_SOURCE_PREFIX.length()).trim();
+        return name.isEmpty() ? null : name;
+    }
+
     /** The raw {@code launch.target} spec, or {@code null} when unset. Parse with {@code LaunchSpec.parse}. */
     public static String launchTarget() {
         return get(KEY_LAUNCH_TARGET);

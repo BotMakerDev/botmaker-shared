@@ -3,6 +3,7 @@ package com.botmaker.shared.launch;
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.shared.emulator.EmulatorLauncher;
 import com.botmaker.shared.emulator.EmulatorReadiness;
 import com.botmaker.shared.emulator.PlatformId;
@@ -350,12 +351,9 @@ public final class EmulatorAppLauncher {
         return false;
     }
 
-    /** The discovered instance with this name, if any. Names are what the multi-instance manager shows. */
+    /** The discovered instance with this name, if any — {@link EmulatorInstances#byName}'s one owner. */
     private static Optional<EmulatorInstance> find(String name) {
-        if (name == null || name.isBlank()) {
-            return Optional.empty();
-        }
-        return Platforms.discoverAll().stream().filter(i -> name.equals(i.name())).findFirst();
+        return EmulatorInstances.byName(name);
     }
 
     private static void report(Consumer<String> progress, String message) {
