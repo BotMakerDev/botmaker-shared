@@ -8,6 +8,19 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-06 — `XClearArea`, so a session can ask the host to repaint behind it
+
+**229 tests (unchanged).** Changed: `capture/linux/X11.java` (one binding).
+
+**Done.** `int XClearArea(display, window, x, y, w, h, exposures)` bound on the X11 interface. Its consumer is
+`botmaker-session`'s `SessionHostWindow.repaintHostBehind`, which calls it on the **root** window over the
+rectangle a gamescope host window vacated: a window that disappears without the host compositor noticing
+leaves its last frame on screen as a gray rectangle, and clearing the root with `exposures=true` asks the
+desktop to repaint it. Best-effort by nature — a compositor with its own damage bookkeeping may ignore the
+`Expose` entirely, and nothing on this side can make it not.
+
+---
+
 ## 2026-08-05 — One owner for "the instance named X", and for the `emulator:` capture-source prefix
 
 **229 tests (+4).** New `emulator/EmulatorInstances.java` + `EmulatorInstancesTest`;

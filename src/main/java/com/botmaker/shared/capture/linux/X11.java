@@ -157,6 +157,13 @@ public interface X11 extends Library {
     // screenNumber is the window's screen (XDefaultScreen for a single-screen display).
     int XIconifyWindow(Pointer display, Pointer window, int screenNumber);
 
+    // Clear a rectangle of `window` to its background and, when exposures is true, generate Expose events over
+    // it. Called on the *root* window to ask the desktop to repaint the area something else vacated: a window
+    // that disappears without the host compositor noticing leaves its own pixels behind as a gray rectangle.
+    // A width or height of 0 means "to the window's right/bottom edge". Best-effort by nature — whether the
+    // desktop acts on the Expose is the host's business, not ours.
+    int XClearArea(Pointer display, Pointer window, int x, int y, int width, int height, boolean exposures);
+
     // Install a process-wide Xlib error handler; returns the previous one. This is not a nicety: Xlib's DEFAULT
     // handler prints the protocol error and then calls exit(1) — a BadMatch from XGetImage takes the whole JVM
     // down with no exception, no stack trace and no hs_err file. Every process that talks X11 through this
