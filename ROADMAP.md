@@ -8,6 +8,35 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-06 — `LinuxInputBackendId`: the input-backend choice stops being a bare `String`
+
+**230 tests (+1 net; `InputBackendChoiceTest` rewritten against the enum it was gating).** Changed:
+`capture/linux/input/LinuxInputBackendId.java` (new), `capture/linux/input/LinuxInputBackend.java`,
+the four backends, `capture/linux/LinuxController.java`, `config/ProjectProperties.java` (javadoc).
+
+**Done.** The `botmaker.linux.input` / `BOTMAKER_LINUX_INPUT` choice was a `String` spelled in five places —
+a `switch` in `LinuxController.selectBackend`, plus each backend's own `name()` — and `botmaker-session`
+passed the bare literal `"xtest"` at two call sites. It is now the closed set `LinuxInputBackendId`
+(`AUTO/XSENDEVENT/XTEST/XDOTOOL/UINPUT`), the `PlatformId` pattern: a stable wire `id()` (it is persisted, as
+`input.linuxBackend`) and a total `fromId`. `LinuxInputBackend.name()` became `id()`, so a log line and the
+property that produced it can no longer spell the backend differently, and `selectBackend`'s `switch` is now
+exhaustive over the enum.
+
+**The bug this fixes.** The old `switch` shared one arm between `case "auto"`, `case "xsendevent"` and
+`default`. A typo (`xtets`) or a value from a newer Studio was therefore *indistinguishable* from asking for
+the cursor-preserving backend: a bot that opted into `uinput` — because xsendevent's synthetic events don't
+reach its game — silently got xsendevent, with nothing in the log to say so. `fromId` still resolves an
+unrecognised value to `AUTO` (the parse must stay total: the value is user-editable text, and a project
+written by a newer Studio has to load in an older bot) but now reports it:
+`[Linux] unknown input backend 'xtets' (valid: auto, xsendevent, xtest, xdotool, uinput) — using auto.`
+
+**Deferred / next.** Studio's `project/BotSettings.LinuxInputBackend` is a *fourth* copy of this set — same
+wire ids, plus a dropdown label, and missing `xsendevent`. Studio depends on shared, so it should delegate
+`id()` here and keep only the label. Left out of this change because it is a different submodule; it belongs
+with the Studio phases of the stringly-typed sweep.
+
+---
+
 ## 2026-08-06 — `XClearArea`, so a session can ask the host to repaint behind it
 
 **229 tests (unchanged).** Changed: `capture/linux/X11.java` (one binding).

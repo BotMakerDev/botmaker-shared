@@ -123,8 +123,8 @@ public final class UinputBackend implements LinuxInputBackend {
     }
 
     @Override
-    public String name() {
-        return "uinput";
+    public LinuxInputBackendId id() {
+        return LinuxInputBackendId.UINPUT;
     }
 
     @Override

@@ -42,8 +42,8 @@ public final class XSendEventBackend implements LinuxInputBackend {
     }
 
     @Override
-    public String name() {
-        return "xsendevent";
+    public LinuxInputBackendId id() {
+        return LinuxInputBackendId.XSENDEVENT;
     }
 
     @Override

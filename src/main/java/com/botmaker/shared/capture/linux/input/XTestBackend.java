@@ -76,8 +76,8 @@ public final class XTestBackend implements LinuxInputBackend {
     }
 
     @Override
-    public String name() {
-        return "xtest";
+    public LinuxInputBackendId id() {
+        return LinuxInputBackendId.XTEST;
     }
 
     @Override

@@ -68,8 +68,8 @@ public final class XdotoolBackend implements LinuxInputBackend {
     }
 
     @Override
-    public String name() {
-        return "xdotool";
+    public LinuxInputBackendId id() {
+        return LinuxInputBackendId.XDOTOOL;
     }
 
     @Override

@@ -24,8 +24,11 @@ import java.util.function.Supplier;
  */
 public interface LinuxInputBackend extends AutoCloseable {
 
-    /** Short name for logging (e.g. {@code "xsendevent"}). */
-    String name();
+    /**
+     * Which strategy this is — the same closed set {@code botmaker.linux.input} selects from, so a log line
+     * and the property that produced it can never spell the backend differently.
+     */
+    LinuxInputBackendId id();
 
     /** True if this backend leaves the user's real cursor untouched. */
     boolean preservesCursor();

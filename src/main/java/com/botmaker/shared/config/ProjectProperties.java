@@ -81,9 +81,12 @@ public final class ProjectProperties {
     public static final String KEY_INPUT_REAL = "input.real";
 
     /**
-     * Which Linux backend delivers real input — {@code uinput} | {@code xdotool} | {@code xtest}, or absent for
+     * Which Linux backend delivers real input — one of
+     * {@link com.botmaker.shared.capture.linux.input.LinuxInputBackendId}'s wire ids, or absent for
      * {@code LinuxController}'s own ladder. Read into the {@code botmaker.linux.input} system property the
      * controller consults, and therefore, like {@link #KEY_INPUT_REAL}, only meaningful before the first click.
+     * The enum owns the accepted set; an unrecognised value here resolves to {@code auto} with a diagnostic
+     * rather than silently reaching the cursor-safe backend.
      */
     public static final String KEY_INPUT_LINUX_BACKEND = "input.linuxBackend";
 

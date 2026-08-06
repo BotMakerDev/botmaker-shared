@@ -5,6 +5,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.linux.input.InputTiming;
 import com.botmaker.shared.capture.linux.input.LinuxInputBackend;
+import com.botmaker.shared.capture.linux.input.LinuxInputBackendId;
 import com.botmaker.shared.capture.linux.input.PointerWarp;
 import com.botmaker.shared.capture.linux.input.UinputBackend;
 import com.botmaker.shared.capture.linux.input.XSendEventBackend;
@@ -32,16 +33,22 @@ import java.util.function.Supplier;
  * unavailable, invalid geometry, or a capture error — e.g. native Wayland where Robot returns black).
  * Callers apply their own full-desktop fallback.
  *
- * <p><b>Input synthesis</b> is delegated to a pluggable {@link LinuxInputBackend} chosen by the
- * {@code botmaker.linux.input} system property (or {@code BOTMAKER_LINUX_INPUT} env var):
+ * <p><b>Input synthesis</b> is delegated to a pluggable {@link LinuxInputBackend}, chosen from the closed set
+ * {@link LinuxInputBackendId} — which is what the {@code botmaker.linux.input} system property (or
+ * {@code BOTMAKER_LINUX_INPUT} env var) names:
  * <ul>
- *   <li>{@code auto} (default) / {@code xsendevent} — {@link XSendEventBackend}: cursor-preserving,
- *       background clicks to X11/XWayland windows. The real pointer is never moved.</li>
- *   <li>{@code uinput} — {@link UinputBackend}: reliable everywhere (incl. native Wayland/games) but moves
- *       the shared cursor; falls back to xsendevent if {@code /dev/uinput} can't be opened.</li>
- *   <li>{@code xtest} — {@link XTestBackend}: the legacy warp-and-click (moves the cursor).</li>
+ *   <li>{@link LinuxInputBackendId#AUTO} (default) / {@link LinuxInputBackendId#XSENDEVENT} —
+ *       {@link XSendEventBackend}: cursor-preserving, background clicks to X11/XWayland windows. The real
+ *       pointer is never moved.</li>
+ *   <li>{@link LinuxInputBackendId#UINPUT} — {@link UinputBackend}: reliable everywhere (incl. native
+ *       Wayland/games) but moves the shared cursor; falls back to xsendevent if {@code /dev/uinput} can't be
+ *       opened.</li>
+ *   <li>{@link LinuxInputBackendId#XDOTOOL} — {@link XdotoolBackend}: XTEST via the CLI; falls back to
+ *       in-process XTest when {@code xdotool} isn't on the PATH.</li>
+ *   <li>{@link LinuxInputBackendId#XTEST} — {@link XTestBackend}: the legacy warp-and-click (moves the
+ *       cursor).</li>
  * </ul>
- * {@code auto} never selects a cursor-moving backend — but {@link #useReliableInput()} can escalate to one
+ * {@code AUTO} never selects a cursor-moving backend — but {@link #useReliableInput()} can escalate to one
  * later, on request, for a consumer that needs the click to actually land (see its javadoc).
  */
 public class LinuxController implements NativeController, AutoCloseable {
@@ -88,37 +95,37 @@ public class LinuxController implements NativeController, AutoCloseable {
     }
 
     /**
-     * Opens {@code displayName} and forces a specific input backend ({@code "xtest"}, {@code "xsendevent"},
-     * {@code "uinput"}, {@code "xdotool"}), bypassing the {@code botmaker.linux.input} property. A nested
-     * {@code :N} server uses this to pin {@link XTestBackend}: on a private display the global cursor is the
-     * bot's alone, so device-level XTest is both accepted by games <em>and</em> non-intrusive — and the
-     * process-wide property that steers {@code :0} must not decide a nested display's backend. {@code null}
-     * {@code backendChoice} falls back to the property, i.e. exactly {@link #LinuxController(String)}.
+     * Opens {@code displayName} and forces a specific input backend, bypassing the
+     * {@code botmaker.linux.input} property. A nested {@code :N} server uses this to pin
+     * {@link LinuxInputBackendId#XTEST}: on a private display the global cursor is the bot's alone, so
+     * device-level XTest is both accepted by games <em>and</em> non-intrusive — and the process-wide property
+     * that steers {@code :0} must not decide a nested display's backend. {@code null} {@code backendChoice}
+     * falls back to the property, i.e. exactly {@link #LinuxController(String)}.
      */
-    public LinuxController(String displayName, String backendChoice) {
+    public LinuxController(String displayName, LinuxInputBackendId backendChoice) {
         this(displayName, backendChoice, PointerWarp.ROOT_ABSOLUTE);
     }
 
     /**
-     * {@link #LinuxController(String, String)} with the server's warp convention pinned. Only a nested display
+     * {@link #LinuxController(String, LinuxInputBackendId)} with the server's warp convention pinned. Only a nested display
      * needs this: gamescope's Xwayland reads an injected absolute warp as <em>window-relative</em>, so a
      * controller bound to a gamescope {@code :N} passes {@link PointerWarp#FOCUS_RELATIVE} and its XTest backend
      * corrects for the focused window's origin. A real server, Xvfb and Xephyr are all
      * {@link PointerWarp#ROOT_ABSOLUTE} — the default. The policy itself lives in
      * {@code SessionBackends.pointerWarpFor(...)}, not here.
      */
-    public LinuxController(String displayName, String backendChoice, PointerWarp warp) {
+    public LinuxController(String displayName, LinuxInputBackendId backendChoice, PointerWarp warp) {
         this(displayName, backendChoice, warp, null);
     }
 
     /**
-     * {@link #LinuxController(String, String, PointerWarp)} with the backend's click/keystroke timing pinned
+     * {@link #LinuxController(String, LinuxInputBackendId, PointerWarp)} with the backend's click/keystroke timing pinned
      * ({@code null} → {@link InputTiming#DEFAULT}). A session passes a longer press hold than the host default,
      * because the thing on the other end is a game sampling input on a frame timer rather than a toolkit
      * reacting to an event queue; the policy itself lives in {@code SessionBackends.inputTimingFor(...)}, not
      * here. Only the XTest backend reads it today — the others have no tunable timing.
      */
-    public LinuxController(String displayName, String backendChoice, PointerWarp warp, InputTiming timing) {
+    public LinuxController(String displayName, LinuxInputBackendId backendChoice, PointerWarp warp, InputTiming timing) {
         // Try to open the named X11 display (null → default $DISPLAY).
         Pointer disp = null;
         boolean available = false;
@@ -159,29 +166,29 @@ public class LinuxController implements NativeController, AutoCloseable {
     }
 
     /**
-     * {@link #forDisplay(String)} with the input backend pinned (e.g. {@code "xtest"} for a nested display —
-     * see {@link #LinuxController(String, String)}). The caller owns the returned instance and must
+     * {@link #forDisplay(String)} with the input backend pinned (e.g. {@link LinuxInputBackendId#XTEST} for a nested display —
+     * see {@link #LinuxController(String, LinuxInputBackendId)}). The caller owns the returned instance and must
      * {@link #close()} it.
      */
-    public static LinuxController forDisplay(String displayName, String backendChoice) {
+    public static LinuxController forDisplay(String displayName, LinuxInputBackendId backendChoice) {
         return new LinuxController(displayName, backendChoice, PointerWarp.ROOT_ABSOLUTE);
     }
 
     /**
-     * {@link #forDisplay(String, String)} with the server's warp convention pinned — see
-     * {@link #LinuxController(String, String, PointerWarp)}. The caller owns the returned instance and must
+     * {@link #forDisplay(String, LinuxInputBackendId)} with the server's warp convention pinned — see
+     * {@link #LinuxController(String, LinuxInputBackendId, PointerWarp)}. The caller owns the returned instance and must
      * {@link #close()} it.
      */
-    public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp) {
+    public static LinuxController forDisplay(String displayName, LinuxInputBackendId backendChoice, PointerWarp warp) {
         return new LinuxController(displayName, backendChoice, warp, null);
     }
 
     /**
-     * {@link #forDisplay(String, String, PointerWarp)} with the backend timing pinned too — see
-     * {@link #LinuxController(String, String, PointerWarp, InputTiming)}. The caller owns the returned instance
+     * {@link #forDisplay(String, LinuxInputBackendId, PointerWarp)} with the backend timing pinned too — see
+     * {@link #LinuxController(String, LinuxInputBackendId, PointerWarp, InputTiming)}. The caller owns the returned instance
      * and must {@link #close()} it.
      */
-    public static LinuxController forDisplay(String displayName, String backendChoice, PointerWarp warp,
+    public static LinuxController forDisplay(String displayName, LinuxInputBackendId backendChoice, PointerWarp warp,
                                              InputTiming timing) {
         return new LinuxController(displayName, backendChoice, warp, timing);
     }
@@ -207,37 +214,33 @@ public class LinuxController implements NativeController, AutoCloseable {
 
     /**
      * Pick the input backend. When {@code forced} is non-null it wins outright (a nested display pins
-     * {@code "xtest"}); otherwise the choice comes from {@code botmaker.linux.input} / {@code BOTMAKER_LINUX_INPUT}
-     * (default {@code auto} → cursor-safe xsendevent).
+     * {@link LinuxInputBackendId#XTEST}); otherwise the choice comes from {@code botmaker.linux.input} /
+     * {@code BOTMAKER_LINUX_INPUT}, parsed by {@link LinuxInputBackendId#fromId} — which is where an
+     * unrecognised value is reported rather than silently becoming {@link LinuxInputBackendId#AUTO}.
      */
-    private static LinuxInputBackend selectBackend(Pointer display, String forced, PointerWarp warp,
+    private static LinuxInputBackend selectBackend(Pointer display, LinuxInputBackendId forced, PointerWarp warp,
                                                    InputTiming timing) {
-        String choice;
-        if (forced != null && !forced.isBlank()) {
-            choice = forced.trim().toLowerCase();
+        LinuxInputBackendId choice;
+        if (forced != null) {
+            choice = forced;
         } else {
             String env = System.getenv("BOTMAKER_LINUX_INPUT");
-            choice = System.getProperty("botmaker.linux.input", env != null ? env : "auto")
-                .trim().toLowerCase();
+            choice = LinuxInputBackendId.fromId(
+                System.getProperty("botmaker.linux.input", env != null ? env : LinuxInputBackendId.AUTO.id()));
         }
 
-        LinuxInputBackend backend;
-        switch (choice) {
-            case "xtest":
-                backend = new XTestBackend(display, timing, warp);
-                break;
-            case "xdotool": {
+        LinuxInputBackend backend = switch (choice) {
+            case XTEST -> new XTestBackend(display, timing, warp);
+            case XDOTOOL -> {
                 LinuxInputBackend x = XdotoolBackend.tryCreate(display);
                 if (x == null) {
                     Diag.error("[Linux] xdotool not found on PATH (install it: "
                         + "dnf install xdotool / apt install xdotool); falling back to in-process XTest.");
-                    backend = new XTestBackend(display, timing, warp);
-                } else {
-                    backend = x;
+                    yield new XTestBackend(display, timing, warp);
                 }
-                break;
+                yield x;
             }
-            case "uinput": {
+            case UINPUT -> {
                 int screen = X11.INSTANCE.XDefaultScreen(display);
                 int w = X11.INSTANCE.XDisplayWidth(display, screen);
                 int h = X11.INSTANCE.XDisplayHeight(display, screen);
@@ -245,19 +248,14 @@ public class LinuxController implements NativeController, AutoCloseable {
                 if (u == null) {
                     Diag.error("[Linux] uinput unavailable (can't open /dev/uinput); "
                         + "falling back to cursor-safe xsendevent.");
-                    backend = new XSendEventBackend(display);
-                } else {
-                    backend = u;
+                    yield new XSendEventBackend(display);
                 }
-                break;
+                yield u;
             }
-            case "auto":
-            case "xsendevent":
-            default:
-                backend = new XSendEventBackend(display);
-                break;
-        }
-        Diag.log("[Linux] input backend = " + backend.name()
+            // AUTO's choice today: never a cursor-moving backend. useReliableInput() escalates on request.
+            case AUTO, XSENDEVENT -> new XSendEventBackend(display);
+        };
+        Diag.log("[Linux] input backend = " + backend.id().id()
             + " (preservesCursor=" + backend.preservesCursor() + ")");
         return backend;
     }
@@ -1152,7 +1150,7 @@ public class LinuxController implements NativeController, AutoCloseable {
         } catch (Exception e) {
             Diag.error("[Linux] Error closing previous input backend: " + e.getMessage());
         }
-        Diag.log("[Linux] input backend = " + escalated.name()
+        Diag.log("[Linux] input backend = " + escalated.id().id()
             + " (preservesCursor=" + escalated.preservesCursor() + ") — escalated for reliable input");
         return true;
     }
