@@ -32,6 +32,13 @@ public final class WindowMatch {
     /** A tier worse than any real match — the sentinel for "does not contain the needle". */
     private static final int NO_MATCH = Integer.MAX_VALUE;
 
+    /**
+     * What a window title puts before its dynamic tail — a score, level, document or channel name. The set
+     * the class javadoc's tier 2 describes; note the second and third entries are an en dash and an em dash,
+     * which is exactly why they are named once here rather than retyped at the use site.
+     */
+    private static final String[] SUFFIX_SEPARATORS = {" - ", " – ", " — ", ": "};
+
     private WindowMatch() {
     }
 
@@ -101,7 +108,7 @@ public final class WindowMatch {
     /** {@code title} up to the first trailing-suffix separator ({@code " - "}, en/em dash, {@code ": "}). */
     private static String stripSuffix(String title) {
         int cut = title.length();
-        for (String sep : new String[]{" - ", " – ", " — ", ": "}) {
+        for (String sep : SUFFIX_SEPARATORS) {
             int i = title.indexOf(sep);
             if (i >= 0) {
                 cut = Math.min(cut, i);

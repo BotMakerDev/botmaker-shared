@@ -27,11 +27,8 @@ public final class OcrNative {
 
     private OcrNative() {}
 
-    /**
-     * Traineddata bundled under {@code src/main/resources/tessdata/}. Adding a language is data-only:
-     * drop its {@code <lang>.traineddata} in that folder and add the code here.
-     */
-    static final String[] BUNDLED_LANGUAGES = {"eng", "chi_sim", "jpn", "kor"};
+    /** Classpath folder the traineddata are bundled in — the resource side of {@link OcrLanguage}. */
+    private static final String TESSDATA_RESOURCE_DIR = "/tessdata/";
 
     private static volatile Path tessdataDir = null;
 
@@ -54,11 +51,11 @@ public final class OcrNative {
         try {
             Path dir = Files.createTempDirectory("botmaker-tessdata");
             dir.toFile().deleteOnExit();
-            for (String lang : BUNDLED_LANGUAGES) {
-                String resource = "/tessdata/" + lang + ".traineddata";
+            for (OcrLanguage lang : OcrLanguage.values()) {
+                String resource = TESSDATA_RESOURCE_DIR + lang.trainedDataFile();
                 try (InputStream in = OcrNative.class.getResourceAsStream(resource)) {
                     if (in == null) continue; // not bundled — skip so a partial bundle still works
-                    Path target = dir.resolve(lang + ".traineddata");
+                    Path target = dir.resolve(lang.trainedDataFile());
                     Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
                     target.toFile().deleteOnExit();
                 }

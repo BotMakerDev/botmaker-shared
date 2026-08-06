@@ -123,9 +123,20 @@ public final class AdbDevice implements AutoCloseable {
             return false;
         }
         String lower = monkeyOutput.toLowerCase();
-        return !lower.contains("no activities found") && !lower.contains("error:")
-                && !lower.contains("aborted") && !lower.contains("not found");
+        for (String failure : MONKEY_FAILURES) {
+            if (lower.contains(failure)) {
+                return false;
+            }
+        }
+        return true;
     }
+
+    /**
+     * The phrases monkey prints on stdout when a launch did <em>not</em> happen — it exits zero either way,
+     * so this list is the whole verdict. Lower-case because {@link #startedApp} folds the output first.
+     */
+    private static final String[] MONKEY_FAILURES =
+            {"no activities found", "error:", "aborted", "not found"};
 
     /** Reads a system property ({@code getprop <key>}), trimmed; empty string if unset. */
     public String getProp(String key) {

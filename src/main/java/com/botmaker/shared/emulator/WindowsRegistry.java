@@ -63,8 +63,16 @@ public final class WindowsRegistry {
         return null;
     }
 
+    /**
+     * The value types {@code reg query} prints between the value name and the data — the token this parser
+     * splits each line on. Closed and defined by {@code reg.exe}, not by us: {@code REG_BINARY} and the
+     * {@code REG_QWORD}s are omitted because discovery only ever reads paths and ports, and a line carrying
+     * one simply doesn't parse (the same outcome as before this was named).
+     */
+    private static final String[] VALUE_TYPES = {"REG_SZ", "REG_EXPAND_SZ", "REG_DWORD", "REG_MULTI_SZ"};
+
     private static int indexOfRegType(String line) {
-        for (String type : new String[]{"REG_SZ", "REG_EXPAND_SZ", "REG_DWORD", "REG_MULTI_SZ"}) {
+        for (String type : VALUE_TYPES) {
             int i = line.indexOf(type);
             if (i >= 0) {
                 return i;

@@ -24,6 +24,8 @@ public final class GameloopPlatform implements EmulatorPlatform {
     private static final String HOST = "127.0.0.1";
     private static final int ADB_PORT = 5555;
     private static final String INSTANCE_NAME = "Gameloop";
+    /** The engine binary, in the order to try it: the English build ships the {@code En} name instead. */
+    private static final String[] ENGINE_EXECUTABLES = {"AndroidEmulator.exe", "AndroidEmulatorEn.exe"};
 
     @Override
     public PlatformId id() {
@@ -75,7 +77,7 @@ public final class GameloopPlatform implements EmulatorPlatform {
             return null;
         }
         Path ui = Path.of(programFiles, "TxGameAssistant", "ui");
-        for (String exe : new String[]{"AndroidEmulator.exe", "AndroidEmulatorEn.exe"}) {
+        for (String exe : ENGINE_EXECUTABLES) {
             Path candidate = ui.resolve(exe);
             if (Files.isRegularFile(candidate)) {
                 return candidate;

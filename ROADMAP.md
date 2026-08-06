@@ -8,6 +8,36 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-06 — the bundled languages are a set, and four literal tables get names
+
+**254 tests** (was 250). Added: `ocr/OcrLanguage.java`, `ocr/OcrLanguageTest.java`. Changed:
+`ocr/OcrNative.java`, `ocr/OcrOptions.java`, `emulator/WindowsRegistry.java`, `emulator/AdbDevice.java`,
+`emulator/GameloopPlatform.java`, `capture/WindowMatch.java`.
+
+**Done.** Phase 6 of the stringly-typed sweep, and the last shared-only phase — 7-12 are Studio.
+
+- **`OcrLanguage` (`ENGLISH/SIMPLIFIED_CHINESE/JAPANESE/KOREAN`)** carries `code()` (Tesseract's own name,
+  which is also the bundled file name), `displayName()` for a future Studio picker, `trainedDataFile()`, a
+  `spec(...)` that joins with `+`, and a total `fromCode` returning `null`. The set had two owners that could
+  drift: `OcrNative` listed the four codes for extraction while `OcrOptions.defaults()` separately spelled
+  `"eng"`, so a language dropped from the bundle still read as available at the default. The extractor now
+  walks `values()`, and a **new test asserts every constant's traineddata is actually on the classpath** —
+  which is the failure that was previously invisible until a bot asked for the language and got no text back.
+- **`OcrOptions.languages` deliberately stays a `String`.** It is a `+`-joined spec Tesseract parses and a bot
+  may legitimately name a language it installed system-wide; what it gains is
+  `withLanguages(OcrLanguage...)`, so the common case is built rather than typed.
+- **Four one-file literal tables got named**, each on the type already fronting that tool: `WindowsRegistry`
+  `VALUE_TYPES` (what `reg query` prints between name and data), `AdbDevice` `MONKEY_FAILURES` (the phrases
+  monkey prints when a launch did *not* happen — it exits zero either way, so that list is the entire
+  verdict), `GameloopPlatform` `ENGINE_EXECUTABLES` (the English build ships the `En` name), and
+  `WindowMatch` `SUFFIX_SEPARATORS` — where two of the four entries are an en dash and an em dash, indistinguishable
+  at a glance and the reason that table should never be retyped at a use site.
+
+**Deferred / next.** Phases 7-12 are Studio-only and need no shared release. Still open here from Phase 5:
+Studio's three `"emulator:" + instance` write sites move to `CaptureSourceKind.EMULATOR.spec` in one of them.
+
+---
+
 ## 2026-08-06 — the `capture.source` grammar is a type, and one boolean vocabulary
 
 **250 tests** (was 243). Added: `config/CaptureSourceKind.java`, `config/CaptureSourceKindTest.java`.

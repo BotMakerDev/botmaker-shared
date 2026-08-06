@@ -6,15 +6,17 @@ package com.botmaker.shared.ocr;
  *
  * <pre>{@code
  * OcrOptions opts = OcrOptions.defaults()
- *         .withLanguages("eng")
+ *         .withLanguages(OcrLanguage.ENGLISH)
  *         .withUpscale(3.0)                 // small HUD font — upscale more
  *         .withBinarize(BinarizeMode.OTSU)
  *         .withInvert(true)                 // light text on a dark panel
  *         .withCharWhitelist("0123456789"); // a numeric counter
  * }</pre>
  *
- * @param languages    Tesseract language spec, e.g. {@code "eng"} or {@code "eng+chi_sim"}. Each language
- *                     must be bundled (see {@link OcrNative#BUNDLED_LANGUAGES}).
+ * @param languages    Tesseract language spec, e.g. {@code "eng"} or {@code "eng+chi_sim"}. It stays a
+ *                     {@code String} because Tesseract parses the {@code +}-joined form and a bot may name a
+ *                     language it installed system-wide — but the bundled ones are {@link OcrLanguage}, so
+ *                     build it with {@link #withLanguages(OcrLanguage...)} rather than by hand.
  * @param pageSegMode  Tesseract Page Segmentation Mode (PSM). {@code 3} = fully automatic (default);
  *                     {@code 7} = single line; {@code 8} = single word; {@code 6} = a uniform block.
  * @param ocrEngineMode Tesseract OCR Engine Mode (OEM). {@code 1} = LSTM only (default).
@@ -50,11 +52,17 @@ public record OcrOptions(
 
     /** Sensible general-purpose defaults: English, automatic layout, grayscale + 2× upscale + Otsu. */
     public static OcrOptions defaults() {
-        return new OcrOptions("eng", 3, 1, true, 2.0, BinarizeMode.OTSU, false, null, TextResult.Level.WORD);
+        return new OcrOptions(OcrLanguage.ENGLISH.code(), 3, 1, true, 2.0,
+                BinarizeMode.OTSU, false, null, TextResult.Level.WORD);
     }
 
     public OcrOptions withLanguages(String languages) {
         return new OcrOptions(languages, pageSegMode, ocrEngineMode, grayscale, upscale, binarize, invert, charWhitelist, level);
+    }
+
+    /** The same, from the bundled set: {@code withLanguages(ENGLISH, SIMPLIFIED_CHINESE)} → {@code eng+chi_sim}. */
+    public OcrOptions withLanguages(OcrLanguage... languages) {
+        return withLanguages(OcrLanguage.spec(languages));
     }
 
     public OcrOptions withPageSegMode(int pageSegMode) {
