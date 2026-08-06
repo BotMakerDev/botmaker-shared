@@ -2,6 +2,7 @@ package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.Spawn;
+import com.botmaker.shared.platform.Os;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -227,7 +228,7 @@ public final class GameLauncher {
     public static boolean isProcessRunning(String processName) {
         String name = require(processName, "processName");
         try {
-            if (isWindows()) {
+            if (Os.current().isWindows()) {
                 Spawn.Completed probe = Spawn.run(PROBE_TIMEOUT, "tasklist", "/FI", "IMAGENAME eq " + name);
                 if (probe == null) {
                     Diag.log("[Game] isRunning(" + name + "): tasklist did not answer in " + PROBE_TIMEOUT);
@@ -284,9 +285,5 @@ public final class GameLauncher {
             throw new IllegalArgumentException(what + " must not be empty");
         }
         return value.trim();
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase().contains("win");
     }
 }

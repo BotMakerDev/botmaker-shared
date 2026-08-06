@@ -1,6 +1,7 @@
 package com.botmaker.shared.emulator;
 
 import com.botmaker.shared.Spawn;
+import com.botmaker.shared.platform.Os;
 
 import java.time.Duration;
 
@@ -23,7 +24,7 @@ public final class WindowsRegistry {
      * {@code null} if absent/unreadable. The value's data is returned trimmed.
      */
     public static String read(String keyPath, String valueName) {
-        if (!isWindows()) {
+        if (!Os.current().isWindows()) {
             return null;
         }
         try {
@@ -70,9 +71,5 @@ public final class WindowsRegistry {
             }
         }
         return -1;
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase().contains("win");
     }
 }

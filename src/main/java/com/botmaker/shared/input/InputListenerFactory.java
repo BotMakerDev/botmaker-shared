@@ -1,7 +1,7 @@
 package com.botmaker.shared.input;
 
 import com.botmaker.shared.input.linux.X11InputListener;
-import com.sun.jna.Platform;
+import com.botmaker.shared.platform.Os;
 
 /**
  * Picks an {@link InputListener} implementation by OS. Only X11/Linux is supported today (via XRecord);
@@ -18,12 +18,12 @@ public final class InputListenerFactory {
 
     /** True when a global input listener is available on this platform (currently Linux/X11 only). */
     public static boolean isSupported() {
-        return Platform.isLinux();
+        return Os.current().isLinux();
     }
 
     /** Creates a fresh, un-started listener. Throws {@link UnsupportedOperationException} off Linux. */
     public static InputListener create() {
-        if (Platform.isLinux()) {
+        if (Os.current().isLinux()) {
             return new X11InputListener();
         }
         throw new UnsupportedOperationException("Global input recording is only supported on Linux/X11.");

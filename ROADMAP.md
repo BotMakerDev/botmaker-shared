@@ -8,6 +8,42 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-06 — `Os`: one OS probe for the module
+
+**243 tests (+7; new `platform/OsTest`).** Added: `platform/Os.java`. Changed: `emulator/WindowsRegistry.java`,
+`emulator/WaydroidCli.java`, `launch/GameLauncher.java`, `launch/UriLauncher.java`,
+`capture/NativeControllerFactory.java`, `input/InputListenerFactory.java`.
+
+**Done.** shared was running **two OS-detection idioms at once**. Four files carried a private, hand-rolled
+copy of `System.getProperty("os.name","").toLowerCase().contains(…)` (`WindowsRegistry.isWindows`,
+`GameLauncher.isWindows`, `WaydroidCli.isLinux`, and `UriLauncher`'s inline sniff), while
+`NativeControllerFactory` and `InputListenerFactory` — the two that pick which *native bindings* load — asked
+JNA's `Platform`. Those can disagree: `os.name` is a display string, `Platform` reports the platform JNA
+actually loaded a library for, and four copies of a substring test are four chances to write `"windows"` where
+`"win"` was meant. `com.botmaker.shared.platform.Os` (`WINDOWS/LINUX/MAC/UNKNOWN`) is now the module's **only**
+importer of `com.sun.jna.Platform`: all six sites call `Os.current()` (memoized — it can't change under a
+running JVM and the launch/discovery paths ask repeatedly) and the three private helpers are gone.
+
+**`UriLauncher`'s open-command table *is* a switch, so it lives on the constants.** The `xdg-open` / `open` /
+`rundll32` if-else chain became a per-constant `openCommand(String uri)`, with the freedesktop `xdg-open` as
+the inherited default — which is why `LINUX` and `UNKNOWN` declare nothing. A new platform can't be added
+without answering it. The Windows override keeps (and now documents in one place) why it must be
+`rundll32 url.dll,FileProtocolHandler` rather than `explorer.exe`: only the former hands a scheme carrying a
+query string to its registered handler, and the difference is the Epic "opens Documents and nothing happens"
+bug.
+
+`UNKNOWN` applies the `PlatformId` total-parse rule to a *probe*: an OS we don't model is answered, not thrown
+at, and behaves as a generic freedesktop host — exactly what the old `else` branches did.
+`NativeControllerFactory.get()` is now an exhaustive `switch` over `Os`, so a new constant breaks the build
+rather than falling into a silent branch. **One deliberate behaviour change:** its refusal message on an
+unmodelled OS went from `"Unsupported Operating System."` to `"this platform is not yet supported."`
+(`UNKNOWN.displayName()`); the macOS message is unchanged.
+
+**Out of scope on purpose.** `sdk/api/interaction/Key.java` also uses JNA `Platform` — it is in the SDK, and a
+downstream module can consume `Os` later without shared reaching into it.
+
+---
+
 ## 2026-08-06 — `LaunchKind` owns its launcher identity
 
 **236 tests (+6; new `launch/LaunchKindLauncherTest`).** Changed: `launch/LaunchKind.java`,

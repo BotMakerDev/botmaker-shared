@@ -1,6 +1,7 @@
 package com.botmaker.shared.emulator;
 
 import com.botmaker.shared.Spawn;
+import com.botmaker.shared.platform.Os;
 
 import java.io.File;
 import java.time.Duration;
@@ -29,11 +30,6 @@ final class WaydroidCli {
 
     private WaydroidCli() {}
 
-    /** Whether this is a Linux host at all — Waydroid is a Linux kernel container and exists nowhere else. */
-    static boolean isLinux() {
-        return System.getProperty("os.name", "").toLowerCase().contains("linux");
-    }
-
     /**
      * Whether {@code binary} is an executable on {@code PATH}. This is the install probe: Waydroid has no
      * registry key and no canonical install directory (distro packages, {@code /usr/bin} vs {@code /usr/local}),
@@ -59,7 +55,8 @@ final class WaydroidCli {
 
     /** Whether the {@code waydroid} command is usable on this machine. */
     static boolean available() {
-        return isLinux() && onPath(WAYDROID);
+        // Waydroid is a Linux kernel container and exists nowhere else.
+        return Os.current().isLinux() && onPath(WAYDROID);
     }
 
     /**

@@ -2,7 +2,7 @@ package com.botmaker.shared.capture;
 
 import com.botmaker.shared.capture.linux.LinuxController;
 import com.botmaker.shared.capture.windows.WindowsController;
-import com.sun.jna.Platform;
+import com.botmaker.shared.platform.Os;
 
 public class NativeControllerFactory {
 
@@ -18,15 +18,13 @@ public class NativeControllerFactory {
 
     public static NativeController get() {
         if (instance == null) {
-            if (Platform.isWindows()) {
-                instance = new WindowsController();
-            } else if (Platform.isLinux()) {
-                instance = new LinuxController();
-            } else if (Platform.isMac()) {
-                throw new UnsupportedOperationException("macOS is not yet supported.");
-            } else {
-                throw new UnsupportedOperationException("Unsupported Operating System.");
-            }
+            Os os = Os.current();
+            instance = switch (os) {
+                case WINDOWS -> new WindowsController();
+                case LINUX -> new LinuxController();
+                case MAC, UNKNOWN ->
+                        throw new UnsupportedOperationException(os.displayName() + " is not yet supported.");
+            };
         }
         return instance;
     }

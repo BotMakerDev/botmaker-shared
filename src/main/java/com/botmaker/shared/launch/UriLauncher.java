@@ -1,6 +1,7 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.platform.Os;
 
 import java.awt.Desktop;
 import java.net.URI;
@@ -51,23 +52,9 @@ public final class UriLauncher {
     }
 
     private static boolean tryNativeOpener(String uri) {
-        String os = System.getProperty("os.name", "").toLowerCase();
-        List<String> command;
-        if (os.contains("win")) {
-            // rundll32 url.dll,FileProtocolHandler routes the URI through ShellExecute, which honours
-            // registered protocol handlers (steam://, com.epicgames.launcher://, …). Unlike `explorer.exe
-            // <uri>`, it correctly handles a scheme that carries a query string: `explorer.exe` treats
-            // `com.epicgames.launcher://apps/X?action=launch&silent=true` as a filesystem target, fails to
-            // resolve it, and silently opens a default Explorer window (the user's Documents) instead of
-            // launching the game — the Epic "opens Documents and nothing happens" bug. rundll32 takes the
-            // full URI as a single argument (no shell, so the `&` is not split) and hands it to the handler.
-            // Steam has no query string so it worked either way; Epic only works via this path.
-            command = List.of("rundll32", "url.dll,FileProtocolHandler", uri);
-        } else if (os.contains("mac")) {
-            command = List.of("open", uri);
-        } else {
-            command = List.of("xdg-open", uri);
-        }
+        // The per-platform argv table lives on Os — see Os.WINDOWS for why Windows needs rundll32 and not
+        // `explorer.exe` (the Epic "opens Documents and nothing happens" bug).
+        List<String> command = Os.current().openCommand(uri);
         try {
             new ProcessBuilder(command).inheritIO().start();
             return true;
