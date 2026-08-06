@@ -25,25 +25,37 @@ import java.util.Locale;
 public enum LinuxInputBackendId {
 
     /** Let {@link com.botmaker.shared.capture.linux.LinuxController} choose — today the cursor-safe xsendevent. */
-    AUTO("auto"),
+    AUTO("auto", "Automatic (cursor-safe xsendevent)"),
     /** {@link XSendEventBackend}: cursor-preserving, delivers events straight to a target window. */
-    XSENDEVENT("xsendevent"),
+    XSENDEVENT("xsendevent", "xsendevent — sent to the window, leaves your cursor alone"),
     /** {@link XTestBackend}: in-process XTEST warp-and-click; moves the shared cursor. */
-    XTEST("xtest"),
+    XTEST("xtest", "XTest — X11's own synthetic input; moves the shared cursor"),
     /** {@link XdotoolBackend}: XTEST via the {@code xdotool} CLI; moves the shared cursor. */
-    XDOTOOL("xdotool"),
+    XDOTOOL("xdotool", "xdotool — XTest via the xdotool command; moves the shared cursor"),
     /** {@link UinputBackend}: a kernel virtual device via {@code /dev/uinput}; reaches games and native Wayland. */
-    UINPUT("uinput");
+    UINPUT("uinput", "uinput — a kernel virtual device the system reports as real");
 
     private final String id;
+    private final String label;
 
-    LinuxInputBackendId(String id) {
+    LinuxInputBackendId(String id, String label) {
         this.id = id;
+        this.label = label;
     }
 
     /** The persisted wire id — what appears in the property, the env var and the project properties file. */
     public String id() {
         return id;
+    }
+
+    /**
+     * The one-line description a settings UI shows for this choice. It lives here rather than in the picker
+     * because the picker cannot know what {@link #AUTO} resolves to — Studio's own copy of this list described
+     * it as "uinput, then xdotool, then XTest", which stopped being true when {@code selectBackend}'s
+     * {@code case AUTO} became xsendevent, and nothing tied the two together to catch it.
+     */
+    public String label() {
+        return label;
     }
 
     /**

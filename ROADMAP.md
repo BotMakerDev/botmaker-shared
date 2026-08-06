@@ -8,6 +8,21 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-07 — `LinuxInputBackendId` gains the label its consumer was inventing
+
+**230 tests (unchanged).** Changed: `capture/linux/input/LinuxInputBackendId.java`.
+
+**Done.** Closes the *Deferred / next* of the 2026-08-06 entry below. Studio kept a fourth copy of this set
+(`BotSettings.LinuxInput`) purely because it needed a dropdown label the enum did not carry; the copy has now
+been deleted and the picker binds to this enum, so `label()` lives here beside the `id()` it labels.
+
+**What the copy had drifted into.** Studio's list was missing `xsendevent` outright — the value
+`selectBackend` actually resolves `AUTO` to — and described `AUTO` as *"Automatic (uinput, then xdotool, then
+XTest)"*, which stopped being true when that arm became xsendevent. A label a consumer writes cannot be kept
+honest about a choice only this module resolves; that is the whole argument for it living here.
+
+---
+
 ## 2026-08-06 — the bundled languages are a set, and four literal tables get names
 
 **254 tests** (was 250). Added: `ocr/OcrLanguage.java`, `ocr/OcrLanguageTest.java`. Changed:
