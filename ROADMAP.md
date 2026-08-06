@@ -8,6 +8,38 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-06 — `LaunchKind` owns its launcher identity
+
+**236 tests (+6; new `launch/LaunchKindLauncherTest`).** Changed: `launch/LaunchKind.java`,
+`launch/HostLauncherProbe.java`, `launch/LaunchCommands.java`.
+
+**Done.** `LaunchKind`'s own javadoc says it exists so "no consumer keeps its own id→name switch" — and three
+consumers did exactly that. `HostLauncherProbe` held two `Map<LaunchKind, Set<String>>` tables (the daemon
+process names and the Flatpak app ids) plus a private `displayName(kind)` switch returning
+`"Heroic"/"Steam"/"Faugus Launcher"`, and `LaunchCommands` spelled the same three Flatpak ids a third time
+inline in `heroic()`/`steam()`/`faugus()`. All three moved onto the enum as per-constant data:
+`processNames()`, `flatpakAppId()` (null for the kinds with no launcher) and `productName()` — a genuinely
+different fact from `displayName()`, which names the *target* (`"Steam game"`) rather than the *product*
+(`"Steam"`). `routesThroughDaemon()` is now **derived** (`!processNames().isEmpty()`) rather than declared, so
+"has a daemon" and "we know what that daemon is called" can't disagree; `HostLauncherProbe.routesThroughDaemon`
+delegates to it, and `LaunchCommands` builds both rungs of each ladder from one shared helper.
+
+**The case difference was not a bug — and is now unrepresentable.** The two Flatpak-id copies differed in case
+(`com.valvesoftware.steam` vs `com.valvesoftware.Steam`), which reads as a typo in one of them. It wasn't:
+`isLauncherUi` lowercases the command line before `contains`, while `flatpak run` is case-sensitive, so each
+copy was correct *for its own use*. Verified before changing anything. The single stored id is now the
+canonical `flatpak run` case, and the probe lowercases it at the compare site — same behaviour, with no second
+copy to look wrong.
+
+**Not folded in, deliberately.** `RunningProbe.LAUNCHER_NAMES` overlaps these process names but is a
+deliberate *superset* (it also carries `epicgameslauncher`, `epicwebhelper`, `steamservice`, which no
+`LaunchKind` daemon entry covers) and answers a different question — "is this process evidence a *game* is
+running". Deriving one from the other would couple a deny-list to a launch table. Likewise the
+`~/.var/app/<flatpak-id>/…` paths in `HeroicLibrary` and Studio's library scanners: that is a data directory,
+not a launch id.
+
+---
+
 ## 2026-08-06 — `LinuxInputBackendId`: the input-backend choice stops being a bare `String`
 
 **230 tests (+1 net; `InputBackendChoiceTest` rewritten against the enum it was gating).** Changed:

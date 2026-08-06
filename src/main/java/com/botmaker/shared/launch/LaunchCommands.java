@@ -1,5 +1,6 @@
 package com.botmaker.shared.launch;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,27 +41,35 @@ public final class LaunchCommands {
      * own child and inherits our {@code DISPLAY}. {@code --no-sandbox} matches Heroic's own non-Windows argv.
      */
     public static List<List<String>> heroic(String appName) {
-        String id = require(appName);
-        String uri = "heroic://launch/" + id;
-        return List.of(
-                List.of("heroic", "--no-gui", "--no-sandbox", uri),
-                List.of("flatpak", "run", "com.heroicgameslauncher.hgl", "--no-gui", "--no-sandbox", uri));
+        String uri = "heroic://launch/" + require(appName);
+        return ladder(LaunchKind.HEROIC, "heroic", List.of("--no-gui", "--no-sandbox", uri));
     }
 
     /** Steam's CLI ladder: {@code steam -applaunch <appId>}, then the Flatpak install's form. */
     public static List<List<String>> steam(String appId) {
-        String id = require(appId);
-        return List.of(
-                List.of("steam", "-applaunch", id),
-                List.of("flatpak", "run", "com.valvesoftware.Steam", "-applaunch", id));
+        return ladder(LaunchKind.STEAM, "steam", List.of("-applaunch", require(appId)));
     }
 
     /** Faugus's CLI ladder: the native launcher, then its Flatpak form. */
     public static List<List<String>> faugus(String gameId) {
-        String id = require(gameId);
-        return List.of(
-                List.of("faugus-launcher", "--game", id),
-                List.of("flatpak", "run", "io.github.Faugus.faugus-launcher", "--game", id));
+        return ladder(LaunchKind.FAUGUS, "faugus-launcher", List.of("--game", require(gameId)));
+    }
+
+    /**
+     * The two-rung ladder every store kind has: the native {@code binary} with {@code args}, then the same
+     * arguments behind {@code flatpak run <appId>}. The app id comes from {@link LaunchKind#flatpakAppId()} —
+     * the one copy, in the canonical case {@code flatpak run} is sensitive to.
+     */
+    private static List<List<String>> ladder(LaunchKind kind, String binary, List<String> args) {
+        List<String> native0 = new ArrayList<>(args.size() + 1);
+        native0.add(binary);
+        native0.addAll(args);
+        List<String> flatpak = new ArrayList<>(args.size() + 3);
+        flatpak.add("flatpak");
+        flatpak.add("run");
+        flatpak.add(kind.flatpakAppId());
+        flatpak.addAll(args);
+        return List.of(List.copyOf(native0), List.copyOf(flatpak));
     }
 
     /**

@@ -4,7 +4,6 @@ import com.botmaker.shared.Diag;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -31,27 +30,11 @@ import java.util.Set;
  */
 public final class HostLauncherProbe {
 
-    /**
-     * The executable names each launcher's UI runs under, and the tokens its Flatpak/Electron form carries in
-     * its command line. Only the kinds whose launch is <em>routed through a daemon</em> appear here:
-     * {@code exe:}/{@code cli:} are our own child, and an emulator app is driven over ADB.
-     */
-    private static final Map<LaunchKind, Set<String>> DAEMON_NAMES = Map.of(
-            LaunchKind.HEROIC, Set.of("heroic", "heroicgameslauncher"),
-            LaunchKind.STEAM, Set.of("steam", "steamwebhelper"),
-            LaunchKind.FAUGUS, Set.of("faugus-launcher", "faugus"));
-
-    /** The Flatpak application ids of the same launchers — how the UI appears when installed that way. */
-    private static final Map<LaunchKind, Set<String>> FLATPAK_IDS = Map.of(
-            LaunchKind.HEROIC, Set.of("com.heroicgameslauncher.hgl"),
-            LaunchKind.STEAM, Set.of("com.valvesoftware.steam"),
-            LaunchKind.FAUGUS, Set.of("io.github.faugus.faugus-launcher"));
-
     private HostLauncherProbe() {}
 
     /** Whether an isolated launch of {@code kind} has to contend with a host launcher daemon at all. */
     public static boolean routesThroughDaemon(LaunchKind kind) {
-        return kind != null && DAEMON_NAMES.containsKey(kind);
+        return kind != null && kind.routesThroughDaemon();
     }
 
     /**
@@ -60,16 +43,16 @@ public final class HostLauncherProbe {
      * worse than attempting one that might fail.
      */
     public static boolean isRunning(LaunchKind kind) {
-        Set<String> names = kind == null ? null : DAEMON_NAMES.get(kind);
-        if (names == null) {
+        if (kind == null || !kind.routesThroughDaemon()) {
             return false;
         }
-        Set<String> flatpakIds = FLATPAK_IDS.getOrDefault(kind, Set.of());
+        Set<String> names = kind.processNames();
+        String flatpakId = kind.flatpakAppId();
         long self = ProcessHandle.current().pid();
         try {
             return ProcessHandle.allProcesses()
                     .filter(p -> p.pid() != self)
-                    .filter(p -> isLauncherUi(p, names, flatpakIds))
+                    .filter(p -> isLauncherUi(p, names, flatpakId))
                     .anyMatch(p -> onHostDesktop(p, kind));
         } catch (Exception e) {
             Diag.log("[Session] host-launcher scan for " + kind.id() + " failed: " + e.getMessage());
@@ -87,23 +70,15 @@ public final class HostLauncherProbe {
      * Studio's Launch buttons and a headless bot run say the same thing (and name the same product).
      */
     public static String refusalMessage(LaunchKind kind) {
-        String product = displayName(kind);
+        String product = productName(kind);
         return "Can't run " + kind.displayName().toLowerCase(Locale.ROOT) + "s in a private display while "
                 + product + " is open: it is single-instance, so it would hand the launch to the copy already "
                 + "running on your desktop and start the game there. Close " + product + " and try again.";
     }
 
-    /** The launcher product's name as a human writes it. */
-    private static String displayName(LaunchKind kind) {
-        if (kind == null) {
-            return "the launcher";
-        }
-        return switch (kind) {
-            case HEROIC -> "Heroic";
-            case STEAM -> "Steam";
-            case FAUGUS -> "Faugus Launcher";
-            default -> "the launcher";
-        };
+    /** The launcher product's name as a human writes it — {@link LaunchKind#productName()}, null-tolerant. */
+    private static String productName(LaunchKind kind) {
+        return kind == null ? "the launcher" : kind.productName();
     }
 
     /**
@@ -120,7 +95,7 @@ public final class HostLauncherProbe {
         if (ProcessOrigin.onHostDisplay(process)) {
             return true;
         }
-        Diag.log("[Session] ignoring pid " + process.pid() + " — " + displayName(kind) + " is on "
+        Diag.log("[Session] ignoring pid " + process.pid() + " — " + productName(kind) + " is on "
                 + ProcessOrigin.describe(process) + ", not the host desktop, so it can't swallow the launch");
         return false;
     }
@@ -129,8 +104,12 @@ public final class HostLauncherProbe {
      * Whether {@code process} is one of {@code names}' UIs: either its own program name (executable, or the
      * script an interpreter is running), or a Flatpak/Electron shell whose command line carries the launcher's
      * application id.
+     *
+     * <p>The id is stored once, in the canonical case {@code flatpak run} needs; the match is
+     * case-insensitive, so it is <em>lowercased here</em> along with the command line rather than kept as a
+     * second, differently-cased copy — which is exactly what it used to be.
      */
-    private static boolean isLauncherUi(ProcessHandle process, Set<String> names, Set<String> flatpakIds) {
+    private static boolean isLauncherUi(ProcessHandle process, Set<String> names, String flatpakAppId) {
         ProcessHandle.Info info = process.info();
         List<String> programNames = RunningProbe.programNames(info);
         for (String name : programNames) {
@@ -138,18 +117,10 @@ public final class HostLauncherProbe {
                 return true;
             }
         }
-        if (flatpakIds.isEmpty()) {
+        if (flatpakAppId == null) {
             return false;
         }
         String commandLine = info.commandLine().map(s -> s.toLowerCase(Locale.ROOT)).orElse(null);
-        if (commandLine == null) {
-            return false;
-        }
-        for (String id : flatpakIds) {
-            if (commandLine.contains(id)) {
-                return true;
-            }
-        }
-        return false;
+        return commandLine != null && commandLine.contains(flatpakAppId.toLowerCase(Locale.ROOT));
     }
 }
