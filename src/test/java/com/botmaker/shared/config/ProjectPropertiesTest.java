@@ -78,6 +78,21 @@ class ProjectPropertiesTest {
     }
 
     @Test
+    void theBooleanVocabularyIsTheSameOffTheKeyAsOnIt() {
+        // The SDK's session overrides arrive from a system property and the environment, not from this file,
+        // and used to carry their own copy of this switch.
+        for (String on : new String[]{"true", "1", "yes", "on", " ON ", "True"}) {
+            assertTrue(ProjectProperties.parseBoolean(on), on + " must read as on");
+        }
+        for (String off : new String[]{"false", "0", "no", "off", "OFF"}) {
+            assertFalse(ProjectProperties.parseBoolean(off), off + " must read as off");
+        }
+        assertNull(ProjectProperties.parseBoolean("maybe"));
+        assertNull(ProjectProperties.parseBoolean("  "));
+        assertNull(ProjectProperties.parseBoolean(null));
+    }
+
+    @Test
     void debugStillParsesTrueFalseAndNull() {
         ProjectProperties.setForTesting(new Properties());
         assertNull(ProjectProperties.debug());

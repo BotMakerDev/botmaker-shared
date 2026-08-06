@@ -22,7 +22,8 @@ import java.util.Properties;
  * <p>Recognised keys:
  * <ul>
  *   <li>{@link #KEY_CAPTURE_SOURCE} — {@code desktop} | {@code monitor:<index>} |
- *       {@code window:<titleSubstring>} | {@code emulator:<instanceName>}</li>
+ *       {@code window:<titleSubstring>} | {@code emulator:<instanceName>}; the four forms and their prefixes
+ *       are {@link CaptureSourceKind}</li>
  *   <li>{@link #KEY_CAPTURE_WIDTH} / {@link #KEY_CAPTURE_HEIGHT} — the resolution templates were authored at</li>
  *   <li>{@link #KEY_LAUNCH_TARGET} — what the bot launches, in the {@code com.botmaker.shared.launch.LaunchSpec}
  *       grammar ({@code steam:<appId>}, {@code emu-app:<pkg>@<instance>}, …); read raw here</li>
@@ -141,29 +142,17 @@ public final class ProjectProperties {
         return get(KEY_CAPTURE_SOURCE);
     }
 
-    /** The {@code emulator:} prefix of a {@link #KEY_CAPTURE_SOURCE} spec — see {@link #emulatorInstanceOf}. */
-    public static final String EMULATOR_SOURCE_PREFIX = "emulator:";
-
     /**
      * The instance name in an {@code emulator:<instanceName>} capture-source spec, or {@code null} for any
      * other form ({@code desktop}, {@code monitor:<i>}, {@code window:<t>}, an empty name, {@code null}).
      *
-     * <p>The prefix is defined by this class's key, but was being re-spelled as a literal wherever someone
-     * needed to write or recognise one — Studio's launch-target dialog builds the spec, its capture-expression
-     * codegen reads it, and the pilot now routes on it. A total parse next to the key keeps those from
-     * drifting. (The other three forms still spell themselves; a sealed spec type for the whole grammar is
-     * the eventual answer and is not this.)
+     * <p>Kept as a named accessor because it is the one form consumers ask about by itself — the pilot routes
+     * on it, Studio's launch-target dialog builds it. The prefix behind it now belongs to
+     * {@link CaptureSourceKind}, which owns all four forms of this key's grammar rather than the single one
+     * that happened to need typing first.
      */
     public static String emulatorInstanceOf(String captureSource) {
-        if (captureSource == null) {
-            return null;
-        }
-        String spec = captureSource.trim();
-        if (!spec.startsWith(EMULATOR_SOURCE_PREFIX)) {
-            return null;
-        }
-        String name = spec.substring(EMULATOR_SOURCE_PREFIX.length()).trim();
-        return name.isEmpty() ? null : name;
+        return CaptureSourceKind.EMULATOR.argumentOf(captureSource);
     }
 
     /** The raw {@code launch.target} spec, or {@code null} when unset. Parse with {@code LaunchSpec.parse}. */
@@ -237,17 +226,28 @@ public final class ProjectProperties {
         return get(KEY_INPUT_LINUX_BACKEND);
     }
 
-    /**
-     * Parses {@code key} as a boolean: {@code true}/{@code 1}/{@code yes}/{@code on} → {@link Boolean#TRUE};
-     * {@code false}/{@code 0}/{@code no}/{@code off} → {@link Boolean#FALSE}; absent or unrecognised →
-     * {@code null} (the caller supplies its own default).
-     */
+    /** Parses the value of {@code key} with {@link #parseBoolean}; {@code null} when absent or unrecognised. */
     private static Boolean parseBool(String key) {
-        String spec = get(key);
-        if (spec == null) {
+        return parseBoolean(get(key));
+    }
+
+    /**
+     * The lenient boolean vocabulary every BotMaker on/off switch accepts, in one place:
+     * {@code true}/{@code 1}/{@code yes}/{@code on} → {@link Boolean#TRUE};
+     * {@code false}/{@code 0}/{@code no}/{@code off} → {@link Boolean#FALSE}; blank, {@code null} or anything
+     * else → {@code null}, meaning "unset", so the caller keeps its own default.
+     *
+     * <p>Public because the same values arrive through channels this class does not read: the SDK's
+     * {@code SessionBootstrap} takes {@code botmaker.session.isolated} from a system property and
+     * {@code BOTMAKER_SESSION_ISOLATED} from the environment, and had grown a byte-identical copy of this
+     * switch. One accepted vocabulary is the point — a project key that honours {@code on} while its
+     * environment override does not is a difference nobody would think to test for.
+     */
+    public static Boolean parseBoolean(String value) {
+        if (value == null || value.isBlank()) {
             return null;
         }
-        return switch (spec.toLowerCase()) {
+        return switch (value.trim().toLowerCase()) {
             case "true", "1", "yes", "on" -> Boolean.TRUE;
             case "false", "0", "no", "off" -> Boolean.FALSE;
             default -> null;

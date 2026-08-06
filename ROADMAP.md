@@ -8,6 +8,39 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-06 — the `capture.source` grammar is a type, and one boolean vocabulary
+
+**250 tests** (was 243). Added: `config/CaptureSourceKind.java`, `config/CaptureSourceKindTest.java`.
+Changed: `config/ProjectProperties.java`, `config/ProjectPropertiesTest.java`.
+
+**Done.** Phase 5 of the stringly-typed sweep; the SDK half is in `../botmaker-sdk/ROADMAP.md`, same date.
+
+- **`CaptureSourceKind` owns all four forms of `capture.source`** — `desktop`, `monitor:<index>`,
+  `window:<titleSubstring>`, `emulator:<instanceName>` — with `prefix()`, `matches`, a total `of(String)`
+  (null for anything unrecognised, so a hand-edited project file never fails a bot at startup), `spec(arg)`
+  for the writers and `argumentOf(spec)` for the readers. Exactly one of the four prefixes had been typed
+  before (`EMULATOR_SOURCE_PREFIX`, added when the pilot needed to route on it); the other three were
+  literals wherever anyone read or wrote a spec.
+- **The offsets are gone.** The SDK's reader paired each literal with a hand-counted `substring(8)` /
+  `substring(7)` / `substring(9)`. Renaming a prefix compiled and silently sliced the argument at the wrong
+  character. `argumentOf` derives the offset from the prefix it matched, and there is no second copy of the
+  prefix left to disagree with it.
+- **`emulatorInstanceOf` stays**, as the named question the pilot and the launch-target dialog actually ask,
+  but is now one line over `CaptureSourceKind.EMULATOR.argumentOf`. `EMULATOR_SOURCE_PREFIX` was deleted —
+  the prefix belongs to the type that owns all four.
+- **One lenient boolean vocabulary.** `ProjectProperties.parseBoolean(String)` is public and holds the single
+  `true/1/yes/on` — `false/0/no/off` switch; `parseBool(key)` is a lookup in front of it. The SDK's
+  `SessionBootstrap` had a byte-identical copy for its system-property and environment overrides, which is
+  the shape of bug nobody tests for: a project key honouring `on` while its env override does not.
+
+**Deferred / next.** Studio still writes `"emulator:" + instance` as a literal in three places
+(`EmulatorArgPicker:65`, `LaunchTargetDialog:271,307`) — one-line changes to `CaptureSourceKind.EMULATOR.spec`,
+left to the Studio phases (7-12) so this phase stays shared+sdk. Phase 6 is next: `OcrLanguage` and the
+remaining single-file shared sets (`WindowsRegistry` value types, `AdbDevice` failure phrases,
+`GameloopPlatform` executables, `WindowMatch` title separators).
+
+---
+
 ## 2026-08-06 — binary names, env var names: shared owns what both modules spell
 
 **243 tests (unchanged).** Added: `platform/SessionEnv.java`. Changed: `Executables.java`,
