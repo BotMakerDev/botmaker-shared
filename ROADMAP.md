@@ -8,6 +8,42 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-06 — binary names, env var names: shared owns what both modules spell
+
+**243 tests (unchanged).** Added: `platform/SessionEnv.java`. Changed: `Executables.java`,
+`capture/CaptureBackend.java`, `capture/RobotCapture.java`, `capture/SpectacleCapture.java`,
+`launch/ProcessOrigin.java`, `emulator/WaydroidPlatform.java`, `emulator/WaydroidApps.java`.
+
+**Done.** The shared half of the session-stack literal sweep (the session half is in
+`../botmaker-session/ROADMAP.md`, same date).
+
+- **`Executables` now names the three binaries it is asked about.** `XEPHYR` (`"Xephyr"`), `GAMESCOPE`
+  (`"gamescope"`), `SPECTACLE` (`"spectacle"`). The forcing case is `gamescope`: it is spawned by
+  `botmaker-session` (`NestedSession.Backend.binaryName()`) *and* by shared itself, which had grown a second
+  `WaydroidPlatform.GAMESCOPE` constant — and shared may never depend on session, so the only place the two
+  can meet is here. `Executables` was already the "is this program on this machine?" type, so it is where the
+  program names belong. `WaydroidPlatform.GAMESCOPE` is deleted; its two uses and `WaydroidApps`' one now
+  read `Executables.GAMESCOPE`.
+- **`CaptureBackend` gained a `binaryName()`**, the way `Backend` has one. `SpectacleCapture` spelled
+  `"spectacle"` twice — once in its `PATH` probe and once in the `Spawn.run` argv — which is exactly the pair
+  that must not drift. `RobotCapture` answers `""`: it is AWT inside this JVM, and `Executables.onPath("")`
+  is already `false`, so the empty string is a working answer rather than a special case.
+- **`platform/SessionEnv`** holds `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR` and
+  `DBUS_SESSION_BUS_ADDRESS`, plus `assignment(name, value)` / `prefix(name)` for the `NAME=value` forms
+  `/proc/<pid>/environ` and `--setenv=` use. **Constants, not an enum** — these are names the OS and the
+  desktop specs define, not a domain set this codebase gets to close; there is nothing to switch over and
+  nothing to parse. It lives in shared because `ProcessOrigin` *reads* `DISPLAY` out of a foreign process's
+  environment while session *writes* it into its children's: producer and reader are in different modules,
+  and shared is the only one both can see. `ProcessOrigin.hostDisplay()` and `displayOf()` (which built
+  `"DISPLAY="` twice, once as a `startsWith` and once as a `substring` length) now go through it.
+
+**Deferred / next.** Phase 5 of the plan: a `CaptureSourceKind` enum retiring
+`sdk/internal/config/ProjectDefaults`' hand-counted `8`/`7`/`9` prefix offsets, and one shared home for the
+lenient boolean parser that `config/ProjectProperties:248` and the SDK's `SessionBootstrap:195` hold
+byte-identical copies of.
+
+---
+
 ## 2026-08-06 — `Os`: one OS probe for the module
 
 **243 tests (+7; new `platform/OsTest`).** Added: `platform/Os.java`. Changed: `emulator/WindowsRegistry.java`,

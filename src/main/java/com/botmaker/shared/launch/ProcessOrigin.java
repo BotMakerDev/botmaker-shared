@@ -1,5 +1,7 @@
 package com.botmaker.shared.launch;
 
+import com.botmaker.shared.platform.SessionEnv;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,7 +55,7 @@ public final class ProcessOrigin {
 
     /** The {@code DISPLAY} this JVM is on — the "host desktop" every question here is relative to. */
     public static String hostDisplay() {
-        return System.getenv("DISPLAY");
+        return System.getenv(SessionEnv.DISPLAY);
     }
 
     /**
@@ -61,9 +63,10 @@ public final class ProcessOrigin {
      * cannot be read (a foreign user's process, a kernel thread, no {@code /proc}).
      */
     public static String displayOf(long pid) {
+        String prefix = SessionEnv.prefix(SessionEnv.DISPLAY);
         for (String entry : environOf(pid)) {
-            if (entry.startsWith("DISPLAY=")) {
-                String value = entry.substring("DISPLAY=".length()).trim();
+            if (entry.startsWith(prefix)) {
+                String value = entry.substring(prefix.length()).trim();
                 return value.isEmpty() ? null : value;
             }
         }

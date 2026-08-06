@@ -3,6 +3,7 @@ package com.botmaker.shared.capture;
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.Executables;
 import com.botmaker.shared.Spawn;
+import com.botmaker.shared.platform.SessionEnv;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
@@ -22,9 +23,14 @@ public final class SpectacleCapture implements CaptureBackend {
     /** A desktop grab is a fraction of a second; past this, the Robot fallback is the better answer. */
     private static final Duration CAPTURE_TIMEOUT = Duration.ofSeconds(15);
 
+    @Override
+    public String binaryName() {
+        return Executables.SPECTACLE;
+    }
+
     /** True when running under Wayland with the {@code spectacle} binary on PATH. */
     static boolean isAvailable() {
-        return System.getenv("WAYLAND_DISPLAY") != null && Executables.onPath("spectacle");
+        return System.getenv(SessionEnv.WAYLAND_DISPLAY) != null && Executables.onPath(Executables.SPECTACLE);
     }
 
     @Override
@@ -34,7 +40,8 @@ public final class SpectacleCapture implements CaptureBackend {
             out = Files.createTempFile("botcap", ".png");
             // Drained and bounded: Spectacle's merged stream used to be started and never read, so a chatty
             // build (a Wayland warning, a KDE debug build) filled the pipe and hung the capture for good.
-            Spawn.Completed shot = Spawn.run(CAPTURE_TIMEOUT, "spectacle", "-b", "-n", "-f", "-o", out.toString());
+            Spawn.Completed shot =
+                Spawn.run(CAPTURE_TIMEOUT, Executables.SPECTACLE, "-b", "-n", "-f", "-o", out.toString());
             if (shot == null) {
                 Diag.error("[capture] Spectacle did not finish in " + CAPTURE_TIMEOUT + "; falling back to Robot.");
                 return new RobotCapture().captureDesktop();

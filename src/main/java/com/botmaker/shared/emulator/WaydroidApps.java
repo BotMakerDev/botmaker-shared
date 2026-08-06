@@ -1,6 +1,7 @@
 package com.botmaker.shared.emulator;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.Executables;
 import com.botmaker.shared.Spawn;
 
 import java.util.ArrayList;
@@ -166,7 +167,7 @@ public final class WaydroidApps {
         }
         boolean sessionRunning = WaydroidStatus.read().sessionRunning();
         List<String> command = launchCommand(packageName, WaydroidResolution.read(),
-                WaydroidCli.onPath(WaydroidPlatform.GAMESCOPE), sessionRunning);
+                WaydroidCli.onPath(Executables.GAMESCOPE), sessionRunning);
         try {
             Diag.log("[Emulator] waydroid: " + String.join(" ", command));
             Spawn.detached(command);

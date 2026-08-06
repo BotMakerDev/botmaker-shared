@@ -16,6 +16,23 @@ import java.nio.file.Path;
  */
 public final class Executables {
 
+    /**
+     * The nested X server used for 2D sessions. Capitalised because that <em>is</em> the executable's name —
+     * kept apart from the lowercase {@code "xephyr"} wire id a project file persists, which must survive a
+     * rename of the binary.
+     */
+    public static final String XEPHYR = "Xephyr";
+
+    /**
+     * The micro-compositor used for hardware-accelerated sessions — and, separately, to host the Wayland-only
+     * Waydroid UI on an X11 desktop. Declared here because those two consumers sit on opposite sides of the
+     * shared/session boundary and each had grown its own copy of the name.
+     */
+    public static final String GAMESCOPE = "gamescope";
+
+    /** KDE's screenshot tool, the desktop-capture backend under Wayland. */
+    public static final String SPECTACLE = "spectacle";
+
     private Executables() {}
 
     /** Whether an executable named {@code binary} is on {@code PATH}; false when {@code PATH} is unset. */

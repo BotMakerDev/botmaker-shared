@@ -1,5 +1,6 @@
 package com.botmaker.shared.emulator;
 
+import com.botmaker.shared.Executables;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,9 +35,6 @@ public final class WaydroidPlatform implements EmulatorPlatform {
 
     public static final PlatformId PLATFORM_ID = PlatformId.WAYDROID;
 
-    /** The compositor that hosts the Wayland-only Waydroid UI on an X11 desktop. */
-    static final String GAMESCOPE = "gamescope";
-
     /** There is one container, so there is one name; it is what a bot writes in {@code Emulators.use(…)}. */
     static final String INSTANCE_NAME = "Waydroid";
 
@@ -58,7 +56,7 @@ public final class WaydroidPlatform implements EmulatorPlatform {
         WaydroidStatus status = WaydroidStatus.read();
         return List.of(new EmulatorInstance(PLATFORM_ID, INSTANCE_NAME, status.ipAddress(),
                 WaydroidStatus.ADB_PORT,
-                launchCommand(WaydroidResolution.read(), WaydroidCli.onPath(GAMESCOPE)),
+                launchCommand(WaydroidResolution.read(), WaydroidCli.onPath(Executables.GAMESCOPE)),
                 List.of(WaydroidCli.WAYDROID, "session", "stop")));
     }
 
@@ -92,7 +90,7 @@ public final class WaydroidPlatform implements EmulatorPlatform {
             return List.copyOf(waydroidCommand);
         }
         List<String> command = new ArrayList<>();
-        command.add(GAMESCOPE);
+        command.add(Executables.GAMESCOPE);
         if (resolution != null) {
             String w = Integer.toString(resolution.width());
             String h = Integer.toString(resolution.height());

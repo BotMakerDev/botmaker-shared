@@ -12,6 +12,12 @@ import java.awt.image.BufferedImage;
  */
 public final class RobotCapture implements CaptureBackend {
 
+    /** None: this backend is AWT inside our own JVM, so there is nothing to find on {@code PATH}. */
+    @Override
+    public String binaryName() {
+        return "";
+    }
+
     @Override
     public BufferedImage captureDesktop() {
         try {
