@@ -66,6 +66,28 @@ public final class RunningProbe {
             "electron", "electron-bin", "bwrap", "flatpak", "chrome_crashpad_handler");
 
     /**
+     * Chromium's own child-process flag. Every Electron app forks helpers — {@code --type=renderer},
+     * {@code gpu-process}, {@code utility}, {@code zygote}, {@code broker} — and the <b>renderer is the one that
+     * carries the whole library</b>: it is the process actually drawing Heroic's game list, so its argv and its
+     * inherited command line mention every {@code AppName} the user owns. A helper is named after whatever
+     * binary Electron re-execs (the app's own name under a versioned or AppImage packaging, so neither
+     * {@link #LAUNCHER_EXECUTABLES} nor {@link #ELECTRON_SHELLS} necessarily matches it), which is how "the game
+     * is already running" survived the deny-list and every caller skipped the cold launch.
+     *
+     * <p>The flag is decisive on its own: a Chromium helper never <em>is</em> a game, whatever it is called and
+     * whatever its command line mentions. No launcher list is needed to exclude it.
+     */
+    private static final String CHROMIUM_CHILD_FLAG = "--type=";
+
+    /**
+     * Separators a versioned or AppImage packaging puts after the product name — {@code Heroic-2.15.2.AppImage},
+     * {@code heroic_amd64}, {@code heroic.appimage}. A program name that is a launcher name followed by one of
+     * these is that launcher: the deny-list matched exact names only, which is the spelling a distro package
+     * gives and <em>not</em> the one the AppImage most Linux users actually run gives.
+     */
+    private static final String VERSION_SEPARATORS = "-_.";
+
+    /**
      * {@code legendary} is Heroic's Epic backend and is spawned for library work (auth, list, sync) as well as
      * for launching. Only the {@code launch} verb means a game is actually running under it.
      */
@@ -188,9 +210,14 @@ public final class RunningProbe {
      * as the three separate observations they are.
      */
     private static String launcherReason(ProcessHandle.Info info, String lowerCommandLine) {
+        if (lowerCommandLine.contains(CHROMIUM_CHILD_FLAG)) {
+            return "a Chromium/Electron helper process (--type=…), which renders a library rather than running a "
+                    + "game";
+        }
         for (String name : programNames(info)) {
-            if (LAUNCHER_EXECUTABLES.contains(name)) {
-                return "the " + name + " launcher UI";
+            String launcher = launcherNamed(name);
+            if (launcher != null) {
+                return "the " + launcher + " launcher UI";
             }
             if (ELECTRON_SHELLS.contains(name)
                     && LAUNCHER_EXECUTABLES.stream().anyMatch(lowerCommandLine::contains)) {
@@ -198,6 +225,38 @@ public final class RunningProbe {
             }
             if (LEGENDARY.equals(name) && !hasArgument(info, "launch")) {
                 return "legendary doing library work rather than launching";
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The launcher {@code programName} names, allowing for a version or packaging suffix
+     * ({@code heroic-2.15.2.appimage}), or {@code null} when it names no launcher. A suffix must start with one
+     * of {@link #VERSION_SEPARATORS} so a genuine game called {@code steamworld} is not read as {@code steam}.
+     */
+    private static String launcherNamed(String programName) {
+        return named(programName, LAUNCHER_EXECUTABLES);
+    }
+
+    /**
+     * Which of {@code names} {@code programName} is, allowing a version or packaging suffix, or {@code null}.
+     *
+     * <p>Package-visible because {@link HostLauncherProbe} asks the opposite question of the same process table
+     * and must recognise the same packaging shapes — the two answers contradict each other otherwise, which is
+     * precisely the failure this whole pair of probes exists to avoid.
+     */
+    static String named(String programName, Set<String> names) {
+        if (programName == null) {
+            return null;
+        }
+        if (names.contains(programName)) {
+            return programName;
+        }
+        for (String candidate : names) {
+            if (programName.length() > candidate.length() && programName.startsWith(candidate)
+                    && VERSION_SEPARATORS.indexOf(programName.charAt(candidate.length())) >= 0) {
+                return candidate;
             }
         }
         return null;

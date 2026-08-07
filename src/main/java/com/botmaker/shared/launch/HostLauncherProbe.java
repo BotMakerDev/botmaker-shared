@@ -43,8 +43,26 @@ public final class HostLauncherProbe {
      * worse than attempting one that might fail.
      */
     public static boolean isRunning(LaunchKind kind) {
+        return !running(kind).isEmpty();
+    }
+
+    /**
+     * The host-desktop launcher processes that block an isolated launch of {@code kind} — the evidence behind
+     * {@link #isRunning(LaunchKind)}, as the processes themselves.
+     *
+     * <p>Returning them rather than a bare boolean is what makes the refusal actionable. "Close Heroic and try
+     * again" is only useful advice when Heroic is a window the user can see; measured, it routinely is not — a
+     * tray-resident launcher, a Flatpak instance left behind by a previous run, or a background helper answers
+     * this probe with nothing on screen to close, and the user is told to close something they cannot find. With
+     * the handles in hand a caller can name the pid and offer {@link #closeHostLaunchers} instead of an
+     * instruction.
+     *
+     * <p>Best-effort and total, for the same reason the boolean was: an unreadable process table answers "no
+     * evidence", because refusing a launch we could have attempted is worse than attempting one that fails.
+     */
+    public static List<ProcessHandle> running(LaunchKind kind) {
         if (kind == null || !kind.routesThroughDaemon()) {
-            return false;
+            return List.of();
         }
         Set<String> names = kind.processNames();
         String flatpakId = kind.flatpakAppId();
@@ -53,10 +71,11 @@ public final class HostLauncherProbe {
             return ProcessHandle.allProcesses()
                     .filter(p -> p.pid() != self)
                     .filter(p -> isLauncherUi(p, names, flatpakId))
-                    .anyMatch(p -> onHostDesktop(p, kind));
+                    .filter(p -> onHostDesktop(p, kind))
+                    .toList();
         } catch (Exception e) {
             Diag.log("[Session] host-launcher scan for " + kind.id() + " failed: " + e.getMessage());
-            return false;
+            return List.of();
         }
     }
 
@@ -65,15 +84,77 @@ public final class HostLauncherProbe {
         return spec != null && isRunning(spec.kind());
     }
 
+    /** {@link #running(LaunchKind)} for a parsed spec. */
+    public static List<ProcessHandle> running(LaunchSpec spec) {
+        return spec == null ? List.of() : running(spec.kind());
+    }
+
+    /**
+     * Asks every host-desktop launcher UI of {@code kind} to quit — the action the refusal offers, so a caller
+     * has something to <em>do</em> about the blocker rather than only something to say about it.
+     *
+     * <p>{@link ProcessHandle#destroy()}, not {@code destroyForcibly}: a launcher asked politely writes its
+     * library state back and closes its own children; killed, it can leave a lock file that makes the next start
+     * refuse. It acts only on what {@link #running(LaunchKind)} returned, so the same host-desktop filter that
+     * decides a launcher is blocking is the one that decides it may be closed — a launcher inside one of our own
+     * sessions is never touched.
+     *
+     * @return how many processes took the signal
+     */
+    public static int closeHostLaunchers(LaunchKind kind) {
+        int closed = 0;
+        for (ProcessHandle process : running(kind)) {
+            try {
+                if (process.destroy()) {
+                    closed++;
+                    Diag.log("[Session] asked " + productName(kind) + " (pid " + process.pid() + ") to quit");
+                } else {
+                    Diag.log("[Session] " + productName(kind) + " (pid " + process.pid()
+                            + ") would not take a signal");
+                }
+            } catch (Exception e) {
+                Diag.log("[Session] closing " + productName(kind) + " (pid " + process.pid() + ") failed: "
+                        + e.getMessage());
+            }
+        }
+        return closed;
+    }
+
     /**
      * The user-facing reason an isolated launch of {@code kind} is being refused — single-sourced here so
-     * Studio's Launch buttons and a headless bot run say the same thing (and name the same product).
+     * Studio's Launch buttons and a headless bot run say the same thing (and name the same product). Names the
+     * processes it actually found, so a launcher with no visible window is still findable.
      */
     public static String refusalMessage(LaunchKind kind) {
+        return refusalMessage(kind, running(kind));
+    }
+
+    /** {@link #refusalMessage(LaunchKind)} over an already-taken observation, so the probe runs once. */
+    public static String refusalMessage(LaunchKind kind, List<ProcessHandle> processes) {
         String product = productName(kind);
         return "Can't run " + kind.displayName().toLowerCase(Locale.ROOT) + "s in a private display while "
                 + product + " is open: it is single-instance, so it would hand the launch to the copy already "
-                + "running on your desktop and start the game there. Close " + product + " and try again.";
+                + "running on your desktop and start the game there. Close " + product + " and try again"
+                + describeProcesses(processes) + ".";
+    }
+
+    /**
+     * " (pid 4711 heroic)" — what to close, for when there is no window to close. Empty when nothing was
+     * observed, so the sentence still reads if the caller passes a stale or unavailable list.
+     */
+    private static String describeProcesses(List<ProcessHandle> processes) {
+        if (processes == null || processes.isEmpty()) {
+            return "";
+        }
+        String listed = processes.stream()
+                .limit(4)
+                .map(p -> "pid " + p.pid() + p.info().command()
+                        .map(c -> " " + c.substring(c.lastIndexOf('/') + 1))
+                        .orElse(""))
+                .reduce((a, b) -> a + ", " + b)
+                .orElse("");
+        String more = processes.size() > 4 ? " and " + (processes.size() - 4) + " more" : "";
+        return " (" + listed + more + ")";
     }
 
     /** The launcher product's name as a human writes it — {@link LaunchKind#productName()}, null-tolerant. */
@@ -113,7 +194,9 @@ public final class HostLauncherProbe {
         ProcessHandle.Info info = process.info();
         List<String> programNames = RunningProbe.programNames(info);
         for (String name : programNames) {
-            if (names.contains(name)) {
+            // Through RunningProbe.named, not a plain set lookup: an AppImage or versioned binary
+            // (Heroic-2.15.2.AppImage) must be recognised here exactly as the deny-list recognises it.
+            if (RunningProbe.named(name, names) != null) {
                 return true;
             }
         }

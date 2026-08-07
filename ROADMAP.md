@@ -8,6 +8,29 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-07 — the launcher deny-list learns Electron and AppImage; a blocked launch offers the close
+
+**The bug.** A `heroic:` target reported itself already running whenever Heroic was merely open, so every
+caller skipped the cold launch and nothing ever started. `RunningProbe`'s deny-list already excluded a
+launcher UI, but missed the two shapes Heroic actually has on Linux.
+
+**Done**
+- **Chromium helpers never count.** Any command line carrying `--type=` is an Electron/Chromium child —
+  renderer, gpu-process, utility, zygote — and the *renderer* is the process that draws the library, so its
+  argv names every `AppName` the user owns. Electron names it after the app's own binary, so no launcher list
+  could catch it; the flag is decisive on its own.
+- **Versioned and AppImage packaging.** `RunningProbe.named` matches a launcher name followed by one of
+  `-_.` (`Heroic-2.15.2.AppImage`, `heroic_amd64`), which is the packaging most Linux users actually run —
+  the deny-list matched only the exact name a distro package gives. A separator is required, so `steamworld`
+  is still a game. `HostLauncherProbe` matches through the same helper, since the two probes ask opposite
+  questions of one process table and must read packaging identically.
+- **`Blocker.HOST_LAUNCHER_OPEN` is no longer a dead end.** `HostLauncherProbe.running(kind)` returns the
+  blocking processes (not just a boolean), `refusalMessage` names their pids, and `closeHostLaunchers(kind)`
+  asks them to quit — `destroy()`, not `destroyForcibly`, so a launcher writes its state back rather than
+  leaving a lock file. It acts only on what the host-desktop filter returned, so a launcher inside one of our
+  own sessions is never touched. Studio's `BackgroundModeBox` shows a "Close &lt;product&gt;" button on that
+  refusal; the probe is run only then, never speculatively — it walks the whole process table.
+
 ## 2026-08-07 — `LinuxInputBackendId` gains the label its consumer was inventing
 
 **230 tests (unchanged).** Changed: `capture/linux/input/LinuxInputBackendId.java`.

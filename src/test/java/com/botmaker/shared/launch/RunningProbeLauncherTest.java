@@ -86,6 +86,55 @@ class RunningProbeLauncherTest {
         }
     }
 
+    /**
+     * The packaging most Linux users actually have. The deny-list matched exact executable names — the spelling
+     * a distro package gives — so a Heroic run from its AppImage ({@code Heroic-2.15.2.AppImage}) sailed through
+     * it, carrying the whole library in its argv, and the reported bug came back under a different file name.
+     */
+    @Test
+    void anAppImageOrVersionedLauncherIsStillALauncher(@TempDir Path dir) throws Exception {
+        for (String packaging : Set.of("Heroic-2.15.2.AppImage", "heroic.appimage", "heroic_amd64")) {
+            String appName = "Firestone" + UUID.randomUUID();
+            Process launcher = runNamed(dir, packaging, "--library", appName);
+            try {
+                assertFalse(RunningProbe.commandLineMentions(appName),
+                        packaging + " is Heroic under another file name and must be excluded the same way");
+            } finally {
+                launcher.destroyForcibly();
+            }
+        }
+    }
+
+    /** But a suffix that isn't a separator is a different program: {@code steamworld} is a game, not Steam. */
+    @Test
+    void aGameWhoseNameMerelyStartsWithALauncherNameIsNotALauncher(@TempDir Path dir) throws Exception {
+        String token = "Level" + UUID.randomUUID();
+        Process game = runNamed(dir, "steamworld", token);
+        try {
+            assertTrue(RunningProbe.commandLineMentions(token),
+                    "the prefix rule must need a separator, or it swallows games named after their launcher");
+        } finally {
+            game.destroyForcibly();
+        }
+    }
+
+    /**
+     * The renderer is the process that <em>draws</em> the library, so it is the one whose command line names
+     * every game the user owns — and Electron names it after the app's own binary, so no launcher list catches
+     * it. The {@code --type=} flag does, and does so on its own: a Chromium helper is never a game.
+     */
+    @Test
+    void aChromiumHelperCarryingTheLibraryIsNotAGame(@TempDir Path dir) throws Exception {
+        String appName = "Firestone" + UUID.randomUUID();
+        Process renderer = runNamed(dir, "hgl", "--type=renderer", "--library=" + appName);
+        try {
+            assertFalse(RunningProbe.commandLineMentions(appName),
+                    "an Electron renderer holding the game list is not the game running");
+        } finally {
+            renderer.destroyForcibly();
+        }
+    }
+
     @Test
     void everyWrapperAGameRunsUnderStaysVisible(@TempDir Path dir) throws Exception {
         // The opposite failure mode, and the worse one: exclude a wrapper by mistake and a running game reads
