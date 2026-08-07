@@ -8,6 +8,39 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-07 — template matching stops scoring 0.89 on things that are not there
+
+**The bug.** Every `find` came back at 0.89+ whether or not the object was on screen, so no confidence
+threshold could separate present from absent — the property the SDK's entire vision layer is built on.
+
+**The cause, in two halves.** `OpencvManager.runMatch` chose `TM_CCORR_NORMED` whenever the template had an
+alpha channel, and Studio captures templates as `TYPE_INT_ARGB` read back with `IMREAD_UNCHANGED` — so
+*every* Studio-authored template had four channels and took the masked path, whether or not the author had
+cut anything out of it. And plain normed cross-correlation over non-mean-subtracted 8-bit BGR is a sum of
+products of non-negative numbers: it floors around 0.85–0.95 on arbitrary content, permanently above the 0.8
+default threshold. The peak was noise and the gate was decorative.
+
+**Done**
+- **Alpha is a mask only when it masks something.** `extractAlphaMask` returns `null` for a fully-opaque
+  alpha channel (`Core.minMaxLoc(alpha).minVal >= 255`), so a Studio ARGB capture behaves exactly like the
+  3-channel template it actually is. This half alone fixes the reported case.
+- **One method for both paths: `TM_CCOEFF_NORMED`.** It subtracts each patch's mean, so an absent object
+  scores near zero. Masking every method — `CCOEFF_NORMED` included — has been supported since OpenCV 4.3 and
+  we are on 4.9; the historical reason for the split was that only `CCORR`/`SQDIFF` took a mask at all.
+  `TM_SQDIFF_NORMED` was tried first and rejected on measurement: its energy normalisation leaves an absent
+  object at ~0.51, better than 0.89 but still not a usable gate.
+- **The mask is shaped like its template.** A 1-channel mask was being passed against a 3-channel template,
+  which is not the documented contract; it is now merged to the template's channel count. `patchNaNs(result, 0)`
+  covers regions the mask reduces to a constant.
+- Score maps stay higher-is-better, so `findBestMatch`/`findBest`/`scoreAround`/`findMultipleMatches` read
+  `maxLoc`/`maxVal` unchanged — no caller moved.
+- New `AbsentTemplateTest`: an absent object scores below 0.5 and a present one above 0.9, for an opaque
+  template, a **fully-opaque ARGB** one (the reported case) and a genuinely alpha-cut one.
+
+**Behaviour change worth knowing.** Absolute scores move for masked templates — a threshold tuned against the
+old inflated numbers will now be too permissive rather than too strict, which is the safe direction, but
+per-project thresholds authored under the bug are worth revisiting.
+
 ## 2026-08-07 — the launcher deny-list learns Electron and AppImage; a blocked launch offers the close
 
 **The bug.** A `heroic:` target reported itself already running whenever Heroic was merely open, so every

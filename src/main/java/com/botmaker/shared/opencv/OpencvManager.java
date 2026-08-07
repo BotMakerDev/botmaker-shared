@@ -15,7 +15,6 @@ import java.util.Comparator;
 import java.util.List;
 
 import static org.opencv.imgproc.Imgproc.TM_CCOEFF_NORMED;
-import static org.opencv.imgproc.Imgproc.TM_CCORR_NORMED;
 import static org.opencv.imgproc.Imgproc.matchTemplate;
 
 /**
@@ -61,37 +60,80 @@ public final class OpencvManager {
 
     /**
      * The alpha channel of a 4-channel (BGRA) template as a single-channel 8U mask (transparent pixels = 0),
-     * or {@code null} when {@code mat} has no alpha. Must be called <em>before</em> {@link #normalise} flattens
-     * the template. The caller owns and releases the returned Mat.
+     * or {@code null} when {@code mat} has no alpha <em>or its alpha is fully opaque</em>. Must be called
+     * <em>before</em> {@link #normalise} flattens the template. The caller owns and releases the returned Mat.
+     *
+     * <p>The opacity check is the important half. Studio captures templates as {@code TYPE_INT_ARGB} and reads
+     * them back with {@code IMREAD_UNCHANGED}, so <em>every</em> Studio-authored template arrives with four
+     * channels whether or not the author cut anything out of it. Treating "has an alpha channel" as "is a
+     * transparent-background template" therefore put essentially all matching on the masked path, and a mask of
+     * all-255 asks for masked matching while describing no mask at all.
      */
     private static Mat extractAlphaMask(Mat mat) {
         if (!isRGBA(mat)) return null;
-        java.util.List<Mat> channels = new ArrayList<>();
+        List<Mat> channels = new ArrayList<>();
         Core.split(mat, channels);
         Mat alpha = channels.get(3);           // keep alpha as the mask
         for (int i = 0; i < 3; i++) channels.get(i).release();
+        if (Core.minMaxLoc(alpha).minVal >= 255) {   // fully opaque — nothing to mask out
+            alpha.release();
+            return null;
+        }
         return alpha;
     }
 
     /**
-     * Runs {@code matchTemplate} into {@code result}, normalising {@code localTemplate} in place first. When the
-     * template carries an alpha channel (a transparent-background template), its alpha is used as a
-     * <b>mask</b> with {@code TM_CCORR_NORMED} (the reliably mask-supporting normed method) so transparent
-     * pixels are ignored; opaque templates use the standard {@code TM_CCOEFF_NORMED}. {@code localBackground}
-     * must already be normalised to the same channel space.
+     * Runs {@code matchTemplate} into {@code result}, normalising {@code localTemplate} in place first, and
+     * always with {@code TM_CCOEFF_NORMED} — masked by the template's alpha when it carries any transparency,
+     * unmasked otherwise. {@code result} is higher-is-better, so every caller reads its peak with
+     * {@code maxLoc}/{@code maxVal}. {@code localBackground} must already be normalised to the same channel
+     * space.
+     *
+     * <p>The method choice is the whole fix. This used to run {@code TM_CCORR_NORMED} for any alpha-carrying
+     * template, which is what made every {@code find} report 0.89+ on a screen the object was not on: plain
+     * normed cross-correlation over non-mean-subtracted 8-bit BGR is a sum of products of non-negative numbers,
+     * so it floors around 0.85–0.95 on arbitrary content — permanently above the 0.8 confidence threshold, so
+     * the peak was noise and the threshold gated nothing. {@code CCOEFF} subtracts each patch's mean first, so
+     * an absent object scores near zero and the threshold means something again. ({@code SQDIFF_NORMED} was the
+     * other candidate and is <em>also</em> unusable here for the same reason — its energy normalisation leaves
+     * an absent object around 0.5.)
+     *
+     * <p>Masking every method, {@code CCOEFF_NORMED} included, has been supported since OpenCV 4.3; we are on
+     * 4.9. That is what allows one method for both paths — the historical reason for the split was that only
+     * {@code CCORR}/{@code SQDIFF} took a mask at all.
      */
     private static void runMatch(Mat localBackground, Mat localTemplate, Mat result, boolean grayscale) {
         Mat mask = extractAlphaMask(localTemplate);
         try {
             normalise(localTemplate, grayscale);
-            if (mask != null) {
-                matchTemplate(localBackground, localTemplate, result, TM_CCORR_NORMED, mask);
-            } else {
+            if (mask == null) {
                 matchTemplate(localBackground, localTemplate, result, TM_CCOEFF_NORMED);
+                return;
             }
+            // OpenCV wants the mask in the template's own shape; a 1-channel mask against a 3-channel template
+            // is not the documented contract, and was quietly weighting the score further.
+            Mat shaped = matchChannels(mask, localTemplate.channels());
+            try {
+                matchTemplate(localBackground, localTemplate, result, TM_CCOEFF_NORMED, shaped);
+            } finally {
+                if (shaped != mask) shaped.release();
+            }
+            // A masked normed correlation divides by the masked energy, so a region the mask reduces to a
+            // constant yields NaN — which then wins or loses comparisons unpredictably. Pin those to 0.
+            Core.patchNaNs(result, 0.0);
         } finally {
             if (mask != null) mask.release();
         }
+    }
+
+    /** {@code mask} replicated to {@code channels} planes, or {@code mask} itself when it already has that many. */
+    private static Mat matchChannels(Mat mask, int channels) {
+        if (mask.channels() == channels) return mask;
+        List<Mat> planes = new ArrayList<>(channels);
+        for (int i = 0; i < channels; i++) planes.add(mask);
+        Mat merged = new Mat();
+        Core.merge(planes, merged);
+        return merged;
     }
 
     // --- Matching --------------------------------------------------------------------------------
@@ -140,7 +182,7 @@ public final class OpencvManager {
 
     /**
      * Returns the single best match of {@code template} within {@code background} <em>regardless</em> of any
-     * confidence threshold ({@code score} is the raw {@code TM_CCOEFF_NORMED} peak), or {@code null} only when
+     * confidence threshold ({@code score} is the raw {@link #runMatch} peak), or {@code null} only when
      * the template can't fit the background. Callers that need a threshold gate use {@link #findBestMatch};
      * telemetry uses this so a miss can still report the real near-miss score instead of zero.
      *
