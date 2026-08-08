@@ -1,12 +1,13 @@
 package com.botmaker.shared.emulator;
 
+import com.botmaker.shared.tools.UserDirs;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * <b>The phones a user has written down</b> — a persisted list of {@code host:port} addresses for devices in
@@ -88,25 +89,14 @@ public final class SavedDevices {
     }
 
     /**
-     * The per-OS <em>config</em> directory — deliberately not the cache directory Studio's
-     * {@code BotMakerDirs} answers for. A saved phone is not derivable from anything and cannot be rebuilt by
-     * re-scanning, so a cache-cleaner that removes it would be removing the user's own data.
+     * The per-OS <em>config</em> directory — deliberately {@link UserDirs#config()} and not
+     * {@link UserDirs#cache()}. A saved phone is not derivable from anything and cannot be rebuilt by
+     * re-scanning, so a cache-cleaner that removes it would be removing the user's own data. (The per-OS
+     * layout used to live here; it moved to {@code UserDirs} when downloaded tools needed the other half of
+     * the same question answered.)
      */
     private static Path configDir() {
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        if (os.contains("win")) {
-            String local = System.getenv("LOCALAPPDATA");
-            return local != null && !local.isBlank()
-                    ? Path.of(local, "BotMaker")
-                    : Path.of(System.getProperty("user.home"), "BotMaker");
-        }
-        if (os.contains("mac")) {
-            return Path.of(System.getProperty("user.home"), "Library", "Application Support", "botmaker");
-        }
-        String xdg = System.getenv("XDG_CONFIG_HOME");
-        return xdg != null && !xdg.isBlank()
-                ? Path.of(xdg, "botmaker")
-                : Path.of(System.getProperty("user.home"), ".config", "botmaker");
+        return UserDirs.config();
     }
 
     /** Every saved device, in the order they were added. Empty when there is no file, and never throws. */

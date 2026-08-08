@@ -8,6 +8,59 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-09 — BotMaker can install its own adb and scrcpy-server (phase 1/3: the machinery)
+
+`AdbTools.installHint()` and `ScrcpyServer.installHint()` both ended in "go and install something", which is a
+dead end inside an app whose premise is that a phone should just work. Neither tool needs a package manager.
+This phase is the download machinery; phase 2 wires it into discovery, phase 3 into the dialog.
+
+**Done**
+
+- **`tools/UserDirs`** — `config()` and `cache()`, per OS, and the distinction is the reason the class exists:
+  config is what the user told us and nothing can rebuild (the saved phones), cache is what we can always
+  fetch again (the downloaded tools). `SavedDevices.configDir()` was the first half of this and now delegates;
+  the cache layout is Studio's `BotMakerDirs`, single-sourced rather than re-invented.
+- **`tools/Downloads`** — JDK `HttpClient` + `MessageDigest`, no new dependency. Bytes stream to a `.part`
+  file and are hashed *as they are written*; only a matching digest gets moved into place, so a wrong or
+  truncated download leaves nothing a later probe could mistake for an installed tool. `Digest` is a typed
+  closed set carrying its own hex length, so a SHA-1 constant in a SHA-256 pin fails a test rather than every
+  download. An already-matching file short-circuits — installing twice costs no bytes.
+- **`tools/Unzip`** — zip-slip guarded (an escaping entry fails the *whole* extraction, and separators are
+  normalised first so a Windows-written `..\x` cannot slip through as a legal Linux filename), and it restores
+  the executable bit, which a `ZipEntry` does not carry — without it a freshly extracted `adb` is present and
+  not runnable, which every later probe reports as "no adb found".
+- **`tools/ManagedTools`** — the pins, in one place: **platform-tools r37.0.1** (per-OS zip, SHA-1 from
+  Google's own `repository2-3.xml`) and **scrcpy-server v4.1** (single 733,706-byte file, SHA-256 from
+  Genymobile's `SHA256SUMS.txt`). Both digests were verified against the real downloads; both installers were
+  run end to end into a temp cache, and the extracted `adb` reports *Android Debug Bridge version 1.0.41*.
+
+**Why these two, and why pinned**
+
+- **`adb` is not a preference.** dadb speaks the ADB protocol itself, which covers every emulator and any
+  phone in `adb tcpip` mode. It cannot cover **USB** (adbd speaks ADB over a USB *endpoint*; there is no
+  socket to dial) or **Android 11+ wireless debugging** (TLS/STLS, which dadb 1.2.9 does not implement).
+  A host adb server is the only thing that reaches those two, so "install platform-tools" was the real answer
+  — it was just the wrong person's job.
+- **The fast path never needed scrcpy installed.** `ScrcpyChannel` speaks the protocol itself and only pushes
+  the `scrcpy-server` dex; the scrcpy *client* is never run. That is one 0.7 MB release asset, not an app.
+- **Pinned, not "latest",** because both files are then executed — one here, one on the user's phone — and
+  because it keeps the wire format a known quantity. v4.1's `Options.java` was checked to still parse every
+  key `ScrcpyChannel.arguments` sends, and its `DesktopConnection` still writes a 64-byte device name with the
+  dummy byte on the **first** accepted socket (which is what makes connecting video-first correct). That file
+  is byte-identical to v3.3.4's. Bumping a pin means changing version + URL + digest together and re-reading
+  that release's option parser.
+
+**Deferred / next**
+
+- Phase 2: `AdbTools.binary()` gains the managed copy as a *last* candidate (a real SDK keeps winning),
+  `ScrcpyServer.ensure()` downloads once for a headless bot, `adb pair`/`connect`, and `stay_awake`/`power_on`
+  in `ScrcpyOptions` (both confirmed present in v4.1's parser) — which turns "keep the screen awake" from a
+  note in a dialog into a default.
+- Pin maintenance has no owner yet. The failure when they age is loud (a 404 or a digest mismatch), never a
+  silent downgrade, but nothing yet says who bumps them.
+
+---
+
 ## 2026-08-09 — a saved phone is a real, shared thing (phone target, phase 4/4)
 
 Phase 4, shared's half. The `-Dbotmaker.adb.devices` knob was always a placeholder for "somewhere to keep the

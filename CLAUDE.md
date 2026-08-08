@@ -114,6 +114,14 @@ Package map:
   to resolve for a **generated bot** too, and a list in Studio's preferences would not.
 - `device/` — the **fast path** over the same devices (see below): `ScrcpyDevice` + `ScrcpyChannel`,
   `ScrcpyControl`, `ScrcpyFrames`, `ScrcpyServer`.
+- `tools/` — the host tools BotMaker installs **for itself**: `ManagedTools` (the pinned `adb` and
+  `scrcpy-server` — URL, digest and byte count together), `Downloads` (fetch, verify, then move — a file that
+  does not match its pin lands nowhere, because both of these are then *executed*), `Unzip` (zip-slip guarded,
+  and it restores the executable bit a `ZipEntry` does not carry) and `UserDirs`. **`UserDirs` is the one
+  answer to "where does BotMaker keep things", and its two halves are not interchangeable:** `config()` is
+  what the user told us and nothing can rebuild (`SavedDevices`), `cache()` is what we can always fetch again
+  (everything in `tools/`). A downloaded tool in config makes a cache-cleaner unable to reclaim 16 MB; a saved
+  address in cache makes one delete the user's phones.
 
 ## Matching (`com.botmaker.shared.opencv`)
 
