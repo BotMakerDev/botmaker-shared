@@ -70,6 +70,19 @@ public record EmulatorInstance(PlatformId platformId, String name, AdbEndpoint a
         return platformId.displayName();
     }
 
+    /**
+     * The one-line caption a picker or a target chip shows — {@code "BlueStacks: Nougat64"}, or
+     * {@code "Android device: Pixel 7"} for a phone.
+     *
+     * <p>It is formed here rather than at each call site because those call sites had all hard-coded the word
+     * <em>Emulator</em>, which was true of everything this stack could reach until a phone could be one.
+     * A resolved instance always knows its own product; see {@link EmulatorInstances#captionFor(String)} for
+     * what a saved reference that knows only a name can honestly say instead.
+     */
+    public String caption() {
+        return brand() + ": " + (name == null || name.isBlank() ? "(any)" : name);
+    }
+
     /** A copy of this instance carrying the given host launch/stop commands. */
     public EmulatorInstance withCommands(List<String> launch, List<String> stop) {
         return new EmulatorInstance(platformId, name, adb, launch, stop);

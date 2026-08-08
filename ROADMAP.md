@@ -8,6 +8,38 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-09 — a saved phone is a real, shared thing (phone target, phase 4/4)
+
+Phase 4, shared's half. The `-Dbotmaker.adb.devices` knob was always a placeholder for "somewhere to keep the
+user's answer"; this is that place.
+
+**Done**
+
+- **`SavedDevices`** — a persisted `host:port` list in the per-OS **config** dir (`~/.config/botmaker/devices.txt`
+  on Linux), one device per line with an optional tab-separated name. Total on every read: a malformed line is
+  skipped, an unreadable file is an empty list. Re-adding an address **renames** rather than duplicating,
+  because the address is the identity everything keys on. `parseAddress` is public so a dialog validates input
+  with the same code that accepts it — otherwise a form can accept an address the file then drops.
+- **It lives in shared, and that is the point.** A saved phone has to resolve for a **generated bot** at run
+  time, not only for the editor that added it. A list in Studio's preferences would be a phone Studio can see
+  and the bot it generates cannot.
+- **`DevicePlatform.discover()` unions saved ∪ knob ∪ adb server**, de-duplicated by endpoint. The knob stays:
+  it is the one way to state an address without writing to a user's file (a test, CI, a scripted run).
+- **`EmulatorInstance.caption()` / `EmulatorInstances.captionFor(name)`** — the "Brand: Name" string, formed
+  once. Every call site had hard-coded the word *Emulator*, which was true until a phone could be one of these.
+  A resolved instance names its product ("Android device: Pixel 7"); a saved reference that knows only a name
+  says "Android: Pixel 7" and **does not resolve** — `byName` is a full discovery scan and a label is drawn far
+  too often to pay for one.
+
+**Deferred / next**
+
+- **The timing table below is still empty.** Nothing gates on it now that phase 3 exists, but the
+  floor-vs-fast-path comparison has never been measured on hardware. `AdbCaptureBenchmark` against a real
+  phone is still the way to fill it.
+- **Nothing has spoken to a real scrcpy server yet** (see phase 3 below). Unchanged by this phase.
+
+---
+
 ## 2026-08-08 — the fast path: scrcpy video + control socket (phone target, phase 3/4)
 
 Phase 3. Phase 2 made the ADB floor as fast as ADB verbs allow and said plainly what it could not fix: a

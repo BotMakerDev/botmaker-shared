@@ -18,8 +18,9 @@ import java.util.List;
  *       serials the real products discover for themselves. This is the only route to a device on a
  *       <b>USB cable</b>, and to Android 11+ TLS wireless debugging. It needs no binary when a server is
  *       already up, and it is skipped entirely when one is not.</li>
- *   <li><b>Addresses the user configured</b>, for a phone in legacy {@code adb tcpip} mode, which
- *       {@link AdbDevice} dials directly with no server and no binary at all.</li>
+ *   <li><b>Addresses the user saved</b> ({@link SavedDevices}), for a phone in legacy {@code adb tcpip} mode,
+ *       which {@link AdbDevice} dials directly with no server and no binary at all — plus the
+ *       {@link #ADDRESSES_PROPERTY} knob, which is unioned with the saved list rather than shadowed by it.</li>
  * </ol>
  *
  * <p><b>The network is never scanned.</b> Sweeping a LAN for open 5555s is slow, is indistinguishable from a
@@ -38,9 +39,10 @@ public final class DevicePlatform implements EmulatorPlatform {
      * or an environment variable — {@code -Dbotmaker.adb.devices=192.168.1.5:5555} /
      * {@code BOTMAKER_ADB_DEVICES}.
      *
-     * <p>This is the whole of source (2) for now, and it is deliberately a plain knob: it makes the
-     * no-binary-anywhere path usable and testable immediately, without deciding where a user's saved device
-     * list should live. Studio's "Connect a phone…" dialog replaces it with real persistence.
+     * <p>{@link SavedDevices} is now the primary half of source (2) — a real, user-editable list that Studio's
+     * "Connect a phone…" dialog writes. This knob stays because it is the one way to state an address
+     * <em>without</em> writing to a user's file: a test, a CI run, a scripted launch. The two are unioned, so
+     * setting it adds a phone rather than hiding the saved ones.
      */
     public static final String ADDRESSES_PROPERTY = "botmaker.adb.devices";
     static final String ADDRESSES_ENV = "BOTMAKER_ADB_DEVICES";
@@ -57,7 +59,12 @@ public final class DevicePlatform implements EmulatorPlatform {
 
     @Override
     public List<EmulatorInstance> discover() {
-        List<EmulatorInstance> found = new ArrayList<>(configured(configuredAddresses()));
+        List<EmulatorInstance> found = new ArrayList<>(saved());
+        for (EmulatorInstance instance : configured(configuredAddresses())) {
+            if (!containsEndpoint(found, instance)) {
+                found.add(instance);
+            }
+        }
         for (AdbTools.ServerDevice device : AdbTools.devices()) {
             if (device.emulator()) {
                 continue;
@@ -69,6 +76,19 @@ public final class DevicePlatform implements EmulatorPlatform {
             }
         }
         return List.copyOf(found);
+    }
+
+    /**
+     * The user's saved phones as instances. The device's own name is used where one was given, so a picker
+     * reads "Pixel 7" rather than {@code 192.168.1.5:5555} — the address is still its {@link
+     * EmulatorInstance#identity()}, so naming it changes nothing that is keyed on.
+     */
+    static List<EmulatorInstance> saved() {
+        List<EmulatorInstance> instances = new ArrayList<>();
+        for (SavedDevices.SavedDevice device : SavedDevices.load()) {
+            instances.add(new EmulatorInstance(PLATFORM_ID, device.displayName(), device.endpoint()));
+        }
+        return instances;
     }
 
     /** The raw {@link #ADDRESSES_PROPERTY} value, property first then environment; {@code ""} when unset. */

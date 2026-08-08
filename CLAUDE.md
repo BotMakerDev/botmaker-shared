@@ -108,6 +108,10 @@ Package map:
 - `emulator/` — Android-emulator capability (see below): `AdbDevice` (dadb transport), `Platforms` +
   `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/`MemuPlatform`/`MuMuPlatform`/`GameloopPlatform`
   (all discover for real), `EmulatorLauncher` (host launch/stop), `WindowsRegistry`, `EmulatorInstance`.
+  A **physical phone** is a discovery path here, not a stack of its own — `DevicePlatform` over `AdbTools`
+  (the host adb server, for USB and TLS wireless) and `SavedDevices` (the user's own `host:port` list, in the
+  config dir). `SavedDevices` lives in shared rather than in Studio deliberately: a phone the editor saves has
+  to resolve for a **generated bot** too, and a list in Studio's preferences would not.
 - `device/` — the **fast path** over the same devices (see below): `ScrcpyDevice` + `ScrcpyChannel`,
   `ScrcpyControl`, `ScrcpyFrames`, `ScrcpyServer`.
 

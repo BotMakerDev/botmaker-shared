@@ -36,4 +36,18 @@ public final class EmulatorInstances {
         String wanted = name.trim();
         return Platforms.discoverAll().stream().filter(i -> wanted.equals(i.name())).findFirst();
     }
+
+    /**
+     * The caption for a saved reference that carries <em>only</em> a name — a persisted capture target, a
+     * launch-target chip — where the product is genuinely unknown until something scans for it.
+     *
+     * <p>It says {@code "Android: Pixel 7"} rather than the {@code "Emulator: Pixel 7"} these sites used to
+     * hard-code, because a physical phone is now one of the things a name can refer to and calling it an
+     * emulator is simply wrong. It deliberately does <b>not</b> resolve the name: {@link #byName} runs a full
+     * discovery scan (registry reads, console-tool calls), and a label is drawn far too often to pay for one.
+     * Where an instance is already in hand, use {@link EmulatorInstance#caption()}, which knows the product.
+     */
+    public static String captionFor(String name) {
+        return "Android: " + (name == null || name.isBlank() ? "(any)" : name.trim());
+    }
 }
