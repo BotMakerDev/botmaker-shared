@@ -80,6 +80,29 @@ public interface X11 extends Library {
     int XFlush(Pointer display);
     int XSync(Pointer display, boolean discard);
 
+    /**
+     * {@code XC_left_ptr} from {@code cursorfont.h} — the ordinary arrow.
+     *
+     * <p>Worth naming because the <em>absence</em> of this call is a visible symptom: a bare X server's root
+     * cursor is {@code XC_X_cursor}, the black cross, and on a normal display it is a desktop environment that
+     * replaces it at login. A private {@code :N} has no desktop environment, and a session that also runs
+     * without a window manager has nothing else that would. So the cross is not a fault — it is the default
+     * nobody was there to override.
+     */
+    int XC_left_ptr = 68;
+
+    /** A cursor from the standard cursor font, e.g. {@link #XC_left_ptr}. The returned XID is a Cursor. */
+    Pointer XCreateFontCursor(Pointer display, int shape);
+
+    /** Makes {@code cursor} the one shown while the pointer is inside {@code window}. */
+    int XDefineCursor(Pointer display, Pointer window, Pointer cursor);
+
+    /**
+     * Releases the client's ID for {@code cursor}. Safe immediately after {@link #XDefineCursor}: the server
+     * keeps the cursor alive as long as a window still references it, which is the whole point of doing this.
+     */
+    int XFreeCursor(Pointer display, Pointer cursor);
+
     // Window queries
     int XQueryTree(Pointer display, Pointer window,
                    PointerByReference rootReturn,
