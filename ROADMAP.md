@@ -8,6 +8,24 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-08 — a swipe is a telemetry event
+
+**Done**
+
+- **`TelemetryEvent.Swipe(target, x1, y1, x2, y2, durationMs, line)`** — the fourth kind on the pilot wire,
+  and the first gesture on it. Both ends travel in one event rather than as a stream of moves: it is one thing
+  the bot decided to do, a consumer drawing it needs both ends at once, and a hundred move events would be a
+  hundred overlays fading out of step. `durationMs` is on the record because it is the whole difference between
+  a flick and a slow drag, and nothing about two points says which happened.
+- **`TelemetryFrame` gained tag 4 without bumping `PROTOCOL_VERSION`.** A new tag is the one change the framing
+  survives in both directions: an older reader consumes the whole payload before hitting the `default` branch,
+  so it raises the *recoverable* `FrameFormatException` and the stream stays aligned to the next frame, while
+  an older writer simply never emits the tag. Bumping the version instead would have rejected every frame from
+  an older-SDK bot — including the three kinds that reader understands perfectly. `TelemetryFrameTest` now pins
+  that skip-one-frame-and-continue behaviour, since it is what the decision rests on.
+
+---
+
 ## 2026-08-08 — the project's resolution reaches Android, and the label stops lying about it
 
 **Done**

@@ -9,7 +9,7 @@ package com.botmaker.shared.ipc;
  * (consumer) depend on, so the wire vocabulary has one definition. Encoded/decoded by {@link TelemetryFrame}.
  */
 public sealed interface TelemetryEvent
-        permits TelemetryEvent.Match, TelemetryEvent.Click, TelemetryEvent.Region {
+        permits TelemetryEvent.Match, TelemetryEvent.Click, TelemetryEvent.Region, TelemetryEvent.Swipe {
 
     /** The surface an event refers to, so the Studio can capture the right window/screen. */
     record Target(String title, int x, int y, int width, int height) {}
@@ -43,6 +43,21 @@ public sealed interface TelemetryEvent
         /** Line-less convenience (line = {@code -1}). */
         public Click(Target target, int x, int y, int button) {
             this(target, x, y, button, -1);
+        }
+    }
+
+    /**
+     * A drag/swipe from ({@code x1},{@code y1}) to ({@code x2},{@code y2}) absolute, over {@code durationMs}.
+     *
+     * <p>Both ends travel in one event rather than as a stream of moves: the gesture is a single thing the bot
+     * decided to do, and a consumer that wants to draw it needs both ends at once anyway. The duration is here
+     * because it is the difference between a flick and a slow drag, which nothing about the two points says.
+     */
+    record Swipe(Target target, int x1, int y1, int x2, int y2, long durationMs, int line)
+            implements TelemetryEvent {
+        /** Line-less convenience (line = {@code -1}). */
+        public Swipe(Target target, int x1, int y1, int x2, int y2, long durationMs) {
+            this(target, x1, y1, x2, y2, durationMs, -1);
         }
     }
 

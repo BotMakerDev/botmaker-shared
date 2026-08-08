@@ -55,6 +55,31 @@ class TelemetryFrameTest {
     }
 
     @Test
+    void swipeCarriesBothEndsAndHowLongItTook() throws Exception {
+        // The duration is a long on the wire because it is a duration, not because anyone will swipe for
+        // 25 days — an int would still be right, and would be the sort of thing that quietly stops being.
+        TelemetryEvent event = new TelemetryEvent.Swipe(WINDOW, 200, 900, 200, 300, 450);
+        assertEquals(event, roundTrip(event));
+    }
+
+    @Test
+    void anUnknownTypeTagSkipsOneFrameRatherThanKillingTheStream() throws Exception {
+        // Why Swipe could be added without bumping PROTOCOL_VERSION: a reader that predates a tag consumes
+        // the whole payload before it fails, so the next frame — one it does understand — still reads.
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bos);
+        byte[] unknown = {TelemetryFrame.PROTOCOL_VERSION, 99, 1, 2, 3};
+        out.writeInt(unknown.length);
+        out.write(unknown);
+        TelemetryEvent next = new TelemetryEvent.Click(WINDOW, 7, 8, 1);
+        TelemetryFrame.write(out, next);
+
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(bos.toByteArray()));
+        assertThrows(TelemetryFrame.FrameFormatException.class, () -> TelemetryFrame.read(in));
+        assertEquals(next, TelemetryFrame.read(in), "the stream must still be aligned to the next frame");
+    }
+
+    @Test
     void multipleFramesReadBackInOrder() throws Exception {
         TelemetryEvent a = new TelemetryEvent.Click(WINDOW, 1, 2, 1);
         TelemetryEvent b = new TelemetryEvent.Region(WINDOW, new TelemetryEvent.Rect(3, 4, 5, 6));

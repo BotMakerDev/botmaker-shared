@@ -14,7 +14,7 @@ import java.io.IOException;
  * <pre>
  *   int32  payloadLength (big-endian, via DataOutputStream)
  *   byte   protocolVersion
- *   byte   typeTag  (1=Match, 2=Click, 3=Region)
+ *   byte   typeTag  (1=Match, 2=Click, 3=Region, 4=Swipe)
  *   ...    type-specific fields, encoded field-by-field
  * </pre>
  *
@@ -32,6 +32,14 @@ public final class TelemetryFrame {
     private static final int TYPE_MATCH = 1;
     private static final int TYPE_CLICK = 2;
     private static final int TYPE_REGION = 3;
+    /**
+     * Added after v2 shipped, deliberately <em>without</em> bumping the version. A new tag is the one kind of
+     * change the framing already survives in both directions: an older reader hits the {@code default} branch
+     * and raises a {@link FrameFormatException}, which skips that frame and leaves the stream aligned, while an
+     * older writer simply never emits it. Bumping the version instead would reject every frame from an
+     * older-SDK bot, including the three kinds that reader understands perfectly.
+     */
+    private static final int TYPE_SWIPE = 4;
 
     private TelemetryFrame() {}
 
@@ -63,6 +71,16 @@ public final class TelemetryFrame {
                 writeTarget(p, r.target());
                 writeNullableRect(p, r.rect());
                 p.writeInt(r.line());
+            }
+            case TelemetryEvent.Swipe s -> {
+                p.writeByte(TYPE_SWIPE);
+                writeTarget(p, s.target());
+                p.writeInt(s.x1());
+                p.writeInt(s.y1());
+                p.writeInt(s.x2());
+                p.writeInt(s.y2());
+                p.writeLong(s.durationMs());
+                p.writeInt(s.line());
             }
         }
         byte[] payload = buffer.toByteArray();
@@ -113,6 +131,9 @@ public final class TelemetryFrame {
                         readTarget(p), p.readInt(), p.readInt(), p.readInt(), p.readInt());
                 case TYPE_REGION -> new TelemetryEvent.Region(
                         readTarget(p), readNullableRect(p), p.readInt());
+                case TYPE_SWIPE -> new TelemetryEvent.Swipe(
+                        readTarget(p), p.readInt(), p.readInt(), p.readInt(), p.readInt(),
+                        p.readLong(), p.readInt());
                 default -> throw new IOException("Unknown telemetry type tag: " + type);
             };
         } catch (IOException decodeError) {
