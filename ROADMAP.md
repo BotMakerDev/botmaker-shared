@@ -8,6 +8,41 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-08 — the project's resolution reaches Android, and the label stops lying about it
+
+**Done**
+
+- `WaydroidResolution.useForNextStart(width, height)` — the first production caller of the property write that
+  had been written and never used. It makes the container boot at the size of the display it is about to be
+  launched into, and is a no-op when they already agree (every launch after the first). Without it a container
+  carrying its out-of-the-box landscape properties boots 1920×1080 *inside* a 1080×1920 gamescope: measurably
+  about a third of the linear resolution the templates were authored at.
+- **The size can't be set the obvious way, and now isn't.** `waydroid prop set` only talks to a running
+  session, and starting a session needs a Wayland compositor — which an X11 desktop hasn't got. Measured:
+  `Wayland socket '/run/user/1000/wayland-0' doesn't exist; are you running a Wayland compositor?`. So
+  `apply` brings its **own** gamescope (`WaydroidPlatform.nested`, shared with the nested launch argv) purely
+  to host `waydroid session start`, sets both properties, and leaves the session stopped for the caller's own
+  compositor to start. Live: 1080×1920 → 1920×1080 → back, 7s warm.
+- `LaunchPreparation.prepare(spec, w, h)` — the one side effect a launch has on the host, kept out of
+  `LaunchCommands`, which stays a pure argv builder. Called from `NestedSession` before the ladder.
+- `LaunchSpec.runsOffDesktop()` narrows `LaunchKind.runsOffDesktop()` by *which* emulator the spec names.
+  "Reached over ADB, so a private display has nothing to offer it" is a fact about the product, not the kind,
+  and asking the kind refused Waydroid the display it had just been taught to use.
+- `Spawn.logged(command, file)` for a long-lived child we **wait on**: `DISCARD` throws away the only
+  explanation of "it never came up". The resize compositor's output lands in `~/.botmaker/waydroid-resize.log`
+  and the wait aborts the moment that process exits rather than burning the whole budget.
+
+**Deferred / next**
+
+- The session-start budget is 300s because a **cold** container had not reported `RUNNING` after 120s while
+  the next start was up in 7s. If cold starts turn out to be slower still, the fix is a progress callback, not
+  a bigger number — two minutes of silence is the real problem.
+- `WaydroidResolution.read()` falls back to the remembered file when no session is up, so a size changed
+  outside BotMaker is invisible until the next live read. Fine today; it would matter if anything else wrote
+  those properties.
+
+---
+
 ## 2026-08-08 — Waydroid gets a child command, so it can run on a private display
 
 **Done**

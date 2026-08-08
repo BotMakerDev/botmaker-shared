@@ -100,6 +100,37 @@ public final class WaydroidPlatform implements EmulatorPlatform {
     }
 
     /**
+     * Runs the nested gamescope with {@code WAYLAND_DISPLAY} <em>removed</em> rather than blank.
+     *
+     * <p>A private display sets it to the empty string on purpose — that is what stops a Wayland-native client
+     * escaping to the user's desktop — but gamescope reads the variable before it honours {@code --backend},
+     * and an empty name is not "no Wayland", it is a socket called "". Measured: it dies at startup with
+     * {@code Failed to connect to wayland socket: .}, and with the variable genuinely unset it comes up.
+     * {@code systemd-run --setenv} can only set, never unset, so the removal has to be part of the argv — where
+     * it is also visible in the launch log, which is where anyone debugging this will be looking.
+     *
+     * <p>Nothing escapes as a result: gamescope sets {@code WAYLAND_DISPLAY} to its own socket for the Waydroid
+     * client it then starts, so the only process that ever sees it unset is gamescope itself.
+     */
+    private static final List<String> UNSET_WAYLAND = List.of("env", "-u", "WAYLAND_DISPLAY");
+
+    /**
+     * {@code waydroidCommand} inside a gamescope of our own on the {@code DISPLAY} we are already on — the
+     * complete argv, {@code WAYLAND_DISPLAY} unset and all.
+     *
+     * <p>Two callers need exactly this and must not spell it twice: the nested app launch, and the framebuffer
+     * resize, which has to bring a session up before it can set a property on it. On an X11 desktop
+     * {@code waydroid session start} has no compositor to run under at all — measured: <em>"Wayland socket
+     * '/run/user/1000/wayland-0' doesn't exist; are you running a Wayland compositor?"</em> — so "start a
+     * session and talk to it" is not a thing this stack can do without bringing the compositor itself.
+     */
+    static List<String> nested(List<String> waydroidCommand, WaydroidResolution resolution) {
+        List<String> command = new ArrayList<>(UNSET_WAYLAND);
+        command.addAll(gamescoped(waydroidCommand, resolution, true, true));
+        return List.copyOf(command);
+    }
+
+    /**
      * {@link #gamescoped(List, WaydroidResolution, boolean)}, but stating whether this gamescope is being
      * started <em>inside a private display</em> rather than on the user's desktop.
      *

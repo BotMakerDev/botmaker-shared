@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The {@code launch.target} grammar, which is now parsed once instead of three times (the SDK's
@@ -69,6 +71,22 @@ class LaunchSpecTest {
         assertEquals("com.foo.bar@My", emu.emulatorPackage());
         assertEquals("Instance", emu.emulatorInstance());
         assertNull(emu.runningToken(), "an app inside an emulator shows up nowhere on the host process table");
+    }
+
+    /**
+     * "Runs off the desktop" is a fact about the <em>product</em>, not about the kind: every Android emulator
+     * is reached over ADB after something else started it, except Waydroid, whose UI is a Wayland client we
+     * start under our own gamescope on whatever display we hand it. Asking the kind refused Waydroid a private
+     * display it can in fact use.
+     */
+    @Test
+    void onlyWaydroidAmongEmulatorAppsCanTakeADisplay() {
+        assertFalse(LaunchSpec.parse("emu-app:com.foo@Waydroid").runsOffDesktop());
+        assertFalse(LaunchSpec.parse("emu-app:com.foo@waydroid").runsOffDesktop(), "the name is not case-typed");
+        assertTrue(LaunchSpec.parse("emu-app:com.foo@Pie64").runsOffDesktop());
+        assertTrue(LaunchSpec.parse("emu-app:com.foo@MuMu Player").runsOffDesktop());
+        assertTrue(new LaunchSpec(LaunchKind.EMULATOR_APP, "com.foo").runsOffDesktop(), "no instance, no nesting");
+        assertFalse(LaunchSpec.parse("steam:570").runsOffDesktop());
     }
 
     @Test

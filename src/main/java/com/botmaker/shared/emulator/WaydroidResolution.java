@@ -1,12 +1,17 @@
 package com.botmaker.shared.emulator;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.Executables;
+import com.botmaker.shared.Spawn;
 
+import java.io.File;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Properties;
+import java.util.function.BooleanSupplier;
 
 /**
  * The Android framebuffer size Waydroid boots with, and the only remedy in the Waydroid stack that BotMaker
@@ -55,6 +60,17 @@ public record WaydroidResolution(int width, int height) {
 
     /** Waydroid's host-side config; its {@code [properties]} section is applied to the container at start. */
     static final String SYSTEM_CONFIG_PATH = "/var/lib/waydroid/waydroid.cfg";
+
+    /**
+     * How long a container gets to come up when one is started only to change its framebuffer size.
+     *
+     * <p>Generous because the first start after a reboot is a different animal from every later one: measured
+     * here, a cold container had not reported {@code RUNNING} after 120s, while the next start — same command,
+     * same machine, images and overlays now warm — was up in 7s. A budget tuned to the warm case turns the one
+     * launch a user is most likely to be watching into a spurious failure.
+     */
+    private static final long SESSION_START_MS = 300_000;
+    private static final long POLL_MS = 2_000;
 
     /** Where the last size a running container reported is kept, so a cold start still knows it. */
     static final Path REMEMBERED_FILE =
@@ -211,24 +227,159 @@ public record WaydroidResolution(int width, int height) {
      * package.
      */
     public boolean apply() {
+        return apply(true);
+    }
+
+    /**
+     * {@link #apply()}, saying whether a session should be left running at the new size.
+     *
+     * <p>Pass {@code false} when the caller is about to start its own session — a nested display starts Waydroid
+     * under <em>its</em> gamescope, and there is one container per machine, so a session started here would only
+     * have to be stopped again a moment later. The properties are persistent either way; what the restart buys
+     * is a container already up at the new size, which only the on-desktop path wants.
+     *
+     * @param restart whether to bring the session back up after the properties change, or only take it down so
+     *                the next start — whoever performs it — reads the new value
+     */
+    public boolean apply(boolean restart) {
         if (!WaydroidCli.available()) {
             return false;
         }
         if (this.equals(read())) {
             return true;   // the common path: no restart, nothing user-visible happens
         }
-        if (!WaydroidStatus.read().sessionRunning()) {
-            // prop set goes to the container, so there has to be one to talk to.
-            WaydroidCli.waydroid("session", "start");
-        }
+        // prop set goes to the container, so there has to be a session to talk to — and starting one needs a
+        // Wayland compositor, which an X11 desktop simply doesn't have. Bring our own when nobody else's is
+        // already hosting it.
+        return WaydroidStatus.read().sessionRunning()
+                ? setAndCycle(restart)
+                : underOwnCompositor(() -> setAndCycle(restart));
+    }
+
+    /** Writes both properties and cycles the session so the new values are read. */
+    private boolean setAndCycle(boolean restart) {
         boolean set = WaydroidCli.waydroid("prop", "set", WIDTH_PROP, Integer.toString(width)) != null
                 && WaydroidCli.waydroid("prop", "set", HEIGHT_PROP, Integer.toString(height)) != null;
         if (!set) {
             return false;
         }
+        remember(this);   // a stopped container can't be asked, and this is now what it will boot at
         // Read at session start only — without the cycle the properties are stored and ignored.
         WaydroidCli.waydroid("session", "stop");
-        WaydroidCli.waydroid("session", "start");
+        if (restart) {
+            WaydroidCli.waydroid("session", "start");
+        }
+        return true;
+    }
+
+    /**
+     * Runs {@code action} with a Waydroid session up under a gamescope of our own, and takes both down again.
+     *
+     * <p>This is the piece that makes a size change possible at all on an X11 desktop. The property lives in
+     * the container's own store, reachable only through a running session; a session needs a Wayland
+     * compositor; and the machine this ships to may not have one. gamescope is that compositor — the same one
+     * the launch itself runs Waydroid under, here hosting nothing but {@code waydroid session start}.
+     *
+     * <p>It costs one container boot, which is why {@link #apply} only reaches it when the size actually
+     * disagrees. The session is left <em>stopped</em>: the caller is about to start its own under its own
+     * compositor, and there is one container per machine.
+     */
+    private boolean underOwnCompositor(BooleanSupplier action) {
+        if (!Executables.onPath(Executables.GAMESCOPE)) {
+            Diag.error("[Emulator] waydroid: no session is running and gamescope isn't installed, so there is "
+                    + "no compositor to start one under — the framebuffer size can't be changed from here.");
+            return false;
+        }
+        List<String> command = WaydroidPlatform.nested(List.of(WaydroidCli.WAYDROID, "session", "start"), this);
+        File log = logFile();
+        Process compositor;
+        try {
+            compositor = Spawn.logged(command, log);
+        } catch (Exception e) {
+            Diag.error("[Emulator] waydroid: couldn't start a compositor to resize the container: "
+                    + e.getMessage());
+            return false;
+        }
+        try {
+            if (!awaitSession(compositor)) {
+                Diag.error("[Emulator] waydroid: no container came up to resize"
+                        + (compositor.isAlive() ? " within " + (SESSION_START_MS / 1000) + "s"
+                                                : ": the compositor exited first")
+                        + ", so its framebuffer size is unchanged. Its output: " + log.getAbsolutePath());
+                return false;
+            }
+            return action.getAsBoolean();
+        } finally {
+            compositor.destroy();
+        }
+    }
+
+    /**
+     * Polls until a session is up, {@code compositor} dies, or {@link #SESSION_START_MS} passes.
+     *
+     * <p>Watching the compositor matters as much as the clock: when it fails to start there is nothing left to
+     * bring a session up, and waiting the full budget out turns a two-second failure into a two-minute one that
+     * reports the wrong cause.
+     */
+    private static boolean awaitSession(Process compositor) {
+        long deadline = System.currentTimeMillis() + SESSION_START_MS;
+        while (System.currentTimeMillis() < deadline) {
+            if (WaydroidStatus.read().sessionRunning()) {
+                return true;
+            }
+            if (!compositor.isAlive()) {
+                return false;
+            }
+            try {
+                Thread.sleep(POLL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** Where the resize compositor's output goes; alongside the remembered size, which is also ours. */
+    private static File logFile() {
+        File file = REMEMBERED_FILE.resolveSibling("waydroid-resize.log").toFile();
+        File dir = file.getParentFile();
+        if (dir != null) {
+            //noinspection ResultOfMethodCallIgnored — best-effort; a failed mkdirs surfaces as a failed spawn
+            dir.mkdirs();
+        }
+        return file;
+    }
+
+    /**
+     * Makes the container boot at {@code width}×{@code height} — the size of the display it is about to be
+     * launched into — and says whether that cost a restart.
+     *
+     * <p>This is the step that makes a private display's grab 1:1. gamescope is sized from the display, so
+     * without it the two disagree and Android renders letterboxed inside the compositor: a container still
+     * carrying its out-of-the-box landscape properties booted 1920×1080 inside a 1080×1920 gamescope, which is
+     * measurably a third of the linear resolution the templates were authored at.
+     *
+     * <p>A no-op when the container already agrees (every launch after the first), when Waydroid isn't
+     * installed, or when the size isn't stated. The one restart it does cost is logged, because it is
+     * user-visible — the Android UI disappears and comes back — and unexplained it reads as a crash.
+     */
+    public static boolean useForNextStart(int width, int height) {
+        if (width <= 0 || height <= 0 || !WaydroidCli.available()) {
+            return false;
+        }
+        WaydroidResolution wanted = new WaydroidResolution(width, height);
+        WaydroidResolution current = read();
+        if (wanted.equals(current)) {
+            return false;
+        }
+        Diag.log("[Target] waydroid: " + (current == null ? "unset" : current.toString()) + " → " + wanted
+                + ", restarting the container once so Android boots at that size");
+        if (!wanted.apply(false)) {
+            Diag.error("[Target] waydroid: couldn't set " + WIDTH_PROP + "/" + HEIGHT_PROP + " to " + wanted
+                    + " — Android will boot at its own size and the capture will be letterboxed");
+            return false;
+        }
         return true;
     }
 }

@@ -1,6 +1,7 @@
 package com.botmaker.shared;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -52,6 +53,18 @@ public final class Spawn {
     /** @see #detached(List) */
     public static Process detached(String... command) throws IOException {
         return detached(List.of(command));
+    }
+
+    /**
+     * A long-lived child whose output goes to {@code log} instead of nowhere — for one we <em>wait on</em>
+     * rather than forget, where "it never came up" needs an explanation and {@code DISCARD} has thrown it away.
+     * Both streams share the file, so which message preceded which is itself evidence.
+     */
+    public static Process logged(List<String> command, File log) throws IOException {
+        return new ProcessBuilder(command)
+                .redirectOutput(ProcessBuilder.Redirect.to(log))
+                .redirectErrorStream(true)
+                .start();
     }
 
     /**
