@@ -1,5 +1,9 @@
 package com.botmaker.shared.device;
 
+import com.botmaker.shared.Executables;
+import com.botmaker.shared.tools.Downloads;
+import com.botmaker.shared.tools.ManagedTools;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
@@ -38,6 +42,14 @@ import java.util.regex.Pattern;
  * <p>So: install {@code scrcpy} (any distro package, Homebrew, or the release zip) and this finds it. The cost
  * relative to vendoring is one dependency the user installs; the gain is that the version is whatever they
  * actually have rather than whatever we guessed.
+ *
+ * <h2>Located, downloaded, or absent</h2>
+ *
+ * <p>Since {@link ManagedTools}, "the user installs it" is no longer the only way this file arrives. The
+ * reasoning above is unchanged and is exactly why the download is <b>pinned to a digest</b> rather than
+ * vendored: the file is still not something this build produces, so instead of a blob taken on faith it is a
+ * blob whose bytes are checked against a constant every time. {@link #ensure()} fetches it, and searches for a
+ * real install <em>first</em> — a machine that has scrcpy keeps using its own.
  *
  * <p>Nothing here throws. An absent server is {@link Optional#empty()} and {@link #installHint()}.
  */
@@ -121,9 +133,35 @@ public final class ScrcpyServer {
         return Optional.of(new Located(jar, version));
     }
 
-    /** Whether the fast path can even be attempted here. False means {@link #installHint()}. */
+    /**
+     * Whether the fast path can even be attempted here. False means {@link #installHint()}.
+     *
+     * <p><b>A pure probe: this never downloads.</b> It is called by pickers, status lines and anything drawing
+     * itself, and a fetch triggered by a list rendering is a network request no user asked for. {@link #ensure}
+     * is the one that may spend bytes, and only a capture path calls it.
+     */
     public static boolean available() {
         return locate().isPresent();
+    }
+
+    /**
+     * {@link #locate()}, and failing that, download the pinned server once and look again.
+     *
+     * <p><b>The one automatic download in this stack</b>, and it is scoped to this file for a reason: a bot
+     * running headless has no dialog to click, so the alternative is that a published bot never gets the fast
+     * path on a machine that has never had scrcpy. The file is 0.7 MB, Apache-2.0 and digest-pinned, and
+     * platform-tools — Google-licensed and 9–16 MB — is emphatically <em>not</em> in this category.
+     *
+     * <p>Best-effort by construction: no network leaves this empty and the caller degrades to the ADB floor
+     * exactly as it does today, one screenshot at a time.
+     */
+    public static Optional<Located> ensure() {
+        Optional<Located> found = locate();
+        if (found.isPresent()) {
+            return found;
+        }
+        ManagedTools.installScrcpyServer(Downloads.Progress.IGNORED);
+        return locate();
     }
 
     private static File findJar() {
@@ -166,20 +204,35 @@ public final class ScrcpyServer {
         if (home != null && !home.isBlank()) {
             candidates.add(new File(home + "/.local/share/scrcpy/scrcpy-server"));
         }
+        // Ours last: a real scrcpy install on this machine is the one whose client the user also has, and
+        // matching that pair is worth more than preferring the version we happen to have pinned.
+        candidates.add(ManagedTools.scrcpyServerPath().toFile());
         return candidates;
     }
 
     /**
-     * The version, from — in order — the override property, the {@code scrcpy} binary's own {@code --version},
-     * and finally the file name (release zips ship {@code scrcpy-server-v2.7}).
+     * The version, from — in order — the override property, our own pin when the file <em>is</em> our own, the
+     * {@code scrcpy} binary's {@code --version}, and finally the file name (release zips ship
+     * {@code scrcpy-server-v2.7}).
      *
-     * <p>Asking the binary is the reliable one and is why it is tried before the name: a distro package names
-     * the file {@code scrcpy-server} with no version in it at all.
+     * <p>Asking the binary is the reliable one for a file we did not put there, which is why it beats the name:
+     * a distro package names the file {@code scrcpy-server} with no version in it at all.
+     *
+     * <p><b>But it must not be asked about the managed file.</b> Once BotMaker can download a server, a machine
+     * can hold our pinned {@code scrcpy-server-v4.1} <em>and</em> a client of some other version on
+     * {@code PATH} — and the binary would then answer for a file it has nothing to do with. The server compares
+     * the version string to its own by equality, so that mismatch is not a warning: it is a server that exits
+     * and a socket that never accepts, indistinguishable from a slow phone. For our own file the version is not
+     * detected at all, it is known.
      */
     static Version findVersion(File jar) {
         Version fromProperty = parse(System.getProperty(VERSION_PROPERTY));
         if (fromProperty != null) {
             return fromProperty;
+        }
+        if (jar != null && jar.getAbsolutePath()
+                .equals(ManagedTools.scrcpyServerPath().toFile().getAbsolutePath())) {
+            return parse(ManagedTools.SCRCPY_VERSION);
         }
         Version fromBinary = parse(binaryVersionOutput());
         if (fromBinary != null) {
@@ -231,29 +284,23 @@ public final class ScrcpyServer {
         }
     }
 
-    /** The first {@code scrcpy} on {@code PATH}, or null. Walks {@code PATH} rather than spawning {@code which}. */
+    /** The first {@code scrcpy} on {@code PATH}, or null — wanted for the directory beside it as much as itself. */
     private static File binaryOnPath() {
-        String path = System.getenv("PATH");
-        if (path == null || path.isBlank()) {
-            return null;
-        }
         String name = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
                 ? "scrcpy.exe" : "scrcpy";
-        for (String dir : path.split(File.pathSeparator)) {
-            if (dir.isBlank()) {
-                continue;
-            }
-            File candidate = new File(dir, name);
-            if (candidate.isFile() && candidate.canExecute()) {
-                return candidate;
-            }
-        }
-        return null;
+        return Executables.find(name).orElse(null);
     }
 
-    /** The one-line, user-facing sentence for a machine with no scrcpy. */
+    /**
+     * The one-line, user-facing sentence for a machine with no scrcpy.
+     *
+     * <p>It no longer asks for scrcpy to be installed, because the fast path never needed it: {@code
+     * ScrcpyChannel} speaks the protocol itself and only pushes {@code scrcpy-server} to the device — the client
+     * is never run. What was an application to install is one 0.7 MB file {@link #ensure()} fetches.
+     */
     public static String installHint() {
-        return "install `scrcpy` (2.1 or newer) for continuous video and direct input injection — without it "
-                + "a phone still works over plain ADB, one screenshot and one `input tap` at a time";
+        return "the `scrcpy-server` file (0.7 MB) gives continuous video and direct input injection, and "
+                + "BotMaker downloads it on demand — without it a phone still works over plain ADB, one "
+                + "screenshot and one `input tap` at a time";
     }
 }

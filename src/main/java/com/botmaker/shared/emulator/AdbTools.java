@@ -1,11 +1,16 @@
 package com.botmaker.shared.emulator;
 
+import com.botmaker.shared.Executables;
+import com.botmaker.shared.Spawn;
+import com.botmaker.shared.tools.ManagedTools;
+
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +37,11 @@ import java.util.Optional;
  * <p>So an adb server is an <b>optional capability that unlocks cable and pairing-code wireless</b>, never a
  * requirement — the same shape as {@code SessionBackends.installHint} for a missing gamescope. Nothing here
  * throws, and everything degrades to "no server, no devices".
+ *
+ * <p><b>Optional no longer means the user's problem.</b> The repo still vendors no binary, but {@link
+ * ManagedTools} can fetch Google's pinned one on request, and {@link #binary()} finds it as a last resort — so
+ * the absence above is a download rather than an errand. {@link #pair} is what that unlocks: the pairing-code
+ * route needs the binary and exists nowhere else.
  *
  * <p><b>The device list is read by speaking the server's protocol directly</b> rather than through dadb's own
  * {@code AdbServer.listDadbs()}, which opens a live connection per device. A picker enumerating rows must not
@@ -193,45 +203,51 @@ public final class AdbTools {
     }
 
     /**
-     * The {@code adb} binary, if one can be found — {@code PATH} first, then
-     * {@code $ANDROID_HOME}/{@code $ANDROID_SDK_ROOT}{@code /platform-tools}. Same two places dadb's own
-     * {@code AdbBinary} looks, single-sourced here so the availability answer and the hint agree.
+     * The {@code adb} binary, if one can be found, in the order they should win:
+     *
+     * <ol>
+     *   <li>{@code PATH},</li>
+     *   <li>{@code $ANDROID_HOME}/{@code $ANDROID_SDK_ROOT}{@code /platform-tools} — the same two places dadb's
+     *       own {@code AdbBinary} looks, single-sourced here so the availability answer and the hint agree,</li>
+     *   <li>{@link ManagedTools#adb()}, the copy BotMaker downloaded for itself.</li>
+     * </ol>
+     *
+     * <p><b>The managed copy is deliberately last.</b> A machine with a real Android SDK on it has one adb that
+     * its emulators, its IDE and its server are already agreed on; a second one we fetched must not quietly
+     * displace it — an adb server is a singleton on port 5037 and two binaries fighting over it is a worse
+     * failure than the one this fallback fixes.
      */
     public static Optional<File> binary() {
-        File onPath = fromPath();
-        if (onPath != null) {
-            return Optional.of(onPath);
+        Optional<File> onPath = Executables.find(binaryName());
+        if (onPath.isPresent()) {
+            return onPath;
         }
         String home = System.getenv("ANDROID_HOME") != null
                 ? System.getenv("ANDROID_HOME")
                 : System.getenv("ANDROID_SDK_ROOT");
-        if (home == null || home.isBlank()) {
-            return Optional.empty();
+        if (home != null && !home.isBlank()) {
+            File candidate = new File(new File(home, "platform-tools"), binaryName());
+            if (candidate.isFile()) {
+                return Optional.of(candidate);
+            }
         }
-        File candidate = new File(new File(home, "platform-tools"), binaryName());
-        return candidate.isFile() ? Optional.of(candidate) : Optional.empty();
+        return ManagedTools.adb();
+    }
+
+    /**
+     * Whether the binary in use is the one BotMaker downloaded rather than one the user already had — which is
+     * the difference between "found yours" and "downloaded ours", and the only thing a UI needs in order to
+     * stop offering a download it has already made.
+     */
+    public static boolean managed() {
+        Optional<File> found = binary();
+        Optional<File> ours = ManagedTools.adb();
+        return found.isPresent() && ours.isPresent()
+                && found.get().getAbsolutePath().equals(ours.get().getAbsolutePath());
     }
 
     private static String binaryName() {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "adb.exe" : "adb";
-    }
-
-    /** The first {@code adb} on {@code PATH}, or null. Walks {@code PATH} rather than spawning {@code which}. */
-    private static File fromPath() {
-        String path = System.getenv("PATH");
-        if (path == null || path.isBlank()) {
-            return null;
-        }
-        for (String dir : path.split(File.pathSeparator)) {
-            if (dir.isBlank()) {
-                continue;
-            }
-            File candidate = new File(dir, binaryName());
-            if (candidate.isFile() && candidate.canExecute()) {
-                return candidate;
-            }
-        }
-        return null;
     }
 
     /**
@@ -271,10 +287,88 @@ public final class AdbTools {
         return serverRunning();
     }
 
-    /** The one-line, user-facing sentence for a machine that cannot reach cabled or TLS-wireless devices. */
+    /**
+     * What one {@code adb} command did, in the only two terms a caller has: whether it worked, and what adb
+     * itself said about it.
+     *
+     * <p>The message is passed through rather than replaced because <b>the real reason is always more useful
+     * than our summary of it</b>. "Failed: Wrong password or connection was dropped" tells a user to re-read the
+     * code off their phone; "pairing failed" tells them nothing they could act on.
+     *
+     * @param ok      whether the command achieved what it was asked to do — read out of the output, not out of
+     *                the exit status, because {@code adb connect} exits 0 even when it says it failed
+     * @param message adb's own words, trimmed; a timeout or a missing binary produces our own sentence instead
+     */
+    public record Outcome(boolean ok, String message) {}
+
+    /** Pairing and connecting are both a round trip to a phone that may not be listening; bound the wait. */
+    private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
+
+    /**
+     * <b>Android 11+ wireless pairing</b> — {@code adb pair <host:port> <code>}, with the host, port and
+     * six-digit code from Developer options ▸ Wireless debugging ▸ <i>Pair device with pairing code</i>.
+     *
+     * <p>This is the one route to a phone that never needs a cable at all, and it is only reachable through the
+     * binary: the exchange is TLS-wrapped ({@code STLS}) and dadb implements none of it. Note that the pairing
+     * port is <b>not</b> the debugging port — the dialog shows a different, short-lived one for pairing, and
+     * connecting afterwards uses the one on the wireless-debugging screen itself.
+     *
+     * <p>Pairing is persistent: it is done once per phone, and {@link #connect} is what every later session
+     * needs.
+     */
+    public static Outcome pair(String hostPort, String code) {
+        if (hostPort == null || hostPort.isBlank() || code == null || code.isBlank()) {
+            return new Outcome(false, "a host:port and a pairing code are both required");
+        }
+        return run(List.of("pair", hostPort.trim(), code.trim()), "Successfully paired");
+    }
+
+    /** {@code adb connect <host:port>} — the debugging port, after {@link #pair} or an {@code adb tcpip}. */
+    public static Outcome connect(String hostPort) {
+        if (hostPort == null || hostPort.isBlank()) {
+            return new Outcome(false, "a host:port is required");
+        }
+        // "already connected to" also contains it, and is a success by any measure the caller cares about.
+        return run(List.of("connect", hostPort.trim()), "connected to");
+    }
+
+    /** Runs one adb subcommand and decides success by what it said, since adb's exit status does not say. */
+    private static Outcome run(List<String> arguments, String successMarker) {
+        Optional<File> adb = binary();
+        if (adb.isEmpty()) {
+            return new Outcome(false, installHint());
+        }
+        List<String> command = new ArrayList<>();
+        command.add(adb.get().getAbsolutePath());
+        command.addAll(arguments);
+        try {
+            Spawn.Completed completed = Spawn.run(COMMAND_TIMEOUT, command);
+            if (completed == null) {
+                return new Outcome(false, "adb " + arguments.get(0) + " did not answer within "
+                        + COMMAND_TIMEOUT.toSeconds() + "s");
+            }
+            String message = completed.output().trim();
+            // The daemon's own start-up chatter arrives on the same merged stream; the verdict is the last line.
+            String verdict = message.isEmpty() ? "" : message.substring(message.lastIndexOf('\n') + 1).trim();
+            return new Outcome(message.contains(successMarker),
+                    verdict.isEmpty() ? "adb said nothing" : verdict);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Outcome(false, "interrupted");
+        } catch (Exception e) {
+            return new Outcome(false, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /**
+     * The one-line, user-facing sentence for a machine that cannot reach cabled or TLS-wireless devices.
+     *
+     * <p>It no longer sends the user to find platform-tools themselves: {@link ManagedTools#installPlatformTools}
+     * fetches Google's own pinned build, so the missing piece is a click rather than an errand.
+     */
     public static String installHint() {
-        return "install Android platform-tools (the `adb` command) to use a phone over USB, or Android 11+ "
-                + "wireless debugging — a phone already in `adb tcpip` mode needs none of this and can be "
-                + "added by address";
+        return "Android platform-tools (the `adb` command) is needed for a phone over USB or Android 11+ "
+                + "wireless debugging, and BotMaker can download it for you — a phone already in `adb tcpip` "
+                + "mode needs none of this and can be added by address";
     }
 }

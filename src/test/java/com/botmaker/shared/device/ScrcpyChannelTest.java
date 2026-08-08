@@ -80,6 +80,23 @@ class ScrcpyChannelTest {
         assertTrue(args.contains("video_codec=h264"));
     }
 
+    /**
+     * The screen behaviours, which are the difference between an unattended run that works and one that keeps
+     * matching against black frames — a sleeping screen still encodes, so nothing errors when this is off.
+     * Both keys were checked against the 2.1 option parser, not just the pinned 4.1's.
+     */
+    @Test
+    void theScreenIsKeptAwakeAndWokenByDefault() {
+        List<String> args = ScrcpyChannel.arguments(V2_7, ScrcpyOptions.defaults(), SCID);
+
+        assertTrue(args.contains("stay_awake=true"), "a sleeping screen encodes black, it does not fail");
+        assertTrue(args.contains("power_on=true"));
+
+        List<String> off = ScrcpyChannel.arguments(V2_7, new ScrcpyOptions(8_000_000, 30, false, false), SCID);
+        assertTrue(off.contains("stay_awake=false"));
+        assertTrue(off.contains("power_on=false"));
+    }
+
     @Test
     void theOptionsReachTheCommandLine() {
         List<String> args = ScrcpyChannel.arguments(V2_7, new ScrcpyOptions(8_000_000, 30), SCID);

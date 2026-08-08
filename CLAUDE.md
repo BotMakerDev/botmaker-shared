@@ -109,8 +109,11 @@ Package map:
   `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/`MemuPlatform`/`MuMuPlatform`/`GameloopPlatform`
   (all discover for real), `EmulatorLauncher` (host launch/stop), `WindowsRegistry`, `EmulatorInstance`.
   A **physical phone** is a discovery path here, not a stack of its own — `DevicePlatform` over `AdbTools`
-  (the host adb server, for USB and TLS wireless) and `SavedDevices` (the user's own `host:port` list, in the
-  config dir). `SavedDevices` lives in shared rather than in Studio deliberately: a phone the editor saves has
+  (the host adb server, for USB and TLS wireless; also `pair`/`connect` for Android 11+ wireless debugging,
+  which needs the binary because the exchange is TLS-wrapped and dadb implements no STLS) and `SavedDevices`
+  (the user's own `host:port` list, in the config dir). `AdbTools.binary()` prefers `PATH`, then
+  `$ANDROID_HOME`, then BotMaker's own downloaded copy **last** — an adb server is a singleton on port 5037,
+  so a fetched binary must never displace the one a machine's SDK already agrees on. `SavedDevices` lives in shared rather than in Studio deliberately: a phone the editor saves has
   to resolve for a **generated bot** too, and a list in Studio's preferences would not.
 - `device/` — the **fast path** over the same devices (see below): `ScrcpyDevice` + `ScrcpyChannel`,
   `ScrcpyControl`, `ScrcpyFrames`, `ScrcpyServer`.
@@ -177,9 +180,13 @@ Three things here are load-bearing and easy to undo by accident:
 - **No `max_size`, ever.** `docs/display-pipeline.md` §3: framebuffer, stream and reference resolution are
   *one number*. A scaler between a bot's templates and the pixels it taps fails quietly — matching keeps
   succeeding while every tap lands wrong. `ScrcpyChannelTest` asserts the argument's absence.
-- **The server is located, not vendored** (`ScrcpyServer`, ≥ 2.1, version read from the installed binary and
-  asserted at the handshake). Same shape as `AdbTools` for platform-tools: an optional capability with an
-  `installHint()`. Missing scrcpy or missing `ffmpeg` ⇒ the `emulator/` floor, which needs neither.
+- **The server is located or downloaded, never vendored** (`ScrcpyServer`, ≥ 2.1). A real scrcpy install is
+  searched first and wins; `ensure()` — called only from `ScrcpyDevice.Builder.open()`, the capture path —
+  falls back to fetching `tools/ManagedTools.SCRCPY_SERVER`, which is the **one automatic download** in the
+  stack (a headless bot has no dialog to click). `available()` stays a pure probe and never downloads.
+  **Version detection has one trap:** it is read from the installed *client* binary, so for our own managed
+  file it is taken from the pin instead — a v4.1 file announced as some PATH client's version is a server that
+  exits and a socket that never accepts. Missing `ffmpeg` ⇒ the `emulator/` floor, which needs neither.
 - **Nothing here has spoken to a real server yet.** The tests pin the layout *we transcribed*, not the
   layout a device reads. A gesture landing wrong on hardware is a `ScrcpyControl` transcription bug first.
 

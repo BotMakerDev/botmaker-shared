@@ -8,6 +8,55 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-09 — The managed tools become discoverable, and a bot self-serves (phase 2/3)
+
+Phase 1 could download the two tools; nothing looked for them. This phase makes them findable, adds the
+pairing route the binary unlocks, and turns the screen-sleep footgun into a default.
+
+**Done**
+
+- **`Executables.find(String) → Optional<File>`** — the `PATH` walk, once. `AdbTools` and `ScrcpyServer` each
+  had a private copy of it returning a `File` while `Executables.onPath` returned a boolean from the same
+  loop; `onPath` is now `find(...).isPresent()` and both copies are gone. It also excludes directories, which
+  the hand-rolled copies did by accident and `onPath` did not at all: a directory is executable in the POSIX
+  sense, so a `bin/adb/` would have been returned as the `adb` to run.
+- **`AdbTools.binary()` falls back to `ManagedTools.adb()`** — *last*, after `PATH` and
+  `$ANDROID_HOME`/`$ANDROID_SDK_ROOT`. A machine with a real SDK has one adb its emulators, IDE and server
+  already agree on, and an adb server is a singleton on port 5037; a second binary quietly displacing the
+  first is a worse failure than the missing-adb one this fixes. `AdbTools.managed()` tells "found yours" from
+  "downloaded ours" so a UI can stop offering a download it already made.
+- **`AdbTools.pair(hostPort, code)` / `connect(hostPort)`** — Android 11+ wireless pairing, the one route to a
+  phone that never needs a cable, and reachable only through the binary (the exchange is TLS-wrapped). Both
+  return an `Outcome(ok, message)` carrying **adb's own words**: "Failed: Wrong password or connection was
+  dropped" tells a user to re-read the code off their phone, where "pairing failed" tells them nothing. Note
+  `ok` is read out of the output, not the exit status — `adb connect` exits 0 even when it says it failed.
+- **`ScrcpyServer.ensure()`** — `locate()`, else download the pin once, else empty. Called from
+  `ScrcpyDevice.Builder.open()`, which makes it the one automatic download in the stack: a headless bot has no
+  dialog to click, and the alternative is that a published bot never gets the fast path. `available()` stays a
+  pure probe and never downloads, so a picker drawing itself cannot trigger a fetch.
+- **The version trap the managed copy opens, closed.** A machine can now hold our `scrcpy-server-v4.1` *and* a
+  different-version `scrcpy` client on `PATH`, and `findVersion` asked that client. The server compares
+  version strings by equality, so the mismatch is not a warning — it is a server that exits and a socket that
+  never accepts, indistinguishable from a slow phone. For our own file the version is now *known* (the pin),
+  not detected. Ours is also searched **last**, so a real install still wins.
+- **`ScrcpyOptions` gains `stayAwake` and `powerOn`, both on by default.** A sleeping screen still encodes —
+  as black frames — so nothing errors; matching simply stops finding anything, which is the most common way an
+  unattended run dies. Both keys were checked against the **2.1** option parser, not just the pinned 4.1's,
+  because 2.1 is this stack's floor.
+- Both hints reworded: they now say BotMaker downloads the thing, and `ScrcpyServer.installHint()` no longer
+  asks for an application at all.
+- Tests: 389 in shared (was 377). `ScrcpyChannelTest.noMaxSizeIsEverRequested()` — the §3 sizing invariant —
+  still passes untouched. `ensure()` was also run for real against the GitHub asset: 733,706 bytes fetched
+  into a temp cache and located as version 4.1, with `available()` false beforehand proving the probe is pure.
+
+**Deferred / next**
+
+- Phase 3: `ConnectPhoneDialog` — download buttons with progress for adb and `scrcpy-server`, and a pairing
+  row (`host:port` + the six-digit code), all off the FX thread.
+- Pin maintenance still has no owner (see below).
+
+---
+
 ## 2026-08-09 — BotMaker can install its own adb and scrcpy-server (phase 1/3: the machinery)
 
 `AdbTools.installHint()` and `ScrcpyServer.installHint()` both ended in "go and install something", which is a

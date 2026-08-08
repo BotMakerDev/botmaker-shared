@@ -167,6 +167,10 @@ public final class ScrcpyChannel implements AutoCloseable {
         args.add("video_codec=h264");
         args.add("video_bit_rate=" + options.bitRate());
         args.add("max_fps=" + options.maxFps());
+        // A sleeping screen still encodes — as black frames — so this is the difference between a run that
+        // fails and a run that quietly stops matching. Both keys are in the server's parser from 2.x on.
+        args.add("stay_awake=" + options.stayAwake());
+        args.add("power_on=" + options.powerOn());
         // Note what is *not* here: max_size. See the class javadoc — a scaler here breaks the §3 invariant.
         return args;
     }

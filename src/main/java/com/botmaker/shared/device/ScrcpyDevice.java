@@ -132,7 +132,11 @@ public final class ScrcpyDevice implements AutoCloseable {
             if (device == null) {
                 return null;
             }
-            ScrcpyServer.Located server = ScrcpyServer.locate().orElse(null);
+            // ensure(), not locate(): this is a capture path, so it is the one place allowed to fetch the
+            // server if it is missing. A bot running headless has no dialog to click, and the alternative is
+            // that a published bot never gets the fast path on a machine that has never had scrcpy. Still
+            // best-effort — no network leaves this null and the caller falls back to the ADB floor.
+            ScrcpyServer.Located server = ScrcpyServer.ensure().orElse(null);
             if (server == null) {
                 return null;
             }

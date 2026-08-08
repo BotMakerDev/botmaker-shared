@@ -1,8 +1,16 @@
 package com.botmaker.shared.device;
 
+import com.botmaker.shared.tools.ManagedTools;
+import com.botmaker.shared.tools.UserDirs;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -87,5 +95,61 @@ class ScrcpyServerTest {
         assertTrue(hint.contains("scrcpy"));
         assertTrue(hint.contains("ADB") || hint.contains("adb"),
                 "a user needs to know the phone still works without it");
+    }
+
+    // --- the managed copy ---
+
+    @AfterEach
+    void clearOverrides() {
+        System.clearProperty(UserDirs.CACHE_PROPERTY);
+        System.clearProperty(ScrcpyServer.SERVER_PROPERTY);
+        System.clearProperty(ScrcpyServer.VERSION_PROPERTY);
+    }
+
+    /** BotMaker's own copy is searched — and searched <em>last</em>, so a real install keeps winning. */
+    @Test
+    void theManagedCopyIsTheLastCandidate(@TempDir Path cache) {
+        System.setProperty(UserDirs.CACHE_PROPERTY, cache.toString());
+        List<File> path = ScrcpyServer.searchPath();
+
+        assertEquals(ManagedTools.scrcpyServerPath().toFile(), path.get(path.size() - 1));
+        assertTrue(path.size() > 1, "the managed copy must not be the only place looked");
+    }
+
+    /**
+     * <b>The trap the managed copy opens.</b> A machine can now hold our pinned {@code scrcpy-server-v4.1}
+     * <em>and</em> a client of a different version on {@code PATH} — and asking that client for "the" version
+     * would answer for a file it has nothing to do with. The server compares versions by equality, so the
+     * result is not a warning but a server that exits and a socket that never accepts. For our own file the
+     * version is known, not detected.
+     */
+    @Test
+    void ourOwnFileIsVersionedByThePinAndNotByWhateverClientIsInstalled(@TempDir Path cache) throws Exception {
+        System.setProperty(UserDirs.CACHE_PROPERTY, cache.toString());
+        Path ours = ManagedTools.scrcpyServerPath();
+        Files.createDirectories(ours.getParent());
+        Files.writeString(ours, "dex");
+
+        assertEquals(ManagedTools.SCRCPY_VERSION, ScrcpyServer.findVersion(ours.toFile()).text());
+    }
+
+    /**
+     * {@code ensure()} downloads only what is missing: with a server already located, it must not touch the
+     * network — asserted by the cache directory staying empty, since a fetch would have to land there.
+     */
+    @Test
+    void ensureDoesNotDownloadWhenAServerIsAlreadyThere(@TempDir Path cache, @TempDir Path elsewhere)
+            throws Exception {
+        Path existing = elsewhere.resolve("scrcpy-server");
+        Files.writeString(existing, "dex");
+        System.setProperty(UserDirs.CACHE_PROPERTY, cache.toString());
+        System.setProperty(ScrcpyServer.SERVER_PROPERTY, existing.toString());
+        System.setProperty(ScrcpyServer.VERSION_PROPERTY, "2.7");
+
+        Optional<ScrcpyServer.Located> located = ScrcpyServer.ensure();
+
+        assertTrue(located.isPresent());
+        assertEquals(existing.toFile(), located.get().jar());
+        assertFalse(Files.exists(ManagedTools.scrcpyServerPath()), "nothing should have been fetched");
     }
 }
