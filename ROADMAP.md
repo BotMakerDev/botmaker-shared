@@ -8,6 +8,42 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-08 — gamescope is never launched unsized, so Waydroid's framebuffer is not scaled
+
+**The bug.** A bot against Waydroid reported `Template not found` for every template, while the crop looked
+perfectly accurate in the editor. It was accurate — in the space it was taken in. `pgrep -af gamescope`
+showed `gamescope --expose-wayland waydroid app launch <pkg>`: **no `-W/-H/-w/-h`**. gamescope picked its own
+output size, Android rendered at its own, and the difference was a scaler between the templates and the
+pixels — the exact failure `WaydroidPlatform.gamescoped`'s comment says the class exists to prevent.
+
+**The cause.** `gamescoped` omitted the sizing flags when the resolution was `null`, and the resolution came
+from `WaydroidResolution.read()` → `waydroid prop get`, which talks to the **running container**. The argv is
+only built when there is no container: with the session down the command prints `WayDroid session is stopped`
+and exits 0, which parses as unset. So the size was computed exactly when it could not be read and dropped
+exactly on the path that needed it. Nor is it readable from disk — `persist.*` properties live in the
+container's root-owned `data/property/` store, and `/var/lib/waydroid/waydroid.cfg` pins no size by default.
+
+**Done**
+- **`gamescoped` always emits the flags** (`WaydroidPlatform`), falling back to the new
+  `WaydroidResolution.DEFAULT` (1920×1080). Not a guess: with `persist.waydroid.width` unset Android sizes
+  its framebuffer to the *compositor's* output, so sizing gamescope is what makes the two agree. The
+  `-W/-H == -w/-h` invariant is unchanged and now has its own test.
+- **`WaydroidResolution.read(boolean sessionRunning)`** asks the live container when there is one and
+  **remembers** what it answered in `~/.botmaker/waydroid-resolution.properties`, so the next cold start knows
+  the size a user pinned with `prop set`. It also honours a size an administrator put in the `[properties]`
+  section of `waydroid.cfg` (`fromSystemConfig`, pure and tested). Both callers pass the session state they
+  already knew, so the no-arg `read()` (which probes it) is no longer on any hot path.
+- Tests in `WaydroidPlatformTest` / `WaydroidAppsTest`: the stopped-session banner parses as unreadable, an
+  unknown resolution still produces sizing flags, `-W/-H` always equals `-w/-h`, and the cfg walk ignores
+  those keys outside `[properties]`.
+
+**Deferred / next**
+- `WaydroidDiagnostics.resolutionMismatch` should now report clean; it is still the only place that compares
+  the two sizes after the fact, and nothing yet surfaces "we sized gamescope to the default because nothing
+  could tell us" to the user.
+
+---
+
 ## 2026-08-07 — template matching stops scoring 0.89 on things that are not there
 
 **The bug.** Every `find` came back at 0.89+ whether or not the object was on screen, so no confidence

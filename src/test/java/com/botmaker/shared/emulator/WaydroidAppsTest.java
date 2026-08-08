@@ -88,8 +88,14 @@ class WaydroidAppsTest {
     }
 
     @Test
-    void anUnconfiguredResolutionOmitsTheSizingFlagsRatherThanGuessing() {
-        assertEquals(List.of("gamescope", "--expose-wayland", "waydroid", "app", "launch", "com.x"),
+    void anUnknownResolutionIsStillSized() {
+        // This is the path that actually runs: the size is only read from the container, and this argv is only
+        // built when there is no container. Omitting the flags left gamescope scaling Android's framebuffer
+        // into its own default output — see WaydroidPlatformTest for the full story.
+        String w = Integer.toString(WaydroidResolution.DEFAULT.width());
+        String h = Integer.toString(WaydroidResolution.DEFAULT.height());
+        assertEquals(List.of("gamescope", "-W", w, "-H", h, "-w", w, "-h", h,
+                        "--expose-wayland", "waydroid", "app", "launch", "com.x"),
                 WaydroidApps.launchCommand("com.x", null, true, false));
     }
 

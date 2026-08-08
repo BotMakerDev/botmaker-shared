@@ -53,10 +53,12 @@ class WaydroidPlatformTest {
     }
 
     @Test
-    void anUnsetResolutionIsNullRatherThanAFabricatedDefault() {
-        // `waydroid prop get` prints an empty line for an unset property. Guessing a size here would put a
-        // silent scaler between the templates and the taps — the exact failure the type exists to prevent.
+    void anUnreadableResolutionIsNullRatherThanAFabricatedOne() {
+        // `waydroid prop get` prints an empty line for an unset property — and, with the session down, the
+        // banner below instead. Neither is a size, and neither may be mistaken for one: what the *caller* does
+        // with the null is where the sizing decision belongs (see the gamescope tests).
         assertNull(WaydroidResolution.parse("", ""));
+        assertNull(WaydroidResolution.parse("WayDroid session is stopped", "WayDroid session is stopped"));
         assertNull(WaydroidResolution.parse("1080", ""));
         assertNull(WaydroidResolution.parse("1080", "not-a-number"));
         assertNull(WaydroidResolution.parse("0", "1920"));
@@ -72,9 +74,46 @@ class WaydroidPlatformTest {
     }
 
     @Test
-    void anUnsetResolutionOmitsTheSizingFlagsInsteadOfGuessing() {
-        assertEquals(List.of("gamescope", "--expose-wayland", "waydroid", "show-full-ui"),
+    void anUnknownResolutionIsStillSized() {
+        // The regression this guards: `prop get` cannot answer with the container down, which is the only
+        // moment this argv is built — so "unknown" was the normal case, the flags were dropped, and gamescope
+        // scaled Android's framebuffer into its own default output. Templates cropped from that window then
+        // matched nothing in the ADB frame the bot compares against.
+        String w = Integer.toString(WaydroidResolution.DEFAULT.width());
+        String h = Integer.toString(WaydroidResolution.DEFAULT.height());
+        assertEquals(List.of("gamescope", "-W", w, "-H", h, "-w", w, "-h", h,
+                        "--expose-wayland", "waydroid", "show-full-ui"),
                 WaydroidPlatform.launchCommand(null, true));
+    }
+
+    @Test
+    void theOutputAndInternalSizesAreAlwaysEqual() {
+        // -W/-H differing from -w/-h *is* the scaler. Assert the shape rather than trusting the literal above.
+        List<String> argv = WaydroidPlatform.launchCommand(new WaydroidResolution(1440, 900), true);
+        assertEquals(argv.get(argv.indexOf("-W") + 1), argv.get(argv.indexOf("-w") + 1));
+        assertEquals(argv.get(argv.indexOf("-H") + 1), argv.get(argv.indexOf("-h") + 1));
+    }
+
+    @Test
+    void anAdministratorCanPinTheSizeInWaydroidsOwnConfig() {
+        // Real waydroid.cfg shape, trimmed: the size is optional and absent by default, and the [waydroid]
+        // section carries keys that must not be mistaken for it.
+        String cfg = """
+                [waydroid]
+                arch = x86_64
+                vendor_type = MAINLINE
+
+                [properties]
+                ro.product.cpu.abilist = x86_64,x86
+                persist.waydroid.width = 1080
+                persist.waydroid.height = 1920""";
+        assertEquals(new WaydroidResolution(1080, 1920), WaydroidResolution.fromSystemConfig(cfg));
+        assertNull(WaydroidResolution.fromSystemConfig("[waydroid]\narch = x86_64\n\n[properties]\n"),
+                "the stock file pins no size — that must read as unset, not as a parse failure");
+        assertNull(WaydroidResolution.fromSystemConfig(
+                        "[waydroid]\npersist.waydroid.width = 1080\npersist.waydroid.height = 1920"),
+                "outside [properties] those keys mean nothing to Waydroid, so they must mean nothing here");
+        assertNull(WaydroidResolution.fromSystemConfig(null), "an unreadable file is not an error");
     }
 
     @Test

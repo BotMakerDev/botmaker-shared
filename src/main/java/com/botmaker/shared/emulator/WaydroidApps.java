@@ -166,7 +166,7 @@ public final class WaydroidApps {
             return false;
         }
         boolean sessionRunning = WaydroidStatus.read().sessionRunning();
-        List<String> command = launchCommand(packageName, WaydroidResolution.read(),
+        List<String> command = launchCommand(packageName, WaydroidResolution.read(sessionRunning),
                 WaydroidCli.onPath(Executables.GAMESCOPE), sessionRunning);
         try {
             Diag.log("[Emulator] waydroid: " + String.join(" ", command));

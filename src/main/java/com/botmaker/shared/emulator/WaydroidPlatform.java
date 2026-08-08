@@ -26,10 +26,13 @@ import java.util.List;
  * that was verified working on a live X11/KDE box. That is the launch argv built by {@link #launchCommand}:
  * gamescope is the parent process, not something Waydroid is attached to afterwards.
  *
- * <p>When {@link WaydroidResolution} reports a configured framebuffer size, gamescope is sized to match it, so
- * the Android surface fills the window 1:1 and matched coordinates mean what they say. When it is unset,
- * the sizing flags are <em>omitted</em> rather than guessed — a wrong guess is worse than gamescope's default,
- * because it silently introduces the scale factor this whole arrangement exists to avoid.
+ * <p><b>gamescope is never launched unsized.</b> When {@link WaydroidResolution} reports a framebuffer size,
+ * gamescope is sized to match it, so the Android surface fills the window 1:1 and matched coordinates mean what
+ * they say. When it reports nothing, the flags carry {@link WaydroidResolution#DEFAULT} rather than being
+ * omitted: omitting them lets gamescope pick its own output size, which is a scaler by any other name, and it
+ * is the path that actually ran here — {@code prop get} cannot answer with the container down, which is the
+ * only moment this argv is built. See {@link WaydroidResolution#DEFAULT} for why a chosen size is safe where a
+ * guessed one would not be.
  */
 public final class WaydroidPlatform implements EmulatorPlatform {
 
@@ -56,7 +59,8 @@ public final class WaydroidPlatform implements EmulatorPlatform {
         WaydroidStatus status = WaydroidStatus.read();
         return List.of(new EmulatorInstance(PLATFORM_ID, INSTANCE_NAME, status.ipAddress(),
                 WaydroidStatus.ADB_PORT,
-                launchCommand(WaydroidResolution.read(), WaydroidCli.onPath(Executables.GAMESCOPE)),
+                launchCommand(WaydroidResolution.read(status.sessionRunning()),
+                        WaydroidCli.onPath(Executables.GAMESCOPE)),
                 List.of(WaydroidCli.WAYDROID, "session", "stop")));
     }
 
@@ -89,17 +93,18 @@ public final class WaydroidPlatform implements EmulatorPlatform {
         if (!gamescopeOnPath) {
             return List.copyOf(waydroidCommand);
         }
+        // Unknown is not a reason to omit the flags — an unsized gamescope picks its own output and scales
+        // Android into it, which is exactly the failure the sizing exists to prevent.
+        WaydroidResolution size = resolution != null ? resolution : WaydroidResolution.DEFAULT;
+        String w = Integer.toString(size.width());
+        String h = Integer.toString(size.height());
         List<String> command = new ArrayList<>();
         command.add(Executables.GAMESCOPE);
-        if (resolution != null) {
-            String w = Integer.toString(resolution.width());
-            String h = Integer.toString(resolution.height());
-            // -W/-H is the output window, -w/-h the internal resolution clients see. Equal on purpose: any
-            // difference between them is a scaler, and a scaler between the bot's templates and the pixels it
-            // clicks on is the bug this whole class is arranged to avoid (see GamescopeDisplay.defaultCommand,
-            // which keeps them equal for the same reason).
-            command.addAll(List.of("-W", w, "-H", h, "-w", w, "-h", h));
-        }
+        // -W/-H is the output window, -w/-h the internal resolution clients see. Equal on purpose: any
+        // difference between them is a scaler, and a scaler between the bot's templates and the pixels it
+        // clicks on is the bug this whole class is arranged to avoid (see GamescopeDisplay.defaultCommand,
+        // which keeps them equal for the same reason).
+        command.addAll(List.of("-W", w, "-H", h, "-w", w, "-h", h));
         command.add("--expose-wayland");   // without it gamescope hosts only its Xwayland, and Waydroid is Wayland-only
         command.addAll(waydroidCommand);
         return List.copyOf(command);
