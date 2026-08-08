@@ -8,6 +8,74 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-08 — the encode and the fork, removed from the capture floor (phone target, phase 2/4)
+
+Phase 2 of the phone plan. Phase 1 made a phone *addressable*; this makes the existing, dependency-free
+capture path as fast as ADB verbs allow, and — more importantly — makes the claim that they are the ceiling
+**measurable**.
+
+**Done**
+
+- **`AdbDevice.screencapRaw()`** — `exec:screencap` with no `-p`. The device hands over its framebuffer with
+  no deflate in between: cheaper to produce, and exactly the pixels the compositor had.
+- **`RawFramebuffer`** decodes it. The header is little-endian `width, height, format` plus, **from API 29
+  only**, a colorspace word — and *nothing in the stream says which layout it is*. No magic number, no
+  version field. Rather than infer it from an API level we would have to ask for separately (and that
+  emulators misreport), both layouts are tried: rows are tight, so only the correct header size makes
+  `length == header + w·h·bpp` come out exact. That arithmetic is a stronger validation than a magic number,
+  which is what makes falling back to PNG on a `null` safe rather than hopeful. RGBA/RGBX/BGRA/RGB\_888/RGB\_565
+  are covered; 5- and 6-bit channels are scaled so white reaches `0xFFFFFF` rather than a shifted `0xF8FCF8`.
+- **`screencap()` chooses by `AdbEndpoint.local()`, and this is the part worth not "simplifying" later.**
+  Raw is not unconditionally faster — it skips the encode but moves the whole frame: 1080×2400×4 is
+  **10.4 MB**. On loopback that is free and raw wins outright. Over USB (~30 MB/s in practice) those bytes
+  cost more than the encode they saved, and over Wi-Fi it is not close. Preferring raw everywhere would have
+  made *phones* slower in the name of making *emulators* faster — the exact opposite of why this plan exists.
+  So the endpoint answers it, conservatively: only genuine loopback is local, and a Waydroid `veth` address
+  pays one PNG encode rather than risk 10 MB over a radio. Both paths are lossless, so this is a latency
+  decision with no bearing on what a bot matches against.
+- **`AdbShellSession`** — one `sh` held open across commands instead of a stream OPEN plus a process fork per
+  command. Each command still **waits for a reply**, deliberately: a tap must have landed before the next
+  frame is captured or the bot is racing its own screenshot, and a shell nobody reads eventually wedges when
+  ADB's per-stream window stops advancing. So the command is followed by an echoed **random** marker (a fixed
+  one could appear in output we don't control, truncating one result and corrupting the next) and the reply is
+  read to it. A dead shell is re-opened once, and the command is only re-sent when the *write* failed — proof
+  it never left this machine. When the write succeeded and the read failed we cannot know, so nothing is
+  retried: a duplicated tap is worse than a surfaced error.
+- **`AdbCaptureBenchmark`** — the harness for the numbers below, skipped unless
+  `-Dbotmaker.adb.benchmark=<host:port|serial>` points it at a real device. Asserts geometry (raw and PNG must
+  agree, or a template authored through one mis-clicks through the other), reports sample fidelity, prints
+  medians. Per `docs/display-pipeline.md` §10: geometry asserted, samples reported.
+
+**What this does *not* fix, stated plainly**
+
+`input tap` is a shell script that execs `app_process` — **a JVM start per tap, on the device**. The held
+shell removes the stream setup and the `sh` fork around it and nothing else. That is a real but partial win,
+and it is the concrete reason Phase 3 exists: only a control socket removes the JVM start.
+
+**The measurements — NOT YET TAKEN**
+
+The table below is still the *unmeasured expectation* from the plan. Nothing was reachable when Phase 2
+landed (Waydroid session stopped, no adb server, no `adb` binary on `PATH`), and inventing numbers would
+defeat the entire purpose of recording them. **Fill these in before starting Phase 3** — a floor close enough
+to the fast path is a legitimate reason not to build it.
+
+```
+mvn -pl botmaker-shared test -Dtest=AdbCaptureBenchmark -Dbotmaker.adb.benchmark=192.168.1.5:5555
+```
+
+| Path | Frame (expected) | Tap (expected) | Measured |
+|---|---|---|---|
+| `screencap -p` + `input tap` | ~150–400 ms | ~150–300 ms | — |
+| raw `screencap` + held shell | ~50–150 ms | ~80–150 ms | — |
+| scrcpy video + control socket | continuous, ~35–70 ms | ~1–5 ms | — |
+
+**Deferred / next**
+
+- **Phase 3 — `ScrcpyChannel`**, unchanged from the Phase 1 entry below, and now gated on the table above
+  having real numbers in it.
+
+---
+
 ## 2026-08-08 — a phone is an address, not a host and a port (phone target, phase 1/4)
 
 Phase 1 of the "physical Android phone as a capture target" plan. The stack above `AdbDevice` was already

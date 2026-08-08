@@ -42,6 +42,22 @@ public sealed interface AdbEndpoint permits AdbEndpoint.Tcp, AdbEndpoint.Server 
      */
     boolean reachable();
 
+    /**
+     * Whether bytes read from here stay inside this machine — no NIC, no cable, no radio.
+     *
+     * <p>This exists because <b>the cheapest screen grab is not the same one at both ends of that answer</b>.
+     * A raw {@code screencap} skips the device-side PNG encode but moves the whole framebuffer: 1080×2400×4 is
+     * 10.4 MB. On loopback that is free and the encode was the only cost, so raw wins outright. Over a USB
+     * cable (~30 MB/s in practice) those same 10.4 MB take longer than the encode they saved, and over Wi-Fi
+     * they are not close. So {@link AdbDevice#screencap()} reads this, rather than preferring one path
+     * everywhere and making phones slower in the name of making emulators faster.
+     *
+     * <p>Conservative on purpose: only genuine loopback answers true. A Waydroid container on a {@code veth}
+     * pair at {@code 192.168.240.x} is local in every way that matters here and still answers false — the cost
+     * of that is one PNG encode, whereas guessing wrong the other way is a 10 MB transfer over a radio.
+     */
+    boolean local();
+
     /** An {@code adbd} listening on a TCP port: every desktop emulator, and a phone in {@code adb tcpip} mode. */
     record Tcp(String host, int port) implements AdbEndpoint {
 
@@ -62,6 +78,15 @@ public sealed interface AdbEndpoint permits AdbEndpoint.Tcp, AdbEndpoint.Server 
             } catch (Exception e) {
                 return false;
             }
+        }
+
+        /** Textual, deliberately — resolving the name would turn a per-frame question into a DNS lookup. */
+        @Override
+        public boolean local() {
+            return "localhost".equalsIgnoreCase(host)
+                    || "::1".equals(host)
+                    || "[::1]".equals(host)
+                    || host.startsWith("127.");
         }
     }
 
@@ -92,6 +117,15 @@ public sealed interface AdbEndpoint permits AdbEndpoint.Tcp, AdbEndpoint.Server 
                     return device.online();
                 }
             }
+            return false;
+        }
+
+        /**
+         * False, always. A serial is either a USB cable or a wireless device the adb server holds — never a
+         * path that skips the wire, whatever the serial happens to spell.
+         */
+        @Override
+        public boolean local() {
             return false;
         }
     }

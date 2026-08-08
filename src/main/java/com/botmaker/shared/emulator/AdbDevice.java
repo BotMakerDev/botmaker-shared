@@ -1,6 +1,5 @@
 package com.botmaker.shared.emulator;
 
-import dadb.AdbShellResponse;
 import dadb.AdbStream;
 import dadb.Dadb;
 import dadb.adbserver.AdbServer;
@@ -30,15 +29,23 @@ import javax.imageio.ImageIO;
  * lifecycle to own here. Most desktop emulators run insecure {@code adbd} and accept the connection without a
  * device-side prompt.
  *
- * <p>Screen capture uses {@code exec:screencap -p}: the {@code exec:} ADB service pipes the command's raw
- * stdout with no PTY newline translation, so the PNG bytes arrive intact (the legacy {@code shell:} service
- * corrupts binary). Kept off the hot path otherwise — a capture is a full-frame PNG, which is the throughput
- * ceiling of this transport (see the ROADMAP note on a native-window capture backend).
+ * <p>Screen capture goes through the {@code exec:} ADB service, which pipes a command's raw stdout with no
+ * PTY newline translation (the legacy {@code shell:} service corrupts binary). {@link #screencap()} picks
+ * between a raw framebuffer and a device-encoded PNG based on whether the bytes cross a wire — see
+ * {@link AdbEndpoint#local()}.
+ *
+ * <p><b>This is the floor, not the fast path.</b> Both capture paths still ask the device for a discrete
+ * frame on demand, and the input verbs still exec {@code app_process} per tap, which is the real ceiling here
+ * and is not reachable from the transport. A continuously-streaming channel with direct input injection is
+ * what removes it; see the ROADMAP.
  */
 public final class AdbDevice implements AutoCloseable {
 
     private final AdbEndpoint endpoint;
     private final Dadb dadb;
+
+    /** The held shell — opened on first use, dropped and re-opened when it dies. See {@link AdbShellSession}. */
+    private AdbShellSession session;
 
     private AdbDevice(AdbEndpoint endpoint, Dadb dadb) {
         this.endpoint = endpoint;
@@ -91,8 +98,49 @@ public final class AdbDevice implements AutoCloseable {
         return endpoint.label();
     }
 
-    /** A raw screen grab of the emulator's framebuffer as a {@link BufferedImage}, or {@code null} on failure. */
+    /**
+     * A screen grab of the device's framebuffer as a {@link BufferedImage}, or {@code null} on failure.
+     *
+     * <p>Takes the raw path or the PNG path depending on {@link AdbEndpoint#local()}, which is where the
+     * reasoning lives: raw skips a device-side encode but sends ten times the bytes, so it is the faster
+     * choice on loopback and the slower one over a cable or a radio. Either way the frame that comes back is
+     * the same frame — raw is lossless and so is PNG — so this is a latency decision only, with no bearing on
+     * what a bot matches against.
+     *
+     * <p>Raw also falls back to PNG when the payload does not parse as a framebuffer, so an unexpected device
+     * degrades to the path that has always worked rather than to a black screen.
+     */
     public BufferedImage screencap() {
+        if (endpoint.local()) {
+            BufferedImage raw = screencapRaw();
+            if (raw != null) {
+                return raw;
+            }
+        }
+        return screencapPng();
+    }
+
+    /**
+     * {@code exec:screencap} with no {@code -p}: the framebuffer and its header, with no encode on the device.
+     * {@code null} when the payload is not a framebuffer we can lay out — see {@link RawFramebuffer} for how
+     * that is decided, and why the check is strong enough to fall back on.
+     */
+    public BufferedImage screencapRaw() {
+        try (AdbStream stream = dadb.open("exec:screencap")) {
+            return RawFramebuffer.decode(stream.getSource().readByteArray());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@code exec:screencap -p} — the device deflates the frame before sending it. Slower to produce and much
+     * smaller on the wire, which is the trade {@link #screencap()} makes on everything but loopback.
+     *
+     * <p>The {@code exec:} service pipes raw stdout with no PTY newline translation, so the PNG bytes arrive
+     * intact; the legacy {@code shell:} service corrupts binary.
+     */
+    public BufferedImage screencapPng() {
         try (AdbStream stream = dadb.open("exec:screencap -p")) {
             byte[] png = stream.getSource().readByteArray();
             if (png.length == 0) {
@@ -355,15 +403,52 @@ public final class AdbDevice implements AutoCloseable {
     }
 
     /**
-     * Runs a shell command and returns its stdout. A non-zero exit code is not an error here (it stays a
-     * value on dadb's response) — callers that care can inspect the output.
+     * Runs a shell command and returns its stdout. A non-zero exit code is not an error here — callers that
+     * care can inspect the output.
+     *
+     * <p>Goes through a shell held open across calls ({@link AdbShellSession}) rather than forking one per
+     * command, which is what makes {@link #tap} and friends cost a write and a read instead of a stream setup
+     * and a process spawn. A shell that has died is re-opened once, and the command is only re-sent when it
+     * provably never left this machine — see {@link AdbShellSession.Failed#delivered()}.
      */
     public String shell(String command) {
         try {
-            AdbShellResponse response = dadb.shell(command);
-            return response.getOutput();
+            return session().run(command);
+        } catch (AdbShellSession.Failed e) {
+            dropSession();
+            if (e.delivered()) {
+                throw new RuntimeException("shell '" + command + "' failed on " + endpoint() + ": "
+                        + e.getMessage(), e);
+            }
+            try {
+                return session().run(command);
+            } catch (Exception retry) {
+                throw new RuntimeException("shell '" + command + "' failed on " + endpoint() + ": "
+                        + retry.getMessage(), retry);
+            }
         } catch (Exception e) {
-            throw new RuntimeException("shell '" + command + "' failed on " + endpoint() + ": " + e.getMessage(), e);
+            dropSession();
+            throw new RuntimeException("shell '" + command + "' failed on " + endpoint() + ": "
+                    + e.getMessage(), e);
+        }
+    }
+
+    /** The held shell, opened on first use. */
+    private synchronized AdbShellSession session() throws AdbShellSession.Failed {
+        if (session == null) {
+            try {
+                session = AdbShellSession.open(dadb);
+            } catch (Exception e) {
+                throw new AdbShellSession.Failed("could not open a shell on " + endpoint(), e, false);
+            }
+        }
+        return session;
+    }
+
+    private synchronized void dropSession() {
+        if (session != null) {
+            session.close();
+            session = null;
         }
     }
 
@@ -379,6 +464,7 @@ public final class AdbDevice implements AutoCloseable {
 
     @Override
     public void close() {
+        dropSession();
         try {
             dadb.close();
         } catch (Exception ignored) {

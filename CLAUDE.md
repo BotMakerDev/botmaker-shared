@@ -129,8 +129,12 @@ parameter is a `java.awt.Dimension`, not the SDK's `Size` — the SDK converts o
 
 Discovery + ADB transport for Android emulators, hosted in shared so **both** consumers reach it: the SDK's
 `api.emulator.Emulator` wraps it as a `CaptureSource` at runtime, and a Studio capture picker can screen-grab an
-emulator at edit time. `AdbDevice` is one dadb connection (`dev.mobile:dadb` — pure-JVM ADB, no `adb.exe`;
-`screencap()` via binary-safe `exec:screencap -p`, plus `tap`/`swipe`/`key`/`text`/`startApp`/`shell`). Note the
+emulator at edit time. `AdbDevice` is one dadb connection (`dev.mobile:dadb` — pure-JVM ADB, no `adb.exe`; `screencap()` plus
+`tap`/`swipe`/`key`/`text`/`startApp`/`shell`). Capture has **two** paths and picks between them by
+`AdbEndpoint.local()`: raw `exec:screencap` (no device-side encode, decoded by `RawFramebuffer`) on loopback,
+`exec:screencap -p` everywhere else — raw skips the PNG encode but moves ~10 MB, which is a win on loopback
+and a loss over a cable or a radio. Both are lossless, so it is a latency choice only. `shell()` runs through
+one `sh` held open across calls (`AdbShellSession`, marker-framed) rather than forking one per command. Note the
 Kotlin package is `dadb.*`, not the `dev.mobile` groupId, and dadb self-manages the RSA key (`~/.android/adbkey`).
 Discovery (`Platforms.discoverAll()`) reads each product's local config/registry → `EmulatorInstance`s (name +
 ADB port): `BlueStacksPlatform` (`bluestacks.conf`), `LdPlayerPlatform` (`leidian<i>.config`, port 5555+2·i,

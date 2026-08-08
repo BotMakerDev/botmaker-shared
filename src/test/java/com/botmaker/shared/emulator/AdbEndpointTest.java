@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The address half of the phone work: that a {@link AdbEndpoint.Server} is a first-class address rather than
@@ -58,6 +59,27 @@ class AdbEndpointTest {
     @Test
     void anUnknownSerialIsNotReachable() {
         assertFalse(new AdbEndpoint.Server("no-such-device-serial").reachable());
+    }
+
+    /**
+     * {@code local()} decides which screen grab {@link AdbDevice#screencap()} takes, so a wrong answer is a
+     * 10 MB framebuffer over a radio (or a needless PNG encode). Every emulator this stack discovers is on
+     * loopback and must say so.
+     */
+    @Test
+    void loopbackAddressesAreLocal() {
+        assertTrue(new AdbEndpoint.Tcp("127.0.0.1", 5555).local());
+        assertTrue(new AdbEndpoint.Tcp("localhost", 5555).local());
+        assertTrue(new AdbEndpoint.Tcp("::1", 5555).local());
+        assertTrue(AdbEndpoint.loopback(5555).local());
+    }
+
+    /** A phone is never local, whichever way it is attached — including a serial that spells an address. */
+    @Test
+    void phonesAreNotLocal() {
+        assertFalse(new AdbEndpoint.Tcp("192.168.1.5", 5555).local());
+        assertFalse(new AdbEndpoint.Server("R5CT30ABCDE").local());
+        assertFalse(new AdbEndpoint.Server("127.0.0.1:5555").local());
     }
 
     @Test
