@@ -100,12 +100,21 @@ public final class LaunchIsolation {
      * but the trace described a timeout that never happened — and on a slower ladder it would be a real wait.
      */
     public static List<List<String>> runnableLadder(LaunchSpec spec) {
-        return runnableLadder(spec, Executables::exists);
+        return runnableLadder(spec, 0, 0);
     }
 
-    /** {@link #runnableLadder(LaunchSpec)} against an injected probe. */
-    static List<List<String>> runnableLadder(LaunchSpec spec, Predicate<String> installed) {
-        return LaunchCommands.childLadder(spec).stream()
+    /**
+     * The runnable ladder for a display of a known size — see {@link LaunchCommands#childLadder(LaunchSpec, int,
+     * int)}. Only an emulator app's rung depends on it, and for that one it is not optional: the rung is the
+     * compositor Android will render into.
+     */
+    public static List<List<String>> runnableLadder(LaunchSpec spec, int width, int height) {
+        return runnableLadder(spec, width, height, Executables::exists);
+    }
+
+    /** {@link #runnableLadder(LaunchSpec, int, int)} against an injected probe. */
+    static List<List<String>> runnableLadder(LaunchSpec spec, int width, int height, Predicate<String> installed) {
+        return LaunchCommands.childLadder(spec, width, height).stream()
                 .filter(rung -> !rung.isEmpty() && installed.test(rung.get(0)))
                 .toList();
     }

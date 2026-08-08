@@ -8,6 +8,39 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-08 — Waydroid gets a child command, so it can run on a private display
+
+**Done**
+
+- `LaunchCommands.childLadder` no longer answers "nothing" for every `emu-app:` target. Waydroid's UI is a
+  Wayland client *we* start, so it has a real child command — `gamescope --backend sdl … waydroid app launch
+  <pkg>` — and can therefore be isolated like any game. Every other Android product still ladders to empty:
+  they are reached over ADB after something else started them, so there is nothing to hand a `DISPLAY` to.
+  Decided by instance *name* (`WaydroidPlatform.INSTANCE_NAME`, now public) rather than by discovery, so the
+  common path doesn't spawn `waydroid status` on every launch of every other product.
+- `childLadder(spec, width, height)` / `LaunchIsolation.runnableLadder(spec, width, height)`: an emulator
+  app's rung **is** the compositor Android renders into, so it is sized by the display it opens on, not by the
+  container's own properties. Measured: without this a `-W 1920 -H 1080` gamescope was put on a 1080×1920
+  display, which is exactly the letterboxing the private display exists to remove.
+- `WaydroidPlatform.gamescoped(..., nested)` adds `--backend sdl` for the nested form — what makes gamescope
+  open an ordinary X window on the `DISPLAY` it inherits instead of picking a backend from the ambient session.
+- The nested rung is prefixed `env -u WAYLAND_DISPLAY`. A private display sets that variable to the *empty
+  string* to stop a Wayland client escaping to the desktop, but gamescope reads it before honouring
+  `--backend` and an empty name is a socket called "" — measured, it died with `Failed to connect to wayland
+  socket: .` and came up with the variable genuinely unset. `systemd-run --setenv` cannot unset, so the removal
+  is part of the argv, where it is also visible in the launch log.
+- `capture/GamescopeHost`: recognises a compositor's own output window by title (gamescope sets `WM_CLASS` and
+  `_NET_WM_NAME` to exactly `gamescope`), so a picker can offer what is *inside* it once instead of twice.
+  Exact match, never `contains`. Its javadoc records the trap that costs an afternoon: an `x11grab` of an
+  occluded gamescope window returns the occluder's pixels (measured — it returned the Studio window), because
+  X11 keeps no backing store; only the XComposite path reads the window's own.
+
+**Verified live** — driven through the real `LaunchSpec` → `LaunchIsolation` → `NestedSession` path against a
+running container: ladder `env -u WAYLAND_DISPLAY gamescope --backend sdl -W 1080 -H 1920 …`, attached to
+`gamescope` on `:1`, frame **1080×1920 non-blank**. See `botmaker-session/ROADMAP.md` for the display half.
+
+---
+
 ## 2026-08-08 — gamescope is never launched unsized, so Waydroid's framebuffer is not scaled
 
 **The bug.** A bot against Waydroid reported `Template not found` for every template, while the crop looked

@@ -154,6 +154,45 @@ public final class WaydroidApps {
     }
 
     /**
+     * Runs the nested gamescope with {@code WAYLAND_DISPLAY} <em>removed</em> rather than blank.
+     *
+     * <p>A private display sets it to the empty string on purpose — that is what stops a Wayland-native client
+     * escaping to the user's desktop — but gamescope reads the variable before it honours {@code --backend},
+     * and an empty name is not "no Wayland", it is a socket called "". Measured: it dies at startup with
+     * {@code Failed to connect to wayland socket: .}, and with the variable genuinely unset it comes up.
+     * {@code systemd-run --setenv} can only set, never unset, so the removal has to be part of the argv — where
+     * it is also visible in the launch log, which is where anyone debugging this will be looking.
+     *
+     * <p>Nothing escapes as a result: gamescope sets {@code WAYLAND_DISPLAY} to its own socket for the Waydroid
+     * client it then starts, so the only process that ever sees it unset is gamescope itself.
+     */
+    private static final List<String> UNSET_WAYLAND = List.of("env", "-u", "WAYLAND_DISPLAY");
+
+    /**
+     * The same launch, but for a <b>private display</b>: always wrapped in its own gamescope, whatever the host
+     * session is doing.
+     *
+     * <p>The {@code sessionRunning} shortcut above is exactly wrong here. A bare {@code waydroid app launch}
+     * talks to whichever session is already up — which is the one on the user's desktop, so the app would
+     * appear there and the private display would sit empty until it timed out. A nested launch therefore brings
+     * its <em>own</em> compositor up every time, and the caller stops the host session first (see
+     * {@code NestedSession.stopHostInstance}). There is one container per machine, so these two cannot coexist.
+     *
+     * @param resolution      the framebuffer size to size gamescope to, or {@code null} for the default
+     * @param gamescopeOnPath whether the compositor is available; without it there is no nested form at all
+     */
+    public static List<String> nestedLaunchCommand(String packageName, WaydroidResolution resolution,
+                                                   boolean gamescopeOnPath) {
+        if (packageName == null || packageName.isBlank() || !gamescopeOnPath) {
+            return List.of();
+        }
+        List<String> launch = List.of(WaydroidCli.WAYDROID, "app", "launch", packageName.trim());
+        List<String> command = new ArrayList<>(UNSET_WAYLAND);
+        command.addAll(WaydroidPlatform.gamescoped(launch, resolution, true, true));
+        return List.copyOf(command);
+    }
+
+    /**
      * Starts {@code packageName}, returning whether the command was <em>dispatched</em> — not whether the app
      * is up, which only the caller's own foreground check can say.
      *

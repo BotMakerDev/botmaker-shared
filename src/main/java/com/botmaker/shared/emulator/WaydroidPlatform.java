@@ -38,8 +38,14 @@ public final class WaydroidPlatform implements EmulatorPlatform {
 
     public static final PlatformId PLATFORM_ID = PlatformId.WAYDROID;
 
-    /** There is one container, so there is one name; it is what a bot writes in {@code Emulators.use(…)}. */
-    static final String INSTANCE_NAME = "Waydroid";
+    /**
+     * There is one container, so there is one name; it is what a bot writes in {@code Emulators.use(…)}.
+     *
+     * <p>Public because it is also the <em>identity</em> of the product in a launch target
+     * ({@code emu-app:<pkg>@Waydroid}): {@code LaunchCommands} decides whether a target can run on a private
+     * display by comparing against this, which settles the question without spawning a discovery probe.
+     */
+    public static final String INSTANCE_NAME = "Waydroid";
 
     @Override
     public PlatformId id() {
@@ -90,6 +96,26 @@ public final class WaydroidPlatform implements EmulatorPlatform {
      */
     static List<String> gamescoped(List<String> waydroidCommand, WaydroidResolution resolution,
                                    boolean gamescopeOnPath) {
+        return gamescoped(waydroidCommand, resolution, gamescopeOnPath, false);
+    }
+
+    /**
+     * {@link #gamescoped(List, WaydroidResolution, boolean)}, but stating whether this gamescope is being
+     * started <em>inside a private display</em> rather than on the user's desktop.
+     *
+     * <p>The nested form adds {@code --backend sdl}, which is what makes gamescope open an ordinary X window on
+     * the {@code DISPLAY} it inherits instead of choosing a backend from the ambient session. Unsized and
+     * unmanaged there, that window fills the nested screen exactly — so the Android surface, gamescope's
+     * internal resolution and the display are all one number and the capture is 1:1.
+     *
+     * <p><b>Why this is the only way to see Waydroid's pixels at full resolution.</b> Waydroid is a
+     * Wayland-only client: unlike an X11 game it maps no window a session could capture, so its pixels exist
+     * only in gamescope's composited output. On the desktop that output is a window the window manager resizes
+     * at will — measured here at 1280×661 for a 1080×1920 container, letterboxing the image into roughly a
+     * third of its linear resolution. In a private display there is no window manager to resize it.
+     */
+    static List<String> gamescoped(List<String> waydroidCommand, WaydroidResolution resolution,
+                                   boolean gamescopeOnPath, boolean nested) {
         if (!gamescopeOnPath) {
             return List.copyOf(waydroidCommand);
         }
@@ -100,6 +126,9 @@ public final class WaydroidPlatform implements EmulatorPlatform {
         String h = Integer.toString(size.height());
         List<String> command = new ArrayList<>();
         command.add(Executables.GAMESCOPE);
+        if (nested) {
+            command.addAll(List.of("--backend", "sdl"));
+        }
         // -W/-H is the output window, -w/-h the internal resolution clients see. Equal on purpose: any
         // difference between them is a scaler, and a scaler between the bot's templates and the pixels it
         // clicks on is the bug this whole class is arranged to avoid (see GamescopeDisplay.defaultCommand,
