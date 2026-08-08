@@ -23,14 +23,13 @@ class MuMuPlatformTest {
         assertTrue(zero.isPresent());
         assertEquals(PlatformId.MUMU, zero.get().platformId());
         assertEquals("Main", zero.get().name());
-        assertEquals("127.0.0.1", zero.get().host());
-        assertEquals(16384, zero.get().adbPort());
+        assertEquals("127.0.0.1:16384", zero.get().endpoint());
 
         Optional<EmulatorInstance> one =
                 MuMuPlatform.parseInstance("MuMuPlayer-12.0-1", "{\"playerName\":\"Alt\"}");
         assertTrue(one.isPresent());
         assertEquals("Alt", one.get().name());
-        assertEquals(16416, one.get().adbPort());
+        assertEquals("127.0.0.1:16416", one.get().endpoint());
     }
 
     @Test
@@ -39,7 +38,7 @@ class MuMuPlatformTest {
                 MuMuPlatform.parseInstance("MuMuPlayerGlobal-12.0-2", "{\"playerName\":\"Global\"}");
         assertTrue(inst.isPresent());
         assertEquals("Global", inst.get().name());
-        assertEquals(16448, inst.get().adbPort());
+        assertEquals("127.0.0.1:16448", inst.get().endpoint());
     }
 
     @Test
@@ -47,7 +46,7 @@ class MuMuPlatformTest {
         Optional<EmulatorInstance> inst = MuMuPlatform.parseInstance("MuMuPlayer-12.0-3", "{}");
         assertTrue(inst.isPresent());
         assertEquals("MuMu-3", inst.get().name());
-        assertEquals(16480, inst.get().adbPort());
+        assertEquals("127.0.0.1:16480", inst.get().endpoint());
 
         Optional<EmulatorInstance> noConfig = MuMuPlatform.parseInstance("MuMuPlayer-12.0-0", "");
         assertTrue(noConfig.isPresent());

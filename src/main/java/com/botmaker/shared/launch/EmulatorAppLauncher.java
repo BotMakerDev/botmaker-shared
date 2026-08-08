@@ -363,6 +363,6 @@ public final class EmulatorAppLauncher {
     }
 
     private static AdbDevice connect(EmulatorInstance instance) {
-        return AdbDevice.connect(instance.host(), instance.adbPort());
+        return AdbDevice.connect(instance.adb());
     }
 }

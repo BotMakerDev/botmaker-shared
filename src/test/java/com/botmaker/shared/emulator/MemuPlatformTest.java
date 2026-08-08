@@ -43,8 +43,7 @@ class MemuPlatformTest {
         assertTrue(inst.isPresent());
         assertEquals(PlatformId.MEMU, inst.get().platformId());
         assertEquals("MEmu_1", inst.get().name());          // <Machine name> wins over the folder name
-        assertEquals("127.0.0.1", inst.get().host());
-        assertEquals(21563, inst.get().adbPort());
+        assertEquals("127.0.0.1:21563", inst.get().endpoint());
     }
 
     @Test
@@ -55,7 +54,7 @@ class MemuPlatformTest {
         Optional<EmulatorInstance> inst = MemuPlatform.parseVm("MEmu_2", xml);
 
         assertTrue(inst.isPresent());
-        assertEquals(21573, inst.get().adbPort());
+        assertEquals("127.0.0.1:21573", inst.get().endpoint());
     }
 
     @Test
@@ -68,7 +67,7 @@ class MemuPlatformTest {
 
         assertTrue(inst.isPresent());
         assertEquals("MEmu_5", inst.get().name());
-        assertEquals(21603, inst.get().adbPort());
+        assertEquals("127.0.0.1:21603", inst.get().endpoint());
     }
 
     @Test

@@ -2,8 +2,6 @@ package com.botmaker.shared.emulator;
 
 import com.botmaker.shared.Diag;
 
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -33,29 +31,22 @@ import java.util.function.UnaryOperator;
  */
 public final class EmulatorReadiness {
 
-    /** TCP connect timeout for the port probe — cheaper than an ADB handshake, and run in a poll loop. */
-    private static final int PROBE_TIMEOUT_MS = 300;
-
     /** How long between passes while waiting for an instance to become ready. */
     private static final long POLL_MS = 2_000;
 
     private EmulatorReadiness() {}
 
     /**
-     * Whether something accepts a connection on the instance's ADB port. Cheap enough to run for every row of
-     * a picker, and the right question for a running/stopped dot — but <em>not</em> for "can I drive it",
+     * Whether something is answering at the instance's address. Cheap enough to run for every row of a
+     * picker, and the right question for a running/stopped dot — but <em>not</em> for "can I drive it",
      * which is {@link #isReady}.
+     *
+     * <p>Delegates to {@link AdbEndpoint#reachable()}, because the answer differs by variant: a TCP connect
+     * is meaningless for a device the adb server owns by serial. This method used to <em>be</em> that socket
+     * connect, one of the two copies that motivated moving the probe onto the endpoint.
      */
     public static boolean portOpen(EmulatorInstance instance) {
-        if (instance == null) {
-            return false;
-        }
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(instance.host(), instance.adbPort()), PROBE_TIMEOUT_MS);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return instance != null && instance.reachable();
     }
 
     /**
@@ -70,7 +61,7 @@ public final class EmulatorReadiness {
 
     /** {@link AdbDevice#bootCompleted()} over a short-lived connection; false when we can't ask. */
     private static boolean bootCompleted(EmulatorInstance instance) {
-        try (AdbDevice device = AdbDevice.connect(instance.host(), instance.adbPort())) {
+        try (AdbDevice device = AdbDevice.connect(instance.adb())) {
             return device.bootCompleted();
         } catch (Throwable t) {
             // dadb surfaces some failures as Errors; a readiness probe never propagates either kind.

@@ -3,6 +3,7 @@ package com.botmaker.shared.emulator;
 import dadb.AdbShellResponse;
 import dadb.AdbStream;
 import dadb.Dadb;
+import dadb.adbserver.AdbServer;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -36,13 +37,11 @@ import javax.imageio.ImageIO;
  */
 public final class AdbDevice implements AutoCloseable {
 
-    private final String host;
-    private final int port;
+    private final AdbEndpoint endpoint;
     private final Dadb dadb;
 
-    private AdbDevice(String host, int port, Dadb dadb) {
-        this.host = host;
-        this.port = port;
+    private AdbDevice(AdbEndpoint endpoint, Dadb dadb) {
+        this.endpoint = endpoint;
         this.dadb = dadb;
     }
 
@@ -53,18 +52,43 @@ public final class AdbDevice implements AutoCloseable {
      *                          the emulator's settings, or the port is wrong)
      */
     public static AdbDevice connect(String host, int port) {
+        return connect(new AdbEndpoint.Tcp(host, port));
+    }
+
+    /**
+     * Opens a connection to wherever {@code endpoint} says {@code adbd} is.
+     *
+     * <p>The two variants take genuinely different routes, which is the whole reason
+     * {@link AdbEndpoint} is a closed set: a {@link AdbEndpoint.Tcp} is dialled by dadb itself — no binary, no
+     * server, our own RSA auth — while a {@link AdbEndpoint.Server} is proxied through the host's adb server,
+     * the only thing that can reach a phone over a USB cable.
+     *
+     * @throws RuntimeException if the connection can't be established
+     */
+    public static AdbDevice connect(AdbEndpoint endpoint) {
+        if (endpoint == null) {
+            throw new IllegalArgumentException("endpoint must not be null");
+        }
         try {
-            Dadb dadb = Dadb.create(host, port);
-            return new AdbDevice(host, port, dadb);
+            Dadb dadb = switch (endpoint) {
+                case AdbEndpoint.Tcp tcp -> Dadb.create(tcp.host(), tcp.port());
+                case AdbEndpoint.Server server ->
+                        AdbServer.createDadb("localhost", AdbTools.DEFAULT_PORT,
+                                "host:transport:" + server.serial());
+            };
+            return new AdbDevice(endpoint, dadb);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to connect to emulator ADB at " + host + ":" + port
-                    + ". Is the emulator running with ADB enabled? " + e.getMessage(), e);
+            throw new RuntimeException("Failed to connect to ADB at " + endpoint.label() + ". "
+                    + (endpoint instanceof AdbEndpoint.Server
+                            ? "Is the device still connected and authorized? "
+                            : "Is it running with ADB enabled? ")
+                    + e.getMessage(), e);
         }
     }
 
-    /** {@code 127.0.0.1:<port>} label, for logging / identity. */
+    /** {@code host:port} or the device serial, for logging / identity. */
     public String endpoint() {
-        return host + ":" + port;
+        return endpoint.label();
     }
 
     /** A raw screen grab of the emulator's framebuffer as a {@link BufferedImage}, or {@code null} on failure. */

@@ -1,7 +1,9 @@
 package com.botmaker.shared.emulator;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The registry of known {@link EmulatorPlatform}s and the one place to enumerate instances across all of
@@ -15,14 +17,21 @@ public final class Platforms {
 
     private Platforms() {}
 
-    /** All known platforms, real discovery first. */
+    /**
+     * All known platforms, real discovery first.
+     *
+     * <p>{@link DevicePlatform} is <b>last on purpose</b>: it is the generic "some Android surface over ADB"
+     * catch-all, and {@link #dedupe} lets an earlier, specific product keep an address they both report. See
+     * that method for the case where they do.
+     */
     public static final List<EmulatorPlatform> ALL = List.of(
             new BlueStacksPlatform(),
             new LdPlayerPlatform(),
             new MemuPlatform(),
             new MuMuPlatform(),
             new GameloopPlatform(),
-            new WaydroidPlatform());
+            new WaydroidPlatform(),
+            new DevicePlatform());
 
     /** Every discovered instance across every platform. Never throws; empty if nothing is installed. */
     public static List<EmulatorInstance> discoverAll() {
@@ -53,7 +62,31 @@ public final class Platforms {
                 statuses.add(new PlatformStatus(platform.id(), installed, 0, e.getClass().getSimpleName()));
             }
         }
-        return new DiscoveryReport(List.copyOf(all), List.copyOf(statuses));
+        return new DiscoveryReport(dedupe(all), List.copyOf(statuses));
+    }
+
+    /**
+     * Drops a later instance whose address a earlier one already claimed, keeping the first.
+     *
+     * <p><b>The case this exists for is one phone reported twice.</b> A Waydroid container or a networked
+     * emulator that the user has also run {@code adb connect} against appears both in its own product's
+     * discovery and in the adb server's device list, under the identical {@code ip:port} name — two rows, one
+     * device, and two different {@link EmulatorInstance#identity()} values so nothing downstream could tell.
+     * Order in {@link #ALL} decides the winner, and the specific product is ahead of {@link DevicePlatform}
+     * because it knows things the generic path cannot: the product, and how to launch and stop it.
+     *
+     * <p>Keyed on the address rather than {@code identity()} precisely because the identities differ — the
+     * platform id is part of identity, and disagreeing about the platform is the whole symptom.
+     */
+    static List<EmulatorInstance> dedupe(List<EmulatorInstance> instances) {
+        List<EmulatorInstance> unique = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (EmulatorInstance instance : instances) {
+            if (seen.add(instance.endpoint())) {
+                unique.add(instance);
+            }
+        }
+        return List.copyOf(unique);
     }
 
     /**

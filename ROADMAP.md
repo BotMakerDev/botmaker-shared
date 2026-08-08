@@ -8,6 +8,76 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-08 — a phone is an address, not a host and a port (phone target, phase 1/4)
+
+Phase 1 of the "physical Android phone as a capture target" plan. The stack above `AdbDevice` was already
+generic — `Emulator` is a `CaptureSource`, `EmulatorSource` resolves `emulator:<name>`, `EmulatorSurface` is
+the pilot's seam — so a phone needed a **discovery path, not a stack**. What it also needed was an address
+type that could describe it.
+
+**Done**
+
+- **`AdbEndpoint`**, a sealed `Tcp(host, port)` / `Server(serial)`. This replaces `EmulatorInstance`'s
+  `host` + `adbPort` pair, and it is the "type a closed set" rule doing load-bearing work rather than
+  tidying: **a phone on a USB cable has no TCP address at all.** `adbd` speaks the ADB protocol over a USB
+  endpoint, and the only thing that hands that to a JVM is an adb server, which addresses it by *serial*. As
+  a host and a port such a device could only be written `""`/`0` — and every consumer's socket probe would
+  then report a plugged-in, working phone as "not running". A silent wrong answer is exactly what a closed
+  set is for.
+- **The reachability probe moved onto the endpoint**, because it is the question whose answer differs per
+  variant (a TCP connect settles nothing for a serial) and because it had already been written twice —
+  `EmulatorReadiness.portOpen` and the SDK's `EmulatorRef.running` each carried their own socket. Both now
+  delegate; `EmulatorInstance.reachable()` is the one call.
+- **`AdbTools`** — the host adb server: is one running, what devices does it own, is an `adb` binary findable,
+  and the install hint when neither. The device list is read by **speaking the server's protocol directly**
+  (`host:devices-l`, four-hex framing) rather than through dadb's `AdbServer.listDadbs()`, which opens a live
+  connection per device — a picker must not pay a handshake per row, and enumeration wants the `model`/`usb`
+  fields only `-l` carries. `unauthorized` rows are kept, not dropped: an unaccepted "Allow USB debugging?"
+  prompt is the likeliest reason a device is missing, and a row that says so beats a list that omits it.
+- **`DevicePlatform` + `PlatformId.PHYSICAL`** — discovery from (a) a running adb server's device list minus
+  the `emulator-*` serials the real products own, and (b) addresses stated via `-Dbotmaker.adb.devices` /
+  `BOTMAKER_ADB_DEVICES`. **The network is never scanned**: sweeping a LAN for open 5555s is slow, looks
+  exactly like a port scan, and would attach this stack to whatever else answers.
+- **`Platforms.dedupe`** — one device, two reporters. A Waydroid container the user has also `adb connect`ed
+  appears under its own product *and* in the server's list at the identical `ip:port`, with two different
+  `identity()` values so nothing downstream could notice. Keyed on the address (not identity — the platform
+  id is *part* of identity, and disagreeing about the platform is the symptom), first wins, and
+  `DevicePlatform` is last in `ALL` so the product that knows how to launch and stop it keeps the row.
+
+**Why platform-tools is optional, not required**
+
+`Dadb.create(host, port)` speaks ADB itself with its own RSA auth — no binary, no server — which covers every
+emulator and a phone in legacy `adb tcpip` mode. It cannot cover **USB** (not a socket) or **Android 11+ TLS
+wireless debugging** (dadb 1.2.9 implements no STLS; verified against the jar). So an adb server is an
+optional capability that unlocks those two, surfaced as a hint the way `SessionBackends.installHint` surfaces
+a missing gamescope — never a hard dependency, never a silent failure.
+
+**Rejected, recorded so they aren't re-proposed**
+
+- **Bluetooth.** ADB has no Bluetooth transport at all, and BT bandwidth cannot carry frames regardless.
+- **RDP / VNC.** Nothing serves either from Android: RDP is a Windows protocol (FreeRDP and friends are
+  clients), and Android VNC servers are either root-only framebuffer readers — the same read `screencap`
+  already does, plus a protocol — or `MediaProjection` apps costing a cast prompt, a notification and an
+  installed app. RFB is also the wrong shape: a framebuffer-diff protocol for static desktops, with nothing
+  inter-frame, which is the entire problem a 60 fps surface poses. scrcpy's server runs under the shell UID
+  via `app_process` with none of that, and over USB it is not on the network at all.
+
+**Deferred / next**
+
+- **Phase 2 — the floor and the measurements.** `screencap -p` pays a full PNG encode on the device and
+  `input tap` spawns an `app_process` JVM per tap; those verbs, not the transport, are the ceiling. Raw
+  `screencap` (no `-p`) plus a held shell, then **real numbers recorded here** — which is also what would
+  justify *not* building phase 3.
+- **Phase 3 — `ScrcpyChannel`.** Genymobile/scrcpy's **server** only (Apache-2.0, pinned version asserted at
+  the handshake — the socket layout changed at v2 and a mismatch hangs rather than errors); we write the
+  client protocol. Its video socket is already Annex-B, so the pilot can forward it with **zero encode and
+  zero decode on the host**. Note the §3 sizing invariant applies: **no `max_size`**, or the downscale becomes
+  a scaler between the bot's templates and the pixels it taps.
+- **Phase 4 — Studio's "Connect a phone…" surfaces**, which also replace the `botmaker.adb.devices` knob with
+  real persistence, and settle the labelling (an `EmulatorTarget` will otherwise read "Emulator: Pixel 7").
+
+---
+
 ## 2026-08-08 — a swipe is a telemetry event
 
 **Done**

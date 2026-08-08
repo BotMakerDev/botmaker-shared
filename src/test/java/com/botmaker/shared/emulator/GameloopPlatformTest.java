@@ -22,8 +22,6 @@ class GameloopPlatformTest {
         EmulatorInstance inst = instances.get(0);
         assertEquals(PlatformId.GAMELOOP, inst.platformId());
         assertEquals("Gameloop", inst.name());
-        assertEquals("127.0.0.1", inst.host());
-        assertEquals(5555, inst.adbPort());
         assertEquals("127.0.0.1:5555", inst.endpoint());
     }
 

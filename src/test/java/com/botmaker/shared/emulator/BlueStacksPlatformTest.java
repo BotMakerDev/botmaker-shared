@@ -29,10 +29,9 @@ class BlueStacksPlatformTest {
         assertEquals(2, instances.size());
         assertEquals(PlatformId.BLUESTACKS, instances.get(0).platformId());
         assertEquals("My Main", instances.get(0).name());
-        assertEquals("127.0.0.1", instances.get(0).host());
-        assertEquals(5555, instances.get(0).adbPort());
+        assertEquals("127.0.0.1:5555", instances.get(0).endpoint());
         assertEquals("Second", instances.get(1).name());
-        assertEquals(5565, instances.get(1).adbPort());
+        assertEquals("127.0.0.1:5565", instances.get(1).endpoint());
     }
 
     @Test
@@ -43,7 +42,7 @@ class BlueStacksPlatformTest {
 
         assertEquals(1, instances.size());
         assertEquals("Pie64", instances.get(0).name());
-        assertEquals(5575, instances.get(0).adbPort());
+        assertEquals("127.0.0.1:5575", instances.get(0).endpoint());
     }
 
     @Test

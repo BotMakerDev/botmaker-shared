@@ -51,12 +51,12 @@ class EmulatorReadinessTest {
         // Waiting on the stale snapshot is waiting on nothing.
         EmulatorInstance stale = at(WaydroidStatus.DEFAULT_IP);
         EmulatorInstance live = at("192.168.240.200");
-        Predicate<EmulatorInstance> ready = i -> i.host().equals(live.host());
+        Predicate<EmulatorInstance> ready = i -> i.endpoint().equals(live.endpoint());
 
         Optional<EmulatorInstance> result = EmulatorReadiness.awaitReady(
                 stale, Duration.ofSeconds(30), i -> live, ready);
 
-        assertEquals(live.host(), result.orElseThrow().host());
+        assertEquals(live.endpoint(), result.orElseThrow().endpoint());
     }
 
     @Test

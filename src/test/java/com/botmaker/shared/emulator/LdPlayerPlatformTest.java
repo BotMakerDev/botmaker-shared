@@ -24,13 +24,13 @@ class LdPlayerPlatformTest {
         assertTrue(zero.isPresent());
         assertEquals(PlatformId.LDPLAYER, zero.get().platformId());
         assertEquals("LDPlayer", zero.get().name());
-        assertEquals(5555, zero.get().adbPort());
+        assertEquals("127.0.0.1:5555", zero.get().endpoint());
 
         Optional<EmulatorInstance> two =
                 LdPlayerPlatform.parseInstance("leidian2.config", "{\"statusSettings.playerName\":\"Alt\"}");
         assertTrue(two.isPresent());
         assertEquals("Alt", two.get().name());
-        assertEquals(5559, two.get().adbPort());
+        assertEquals("127.0.0.1:5559", two.get().endpoint());
     }
 
     @Test
@@ -39,7 +39,7 @@ class LdPlayerPlatformTest {
                 "leidian3.config", "{\"statusSettings\":{\"playerName\":\"Nested\"}}");
         assertTrue(inst.isPresent());
         assertEquals("Nested", inst.get().name());
-        assertEquals(5561, inst.get().adbPort());
+        assertEquals("127.0.0.1:5561", inst.get().endpoint());
     }
 
     @Test
@@ -47,7 +47,7 @@ class LdPlayerPlatformTest {
         Optional<EmulatorInstance> inst = LdPlayerPlatform.parseInstance("leidian1.config", "{}");
         assertTrue(inst.isPresent());
         assertEquals("leidian1", inst.get().name());
-        assertEquals(5557, inst.get().adbPort());
+        assertEquals("127.0.0.1:5557", inst.get().endpoint());
     }
 
     @Test
@@ -61,7 +61,7 @@ class LdPlayerPlatformTest {
         Optional<EmulatorInstance> inst = LdPlayerPlatform.parseInstance("leidian0.config", "not json {");
         assertTrue(inst.isPresent());
         assertEquals("leidian0", inst.get().name());
-        assertEquals(5555, inst.get().adbPort());
+        assertEquals("127.0.0.1:5555", inst.get().endpoint());
     }
 
     @Test

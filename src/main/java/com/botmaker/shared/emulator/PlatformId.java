@@ -33,6 +33,16 @@ public enum PlatformId {
      */
     WAYDROID("waydroid", "Waydroid"),
 
+    /**
+     * A physical phone or tablet — the second odd one out, and for the same reason {@link #WAYDROID} is one.
+     * It has no install directory, no per-instance config and nothing to launch; it is discovered from the
+     * host's adb server or from an address the user stated ({@link DevicePlatform}). It belongs in this enum
+     * because a bot cannot tell the difference: it is an Android surface reachable over ADB, and the entire
+     * stack above {@link AdbDevice} — capture source, launch target, pilot route, capture target — already
+     * works on exactly that.
+     */
+    PHYSICAL("device", "Android device"),
+
     /** A product this build doesn't know — e.g. an id from a newer or hand-edited config. */
     UNKNOWN("unknown", "Emulator");
 
