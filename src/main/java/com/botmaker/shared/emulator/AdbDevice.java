@@ -452,6 +452,41 @@ public final class AdbDevice implements AutoCloseable {
         }
     }
 
+    /**
+     * Opens one ADB service and hands back its stream — {@code shell:…} for a long-running process,
+     * {@code localabstract:…} for a socket that process is listening on.
+     *
+     * <p>The caller owns it and <b>must drain it</b>; see {@link DeviceStream}. This is the seam the streaming
+     * channel in {@code com.botmaker.shared.device} is built on, and it is the only reason that package needs
+     * nothing from {@code dadb}.
+     *
+     * @throws IOException when the service cannot be opened — for {@code localabstract:} that is the normal
+     *                     answer while the far end has not started listening yet, so callers retry rather
+     *                     than treat it as fatal
+     */
+    public DeviceStream openService(String service) throws IOException {
+        return new DeviceStream(dadb.open(service));
+    }
+
+    /**
+     * Copies a local file to {@code remotePath} on the device, executable. Returns whether it landed.
+     *
+     * <p>Best-effort like the rest of this class: a device that refuses the write (a locked-down {@code
+     * /data/local/tmp}, a full filesystem) is a {@code false} the caller degrades on, not an exception into a
+     * bring-up path that has a working fallback.
+     */
+    public boolean push(java.io.File file, String remotePath) {
+        if (file == null || !file.isFile()) {
+            return false;
+        }
+        try {
+            dadb.push(file, remotePath, 0755, file.lastModified() / 1000);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Whether the connection still answers a trivial shell round-trip. */
     public boolean isConnected() {
         try {

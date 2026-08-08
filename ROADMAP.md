@@ -8,6 +8,61 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-08 — the fast path: scrcpy video + control socket (phone target, phase 3/4)
+
+Phase 3. Phase 2 made the ADB floor as fast as ADB verbs allow and said plainly what it could not fix: a
+`screencap` per frame, and an `app_process` JVM start per tap. This is the path that removes both — the
+device encodes continuously, and a tap is a 32-byte write to a process already holding the injection binder.
+
+**Done — `com.botmaker.shared.device`**
+
+- **`ScrcpyChannel`** — pushes `scrcpy-server` to `/data/local/tmp`, runs it under `app_process` through a
+  held `shell:` service, then connects twice to its abstract socket (video, then control — the order it
+  accepts them in) and reads the header. Version is asserted at the handshake.
+- **`ScrcpyControl`** — the control messages, pure and static. `INJECT_TOUCH_EVENT` / `INJECT_SCROLL_EVENT` /
+  `INJECT_KEYCODE`, big-endian, exact byte counts.
+- **`ScrcpyFrames`** — a piped `ffmpeg` decode keeping exactly **one** picture, the newest. Not a queue: a
+  frame from a queue is by definition a frame from the past, and a full queue makes every later answer older
+  still. `bgr24` out is byte-identical to `TYPE_3BYTE_BGR`'s backing array, so a frame is one `readFully`.
+- **`ScrcpyDevice`** — the facade, mirroring the `AdbDevice` verbs it replaces so a consumer can hold either
+  behind one interface. `connect(endpoint)` owns its ADB connection; `open(device)` does not.
+- **`AdbDevice.openService` / `push`** and **`DeviceStream`** — the seam that keeps `dadb` types inside
+  `emulator/`.
+- **Studio: `ScrcpyEmulatorSurface`** — the fast path *plus the Phase 2 floor underneath it*, switched per
+  call. `PilotRoutes` now opens this for **every** instance, emulators included: it is an `AdbEmulatorSurface`
+  with something faster tried in front, so it can only be better.
+
+**Two departures from the plan, both deliberate**
+
+- **The server is located, not bundled.** The plan said ship an ~80 KB `scrcpy-server` blob. Nothing in this
+  build can produce or verify one — it is a compiled Android dex and there is no Android toolchain here — so
+  vendoring means a binary in git that `mvn install` takes on faith, plus a hard-coded version string that can
+  drift from it silently (and the failure mode of that drift is the hang this phase was meant to avoid).
+  Instead `ScrcpyServer` finds an installed `scrcpy` (≥ 2.1) and reads its version, exactly the shape
+  `AdbTools` uses for platform-tools and `SessionBackends` for gamescope: an optional capability with an
+  `installHint()`, degrading to the floor.
+- **`ScrcpyEmulatorSurface` holds the floor rather than replacing it.** The fast path can fail at bring-up
+  *and* mid-session (phone sleeps, session drops). Per-call switching, with a 30 s retry, means the worst
+  outcome of the protocol transcription being wrong is Phase 2's performance. Coordinates are identical in
+  both paths — no `max_size`, so both are native resolution — so switching mid-session cannot move a tap.
+
+**Not verified against a device — say so plainly**
+
+Nothing in this repo has yet exchanged a byte with a real scrcpy server: no scrcpy on this machine, no phone
+attached. The 30 new tests assert that the encoder agrees with the layout **we wrote down** (byte counts,
+field offsets, fixed-point scroll, the truncated-header refusal, `max_size` absent). They cannot assert that
+the layout matches a real server. **If a gesture lands in the wrong place on real hardware, suspect the
+transcription in `ScrcpyControl` before the encoding of it.**
+
+**Deferred / next**
+
+- Phase 2's timing table is **still empty** — see the entry below. It gates nothing now that Phase 3 exists,
+  but the comparison it was meant to enable (floor vs. fast path) is exactly what `AdbCaptureBenchmark` plus
+  a `ScrcpyDevice` session would answer, and neither number has been taken.
+- Phase 4: the Studio "Connect a phone…" dialog, replacing the `botmaker.adb.devices` knob with persistence.
+
+---
+
 ## 2026-08-08 — the encode and the fork, removed from the capture floor (phone target, phase 2/4)
 
 Phase 2 of the phone plan. Phase 1 made a phone *addressable*; this makes the existing, dependency-free
