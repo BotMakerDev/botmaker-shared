@@ -114,6 +114,13 @@ public interface User32 extends StdCallLibrary {
     int MOUSEEVENTF_RIGHTUP   = 0x0010;
     int MOUSEEVENTF_MIDDLEDOWN = 0x0020;
     int MOUSEEVENTF_MIDDLEUP   = 0x0040;
+    // The side buttons. Unlike every flag above, these two do not say *which* side button on their own —
+    // the button travels in mouse_event's dwData as XBUTTON1/XBUTTON2, which is why they need a pair of
+    // constants rather than four flags.
+    int MOUSEEVENTF_XDOWN      = 0x0080;
+    int MOUSEEVENTF_XUP        = 0x0100;
+    int XBUTTON1               = 0x0001;
+    int XBUTTON2               = 0x0002;
     int MOUSEEVENTF_WHEEL      = 0x0800;
 
     /* ---------  mouse constants  --------- */

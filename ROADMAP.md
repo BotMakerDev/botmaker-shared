@@ -8,6 +8,22 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-19 — Windows learns the side buttons
+
+**Changed:** `capture/windows/WindowsController.java`, `capture/windows/User32.java`.
+
+**Done**
+
+- **`mouseButton` handles buttons 8 and 9.** Every backend takes X11 button numbering (1/2/3 left/middle/
+  right, 8/9 back/forward) because that is what the SDK's `MouseButton.code()` reports, and the Linux
+  controllers pass it through unchanged. Windows was the one translation, and it had no case for the side
+  buttons: an 8 fell into the `default` branch and clicked *left*, silently, which is worse than not working.
+- **The side buttons translate differently from the rest.** `MOUSEEVENTF_XDOWN`/`XUP` name the direction only;
+  which button it was travels in `mouse_event`'s `dwData` as `XBUTTON1`/`XBUTTON2`. Hence four new constants
+  in `User32` rather than the four flags the pattern above would predict, and an early return in the switch.
+
+---
+
 ## 2026-08-09 — The managed tools become discoverable, and a bot self-serves (phase 2/3)
 
 Phase 1 could download the two tools; nothing looked for them. This phase makes them findable, adds the

@@ -231,6 +231,20 @@ public class WindowsController implements NativeController {
 
     @Override
     public void mouseButton(int button, boolean press) {
+        // Button numbers are X11's throughout the codebase (1/2/3 = left/middle/right, 8/9 = back/forward),
+        // because that is what the SDK's MouseButton.code() reports and what the Linux backends take
+        // unchanged. Windows is the one that has to translate — and the side buttons translate differently
+        // from the rest: one flag for the direction, the button itself in dwData.
+        int xButton = switch (button) {
+            case 8 -> User32.XBUTTON1;
+            case 9 -> User32.XBUTTON2;
+            default -> 0;
+        };
+        if (xButton != 0) {
+            User32.INSTANCE.mouse_event(press ? User32.MOUSEEVENTF_XDOWN : User32.MOUSEEVENTF_XUP,
+                    0, 0, xButton, null);
+            return;
+        }
         int flag = switch (button) {
             case 2 -> press ? User32.MOUSEEVENTF_MIDDLEDOWN : User32.MOUSEEVENTF_MIDDLEUP;
             case 3 -> press ? User32.MOUSEEVENTF_RIGHTDOWN : User32.MOUSEEVENTF_RIGHTUP;
