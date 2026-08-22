@@ -32,9 +32,19 @@ knobs (languages, PSM, upscale, binarize mode, char whitelist, WORD/LINE). `OcrN
 `opencv.OpenCvNative` (it used to call `loadLocally()` itself, one of three independent loaders).
 Tess4J's `Tesseract` is **not** thread-safe, so `OcrEngine` holds it in a `ThreadLocal` (bots are
 multi-threaded). Traineddata (`tessdata_fast` eng/chi_sim/jpn/kor, ~10 MB) is bundled under
-`src/main/resources/tessdata/`; adding a language is data-only. Self-contained on Windows (Tess4J bundles
-the DLLs); Linux needs system `libtesseract`/`liblept` — a genuine native-load failure surfaces as an
+`src/main/resources/tessdata/`; adding a language is data-only. A genuine native-load failure surfaces as an
 `UnsatisfiedLinkError` rather than being swallowed as "no text".
+
+**The OCR natives are bundled on both platforms, and their versions are coupled.** Windows comes from Tess4J
+(`win32-x86-64/`); Linux is staged by `pom.xml` into `linux-x86-64/` from the JavaCPP presets
+(`org.bytedeco:tesseract` + `:leptonica`, 9.4 MB) because Tess4J publishes no Linux native and used to fall
+back to a system `libtesseract` that a generated bot or an AppImage has no way to install. Both directories
+are JNA's `Platform.RESOURCE_PREFIX`, which Tess4J's `LoadLibs` extracts and puts on `jna.library.path` — so
+this is a build concern only and `OcrNative` has no part in it. **Tess4J, lept4j and the two bytedeco pins
+move together**: lept4j's bindings target one exact Leptonica release, and a mismatch throws an
+undefined-symbol `UnsatisfiedLinkError` on the `getWords` path only — at a bot's runtime, never at build
+time. `OcrEngineNativeTest` is the guard (it calls `recognize`, and asserts no `/usr` native was mapped);
+the pom's property block has the version table.
 
 ## Contract stability
 

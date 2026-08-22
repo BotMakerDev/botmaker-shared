@@ -8,6 +8,55 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-22 — OCR stops depending on the host: the Linux natives are bundled
+
+**Changed:** `pom.xml`, `ocr/OcrNative.java` (javadoc), `CLAUDE.md`,
+`src/test/java/com/botmaker/shared/ocr/OcrEngineNativeTest.java` (new).
+
+**Done**
+
+- **Linux Tesseract is now shipped, not borrowed.** Tess4J publishes Windows DLLs only; on Linux it
+  `dlopen`s whatever `libtesseract` the machine has, so `api.vision.Text` threw `UnsatisfiedLinkError`
+  anywhere one wasn't installed. Studio's `.rpm`/`.deb` had papered over this by declaring a package
+  dependency, but the **AppImage, the tarball and every generated bot** have no package manager to declare
+  anything to. The build now stages `libtesseract.so` + `libleptonica.so.6` (9.4 MB) into the jar.
+- **The natives come from the JavaCPP presets, and that choice is the whole point.** Fedora's
+  `libtesseract` links `libcurl`, so its `ldd` closure is 46 libraries / 29 MB — openssl, krb5, ldap, sasl,
+  ssh, none of which OCR uses. `org.bytedeco:tesseract` needs only `libleptonica.so.6`, `libstdc++`, `libm`,
+  `libgcc_s` and `libc` (image codecs are statically linked into leptonica) and carries `RUNPATH $ORIGIN/`,
+  so tesseract finds leptonica beside itself with no `LD_LIBRARY_PATH`.
+- **No Java code participates.** `linux-x86-64` is JNA's `Platform.RESOURCE_PREFIX`; Tess4J's `LoadLibs`
+  already extracts that prefix to a temp dir and prepends it to `jna.library.path` — the same mechanism that
+  makes Windows self-contained via `win32-x86-64/`. `OcrNative` and `OcrEngine` are untouched.
+- **Both filenames were established by testing, and both are load-bearing.** Tesseract is renamed to the
+  *unversioned* `libtesseract.so`: left as `libtesseract.so.5.5`, JNA's lookup skipped it and loaded
+  `/usr/lib64/libtesseract.so.5.5.3` instead — the system copy silently won, defeating the bundle on exactly
+  the machines where you'd never notice. Leptonica *keeps* `libleptonica.so.6`, because that is the literal
+  `NEEDED` string inside `libtesseract.so`; adding an unversioned copy as well maps leptonica twice.
+- **The three versions are coupled, and the coupling is invisible to the compiler.** Tess4J pins a lept4j
+  whose generated bindings target one exact Leptonica release. Pairing Tess4J 5.19.0 (lept4j 1.24.0 →
+  Leptonica 1.87.0) with Leptonica 1.85.0 was tested and dies on `pixFindBaselinesGen` out of
+  `Leptonica1.<clinit>` — at a bot's runtime, on the `getWords` path only. The pom pins carry the version
+  table; `OcrEngineNativeTest` is the guard, and it calls `recognize()` precisely because that is the only
+  API that reaches those bindings.
+- **That test also asserts the bundle actually wins.** A dev machine with `tesseract-libs` installed will
+  OCR happily through the system library, so a green recognition result proves nothing on its own; the test
+  reads `/proc/self/maps` and fails if any `/usr` or `/lib` OCR native is mapped. Measured after the change:
+  only `/tmp/tess4j/linux-x86-64/libtesseract.so` and `.../libleptonica.so.6` are mapped, and only once each
+  (lept4j reuses the copy Tess4J already staged rather than double-mapping).
+
+**Deferred / next**
+
+- **A session-only consumer now pays 9.4 MB it cannot use.** `botmaker-session` excludes shared's Tess4J
+  *dependency*, but the natives ride in shared's own jar, which it does not exclude. Splitting them into a
+  `botmaker-shared-natives` artifact would fix it; not worth a module until someone consumes session
+  standalone and complains.
+- **Only `linux-x86_64` is bundled.** ARM Linux has no usable build anyway (Phase 1 dropped the ARM OpenCV
+  natives), so this changes nothing today — but if ARM is ever targeted, bytedeco publishes `linux-arm64`
+  for both artifacts and the staging block takes a second `artifactItem`.
+
+---
+
 ## 2026-08-19 — Windows learns the side buttons
 
 **Changed:** `capture/windows/WindowsController.java`, `capture/windows/User32.java`.
