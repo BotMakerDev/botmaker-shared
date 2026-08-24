@@ -8,6 +8,23 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-24 — a released tag stops being a bare ref: `CHANGELOG.md` (phase 5 of 12)
+
+**Changed:** `CHANGELOG.md` (new).
+
+**Done**
+
+- **A few bullets per released version**, seeded from each tag's own commits. shared has no release job of
+  its own — its tags exist to warm JitPack — so until now a published version said nothing to anyone
+  reading it later. The umbrella `release.sh` now **refuses a `--shared` release with no section for the
+  version being cut** (`check_changelog`, decide pass, no network) and publishes the section as the tag's
+  GitHub Release body (`publish_release`, `gh release create`).
+- The file is written for whoever is debugging a capture, a launch or an OCR result. No bot names shared
+  directly — it reaches one as a transitive dependency of the SDK — so it is deliberately not a bot
+  author's document, and unlike the SDK's changelog it is **not** copied into the jar.
+
+---
+
 ## 2026-08-22 — OCR stops depending on the host: the Linux natives are bundled
 
 **Changed:** `pom.xml`, `ocr/OcrNative.java` (javadoc), `CLAUDE.md`,
