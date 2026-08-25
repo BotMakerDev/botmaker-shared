@@ -21,6 +21,8 @@ import java.util.Properties;
  *
  * <p>Recognised keys:
  * <ul>
+ *   <li>{@link #KEY_SCHEMA_VERSION} — the file's shape, written by Studio and read by nothing at runtime;
+ *       absent means 0</li>
  *   <li>{@link #KEY_CAPTURE_SOURCE} — {@code desktop} | {@code monitor:<index>} |
  *       {@code window:<titleSubstring>} | {@code emulator:<instanceName>}; the four forms and their prefixes
  *       are {@link CaptureSourceKind}</li>
@@ -46,6 +48,23 @@ public final class ProjectProperties {
 
     /** Classpath location of the same file inside a built bot, as the SDK reads it back. */
     public static final String RESOURCE = "/" + FILE_NAME;
+
+    /**
+     * The shape this file is in, so Studio can migrate it forward instead of sniffing at it. Absent means
+     * <b>0</b>, which is every project that existed before the key did — nothing is stranded by its absence.
+     *
+     * <p>Declared here, with the rest of the file's keys, because this file's key set is shared property: the
+     * rule the class javadoc states ("two hand-kept copies of a key set do not stay identical") applies to the
+     * version marker as much as to {@link #KEY_CAPTURE_SOURCE}. <b>Nothing in shared or the SDK reads it</b> —
+     * a bot takes the file as it finds it, and every key is independently optional — but a bot's runtime is
+     * exactly why the number has to be visible from this side: it is the marker that says which of two
+     * meanings a future key carries.
+     *
+     * <p>The <em>value</em> of "current" is Studio's, not shared's: it is the number of migration steps
+     * Studio knows for this file, which shared has no way to count. See
+     * {@code com.botmaker.studio.project.migration.SchemaFile}.
+     */
+    public static final String KEY_SCHEMA_VERSION = "project.schemaVersion";
 
     public static final String KEY_CAPTURE_SOURCE = "capture.source";
     public static final String KEY_CAPTURE_WIDTH = "capture.width";

@@ -8,6 +8,25 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-25 — `botmaker-project.properties` learns to say what shape it is in
+
+**Done**
+
+- **`ProjectProperties.KEY_SCHEMA_VERSION` (`project.schemaVersion`).** Shared owns this file's key set — it
+  is the runtime contract the SDK parses inside the running bot — so the marker Studio migrates against is
+  declared here rather than invented at the reader. **Absent means 0**, which is every project that exists
+  today: nothing is stranded by the key's absence, and the numbering starts where it does for that reason.
+- The *value* of "current" deliberately stays Studio's: it is the number of migration steps Studio knows for
+  this file, which shared has no way to count and no business asserting. The javadoc points at
+  `com.botmaker.studio.project.migration.SchemaFile` so the next reader does not add a constant here to match.
+
+**Deferred / next**
+
+- Nothing in shared reads the key yet, and nothing should until the SDK has a reason to care what shape the
+  file is in. Today the answer only changes what *Studio* does before the bot ever runs.
+
+---
+
 ## 2026-08-24 — a released tag stops being a bare ref: `CHANGELOG.md` (phase 5 of 12)
 
 **Changed:** `CHANGELOG.md` (new).
