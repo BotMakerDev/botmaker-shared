@@ -17,14 +17,17 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Enforces the exclusion contract that {@code botmaker-session}'s pom asserts and nothing verifies:
- * <b>no class under {@code capture/} or {@code launch/} may reference an {@code org.opencv} or
- * {@code net.sourceforge.tess4j} type.</b>
+ * <b>no class under {@code capture/} or {@code launch/} may reference an {@code org.opencv} type.</b>
  *
- * <p>session depends on shared with OpenCV and Tess4J <em>excluded</em>, so a standalone session consumer
- * does not download an OCR engine to open a nested X server. That exclusion is safe only while the packages
- * session actually reaches stay free of those types. A single import — the kind a refactor adds without
- * thinking — turns into a {@link NoClassDefFoundError} at a consumer's <em>runtime</em>, never at build time,
- * which is the worst place to find out.
+ * <p>session depends on shared with OpenCV <em>excluded</em>, so a standalone session consumer does not
+ * download ~100 MB of vision natives to open a nested X server. That exclusion is safe only while the
+ * packages session actually reaches stay free of those types. A single import — the kind a refactor adds
+ * without thinking — turns into a {@link NoClassDefFoundError} at a consumer's <em>runtime</em>, never at
+ * build time, which is the worst place to find out.
+ *
+ * <p>Tess4J was banned here too until SDK 1.2.0 moved {@code com.botmaker.shared.ocr} into
+ * {@code botmaker-sdk}: shared no longer has an OCR engine on its classpath, so a reference to one would
+ * not compile and there is nothing left for this test to catch.
  *
  * <p>The check reads compiled class files' constant pools rather than sources, so it sees the types the JVM
  * would actually try to resolve: a field type, a return type, a cast and a caught exception all land there
@@ -32,15 +35,15 @@ import static org.junit.jupiter.api.Assertions.fail;
  */
 class SharedNoOcvLeakTest {
 
-    /** Packages session resolves. {@code ocr/} and {@code opencv/} are excluded by design — they are the engines. */
+    /** Packages session resolves. {@code opencv/} is excluded by design — it is the engine. */
     private static final List<String> SESSION_VISIBLE = List.of(
             "com/botmaker/shared/capture",
             "com/botmaker/shared/launch");
 
-    private static final List<String> BANNED = List.of("org/opencv/", "net/sourceforge/tess4j/");
+    private static final List<String> BANNED = List.of("org/opencv/");
 
     @Test
-    void neitherCaptureNorLaunchReferencesTheExcludedEngines() throws IOException {
+    void neitherCaptureNorLaunchReferencesTheExcludedEngine() throws IOException {
         Path classes = Paths.get("target", "classes");
         assertTrue(Files.isDirectory(classes), "run `mvn test-compile` first — " + classes.toAbsolutePath() + " is missing");
 
@@ -65,7 +68,7 @@ class SharedNoOcvLeakTest {
 
         assertTrue(scanned > 0, "scanned no classes — the package layout moved and this test stopped checking anything");
         if (!violations.isEmpty()) {
-            fail("botmaker-session excludes OpenCV and Tess4J from this module, so these references "
+            fail("botmaker-session excludes OpenCV from this module, so these references "
                     + "would be NoClassDefFoundError at a session consumer's runtime:\n  "
                     + String.join("\n  ", violations));
         }

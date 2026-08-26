@@ -2,49 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**BotMaker-shared** is the cross-platform capability layer shared by **both** the BotMaker SDK
-(runtime, `../botmaker-sdk`) and the BotMaker Studio (editor, `../botmaker-studio`) — so Studio never has to
-depend on the SDK. Its original charter is native window plumbing (enumerate, capture, focus, move, resize,
-drive input); it also now hosts **OCR** (`com.botmaker.shared.ocr`), the first capability both consumers
-share above the window layer, the **Android-emulator** capability (`com.botmaker.shared.emulator`), the
-**launch stack** (`com.botmaker.shared.launch`), **template/colour matching** (`com.botmaker.shared.opencv`),
-**full-desktop capture** and the **project properties file** (`com.botmaker.shared.config`).
+**BotMaker-shared** is the **host platform layer**: the cross-platform capabilities the Studio host and every
+plugin it loads may consume, the SDK included. That framing matters more than "code two modules happen to
+share" — the SDK is *a consumer* of shared, not its co-owner, and a future plugin that wants to enumerate a
+window must be able to reach one without taking a dependency on `botmaker-sdk`. Its charter is native window
+plumbing (enumerate, capture, focus, move, resize, drive input), the **Android-emulator** capability
+(`com.botmaker.shared.emulator`), the **launch stack** (`com.botmaker.shared.launch`), **template/colour
+matching** (`com.botmaker.shared.opencv`), **full-desktop capture** and the **project properties file**
+(`com.botmaker.shared.config`).
+
+**OCR is no longer here.** `com.botmaker.shared.ocr` moved to `botmaker-sdk` in SDK 1.2.0 — split by the
+`api` boundary rule into `com.botmaker.sdk.api.vision` (`OcrOptions`, `OcrLanguage`, `TextResult`) and
+`com.botmaker.sdk.internal.ocr` (`OcrEngine`, `OcrNative`, `OcrPreprocessor`), with `tessdata` and the
+Tess4J/bytedeco pins. It had exactly one consumer in six repos (the SDK's `api.vision.Text`), and leaving it
+here meant an SDK facade putting a shared — freely breakable, unversioned — type in a bot's hands. The
+version-pinning note and the native-staging build passes moved with it: read them in `../botmaker-sdk/pom.xml`.
 
 **Private display sessions are no longer here.** `com.botmaker.shared.session` moved to its own module and
 repo, [`botmaker-session`](../botmaker-session/CLAUDE.md), in 2026-07; it depends on this module (and is the
 only BotMaker dependency it has). The **launch stack stayed** — including `LaunchIsolation`,
 `HostLauncherProbe` and `ProcessOrigin`, which read as session code but cannot leave, because `RunningProbe`
 uses `ProcessOrigin` and moving it would invert the dependency. Note that `botmaker-session` excludes this
-module's OpenCV and Tess4J when it depends on us, so **do not make `capture/` or `launch/` link an
-`org.opencv` or `net.sourceforge.tess4j` type** — that would break a standalone session consumer at runtime.
+module's OpenCV when it depends on us, so **do not make `capture/` or `launch/` link an `org.opencv` type**
+— that would break a standalone session consumer at runtime. (`SharedNoOcvLeakTest` is the guard. Its Tess4J
+half went with the OCR move: there is no OCR engine on this module's classpath to leak.)
 
 It depends on
-**JNA** (window/input), **OpenCV** (`org.openpnp:opencv`) + **Tess4J** (`net.sourceforge.tess4j`) for OCR and
-matching, and **dadb** (`dev.mobile:dadb`, pure-JVM ADB) for the emulator transport. No JavaFX.
-
-## OCR (`com.botmaker.shared.ocr`)
-
-On-screen text recognition, consumed today by the SDK's `api.vision.Text` bot facade (Studio editor
-features later). `OcrEngine` is the core: `text(img)` for a whole-image string and `recognize(img, opts)`
-for per-word/line `TextResult`s (source-local boxes + confidence). `OcrPreprocessor` runs the OpenCV pass
-(grayscale → upscale → binarize → optional invert) that makes game fonts viable; `OcrOptions` are the tuning
-knobs (languages, PSM, upscale, binarize mode, char whitelist, WORD/LINE). `OcrNative` extracts the bundled `tessdata` to a temp dir and delegates the OpenCV load to
-`opencv.OpenCvNative` (it used to call `loadLocally()` itself, one of three independent loaders).
-Tess4J's `Tesseract` is **not** thread-safe, so `OcrEngine` holds it in a `ThreadLocal` (bots are
-multi-threaded). Traineddata (`tessdata_fast` eng/chi_sim/jpn/kor, ~10 MB) is bundled under
-`src/main/resources/tessdata/`; adding a language is data-only. A genuine native-load failure surfaces as an
-`UnsatisfiedLinkError` rather than being swallowed as "no text".
-
-**The OCR natives are bundled on both platforms, and their versions are coupled.** Windows comes from Tess4J
-(`win32-x86-64/`); Linux is staged by `pom.xml` into `linux-x86-64/` from the JavaCPP presets
-(`org.bytedeco:tesseract` + `:leptonica`, 9.4 MB) because Tess4J publishes no Linux native and used to fall
-back to a system `libtesseract` that a generated bot or an AppImage has no way to install. Both directories
-are JNA's `Platform.RESOURCE_PREFIX`, which Tess4J's `LoadLibs` extracts and puts on `jna.library.path` — so
-this is a build concern only and `OcrNative` has no part in it. **Tess4J, lept4j and the two bytedeco pins
-move together**: lept4j's bindings target one exact Leptonica release, and a mismatch throws an
-undefined-symbol `UnsatisfiedLinkError` on the `getWords` path only — at a bot's runtime, never at build
-time. `OcrEngineNativeTest` is the guard (it calls `recognize`, and asserts no `/usr` native was mapped);
-the pom's property block has the version table.
+**JNA** (window/input), **OpenCV** (`org.openpnp:opencv`) for template and colour matching, and **dadb**
+(`dev.mobile:dadb`, pure-JVM ADB) for the emulator transport. No JavaFX, and since SDK 1.2.0 no Tess4J.
 
 ## Contract stability
 
@@ -107,7 +92,6 @@ Package map:
 - `capture/windows/` — JNA Windows backend: `User32`/`GDI32` bindings, `WindowsController`, `WindowFinder`,
   `WindowInfo`, `WindowCapture`, `Clicker`.
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.
-- `ocr/` — OCR core: `OcrEngine`, `OcrPreprocessor`, `OcrOptions`, `TextResult`, `OcrNative` (see OCR above).
 - `opencv/` — matching engines: `OpencvManager` (template matching), `ColorMatcher` (CIELAB ΔE clusters),
   `ResolutionScaler`, the raw results `RawMatch`/`RawColorMatch`, and `OpenCvNative` — **the** process-wide
   OpenCV loader (see below).
@@ -144,7 +128,9 @@ SDK's `Pixel`) live here because the SDK matches at runtime and Studio's Magic W
 **Loading the native goes through `OpenCvNative.ensureLoaded()` and nowhere else.** There were three copies of
 that loader — the SDK's, Studio's (whose javadoc admitted it mirrored the SDK's) and one inside `OcrNative` —
 each with its own `loaded` flag, so nothing stopped the same process from extracting the native repeatedly.
-Call it from a `static {}` block on any class that links an `org.opencv` type.
+Call it from a `static {}` block on any class that links an `org.opencv` type. `OcrNative` now lives in the
+SDK (`com.botmaker.sdk.internal.ocr`) and still delegates here, by fully-qualified name — which is the reason
+the OCR move left `opencv/` behind: it has two consumers and the OCR stack had one.
 
 **shared returns raw records; the consumer maps them to its own value types.** `RawMatch`/`RawColorMatch`
 carry plain ints and a score and are named "raw" for exactly this reason; the SDK's `vision` layer maps them

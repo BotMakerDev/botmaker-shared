@@ -8,6 +8,41 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-26 — OCR leaves shared for the SDK (plugin platform, phase 8b)
+
+**Done**
+
+- **`com.botmaker.shared.ocr` is deleted**, moved whole into `botmaker-sdk` and split by the SDK's `api`
+  boundary rule (*can a bot write the name down?*): `OcrOptions`, `OcrLanguage`, `TextResult` →
+  `com.botmaker.sdk.api.vision` (`@Since("1.2.0")`, versioned surface); `OcrEngine`, `OcrNative`,
+  `OcrPreprocessor` → `com.botmaker.sdk.internal.ocr`. `src/main/resources/tessdata/` (~10.5 MB, four
+  traineddata files) and the three OCR tests moved with them.
+- **Why here and why only this package.** shared is the *host platform layer* — what the Studio host and any
+  plugin may consume — and OCR was never that: 445 lines with zero coupling in either direction inside
+  shared, and exactly **one** consumer file across six repos, the SDK's `api.vision.Text`. Leaving it here
+  meant an SDK facade handing a bot a freely-breakable, unversioned shared type — the last knowingly-open
+  leak from the 1.1.0 API audit. `opencv/` deliberately stays: `ColorMatcher`/`OpenCvNative`/`RawColorMatch`
+  have two consumers.
+- **Tess4J and the two bytedeco natives left `pom.xml`**, along with the version-pinning comment and both
+  native-staging build passes (`maven-dependency-plugin` unpack + the antrun copy into `linux-x86-64/`).
+  They are reproduced **verbatim** in `../botmaker-sdk/pom.xml` — a paraphrase of that note buys nothing,
+  because the failure it describes is a user's `UnsatisfiedLinkError` at their first `recognize()` call and
+  no build would catch it.
+- **`botmaker-session` dropped its now-dead tess4j `<exclusion>`** (the openpnp/opencv one stays).
+  `dependency:tree` confirms it: no tess4j for shared or session, present for the SDK — and still present
+  for Studio, transitively via its compile-scope SDK dependency, until Studio drops the SDK.
+- **`SharedNoOcvLeakTest` narrowed to OpenCV.** Its Tess4J half had nothing left to catch: shared has no OCR
+  engine on its classpath, so a reference would not compile.
+- `CLAUDE.md` rewritten: shared is stated as the **host platform layer** rather than "what SDK and Studio
+  both need", the OCR section is gone, and the session-exclusion warning no longer names Tess4J.
+
+**Deferred / next**
+
+- Nothing owed here. shared is freely breakable and a bot never names it, so this needs no shim — but it *is*
+  an ordered cross-module release: land shared → bump sdk → release.
+
+---
+
 ## 2026-08-25 — `botmaker-project.properties` learns to say what shape it is in
 
 **Done**

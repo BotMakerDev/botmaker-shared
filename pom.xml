@@ -24,25 +24,6 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-
-        <!--
-          The OCR stack's three versions move TOGETHER. Tess4J pins a lept4j, and lept4j's generated
-          bindings target one exact Leptonica release; the JavaCPP natives below must be that release
-          and the Tesseract that Tess4J was built against.
-
-          tess4j 5.19.0 -> lept4j 1.24.0 -> Leptonica 1.87.0 (its Windows DLL is libleptonica1870.dll)
-                        -> Tesseract 5.5.x            (its Windows DLL is libtesseract552.dll)
-
-          Getting this wrong does NOT fail the build. It fails at the first OcrEngine.recognize() call,
-          in a user's bot, as an undefined-symbol UnsatisfiedLinkError out of Leptonica1's static
-          initialiser (measured: Leptonica 1.85.0 under lept4j 1.24.0 dies on pixFindBaselinesGen).
-          OcrEngineNativeTest is the guard — it calls getWords(), the only path that reaches these
-          bindings. When bumping Tess4J, read the new lept4j's bundled DLL name to find the Leptonica
-          version to match, and check that org.bytedeco publishes it.
-        -->
-        <tess4j.version>5.19.0</tess4j.version>
-        <bytedeco.tesseract.version>5.5.3-1.5.14</bytedeco.tesseract.version>
-        <bytedeco.leptonica.version>1.87.0-1.5.14</bytedeco.leptonica.version>
     </properties>
 
     <dependencies>
@@ -59,23 +40,20 @@
         </dependency>
 
         <!--
-          OCR stack, shared by both consumers (SDK bot facade today, Studio editor features later).
-          Compile scope so Studio picks them up transitively without depending on the SDK.
-            - OpenCV: image preprocessing before Tesseract (grayscale / upscale / binarize). Pinned to the
-              exact version the SDK already uses so there's one native on any consumer's classpath.
-            - Tess4J: JNA wrapper over Tesseract; bundles the Windows native DLLs. Linux natives are not
-              published by Tess4J, so we stage them ourselves in <build> below — see the note there.
-              Pulls JNA, already present above.
+          OpenCV — template matching and colour matching (com.botmaker.shared.opencv), used by BOTH
+          consumers: the SDK's vision facades and Studio's editor-time template tools. Compile scope so
+          Studio picks it up transitively without depending on the SDK.
+
+          Tess4J and the two bytedeco natives are NOT here any more. They moved to botmaker-sdk in SDK
+          1.2.0 along with com.botmaker.shared.ocr, which had exactly one caller in the whole codebase
+          (the SDK's Text facade) and made every other consumer resolve an OCR engine it never called.
+          The version-pinning note that stood here moved with them — read it in botmaker-sdk/pom.xml
+          before bumping anything in that stack.
         -->
         <dependency>
             <groupId>org.openpnp</groupId>
             <artifactId>opencv</artifactId>
             <version>4.9.0-0</version>
-        </dependency>
-        <dependency>
-            <groupId>net.sourceforge.tess4j</groupId>
-            <artifactId>tess4j</artifactId>
-            <version>${tess4j.version}</version>
         </dependency>
 
         <!--
@@ -101,99 +79,6 @@
 
     <build>
         <plugins>
-            <!--
-              Stage the Linux OCR natives into the jar, under JNA's Platform.RESOURCE_PREFIX for this
-              platform (linux-x86-64). Tess4J's LoadLibs static initialiser extracts every classpath
-              resource under that prefix to a temp dir and prepends it to jna.library.path — the same
-              mechanism that already makes Windows self-contained through win32-x86-64/. So this needs
-              no Java code: put the files on the classpath and Tess4J finds them.
-
-              WHY WE SHIP THEM AT ALL: Tess4J publishes Windows DLLs only. On Linux it dlopen()s the
-              system libtesseract, so OCR failed with UnsatisfiedLinkError anywhere it wasn't installed —
-              the AppImage, the tarball and every generated bot, none of which have a package manager to
-              declare a dependency to.
-
-              WHY THE JAVACPP PRESETS: Fedora's libtesseract links libcurl, so its ldd closure is 46
-              libraries / 29 MB (openssl, krb5, ldap, sasl, ssh — none of which OCR uses). The bytedeco
-              build needs only libleptonica.so.6, libstdc++, libm, libgcc_s and libc, with the image
-              codecs statically linked in, and carries RUNPATH $ORIGIN/ so tesseract finds leptonica
-              beside itself. Two files, 9.4 MB, no other system library beyond what a JVM already needs.
-
-              THE TWO FILENAMES ARE LOAD-BEARING, both established by testing:
-                - Tesseract is renamed to the UNVERSIONED libtesseract.so. Left as libtesseract.so.5.5,
-                  JNA's lookup skipped it and loaded the system /usr/lib64 copy instead, which silently
-                  defeats the whole point on any machine that has one.
-                - Leptonica KEEPS libleptonica.so.6, because that is the literal NEEDED string inside
-                  libtesseract.so. Adding an unversioned copy alongside it makes the process map
-                  leptonica twice.
-
-              The bytedeco jars also carry headers and .a files (~2 MB); the includes below drop them.
-            -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <version>3.6.1</version>
-                <executions>
-                    <execution>
-                        <id>unpack-linux-ocr-natives</id>
-                        <phase>generate-resources</phase>
-                        <goals>
-                            <goal>unpack</goal>
-                        </goals>
-                        <configuration>
-                            <artifactItems>
-                                <artifactItem>
-                                    <groupId>org.bytedeco</groupId>
-                                    <artifactId>tesseract</artifactId>
-                                    <version>${bytedeco.tesseract.version}</version>
-                                    <classifier>linux-x86_64</classifier>
-                                    <includes>**/libtesseract.so.*</includes>
-                                </artifactItem>
-                                <artifactItem>
-                                    <groupId>org.bytedeco</groupId>
-                                    <artifactId>leptonica</artifactId>
-                                    <version>${bytedeco.leptonica.version}</version>
-                                    <classifier>linux-x86_64</classifier>
-                                    <includes>**/libleptonica.so.*</includes>
-                                </artifactItem>
-                            </artifactItems>
-                            <outputDirectory>${project.build.directory}/native-stage</outputDirectory>
-                            <overWriteReleases>false</overWriteReleases>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>stage-linux-ocr-natives</id>
-                        <phase>process-resources</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                        <configuration>
-                            <target>
-                                <property name="ocr.natives.dir"
-                                          value="${project.build.outputDirectory}/linux-x86-64"/>
-                                <mkdir dir="${ocr.natives.dir}"/>
-                                <!-- Flattened and renamed: see the filename note above. -->
-                                <copy todir="${ocr.natives.dir}" flatten="true" failonerror="true">
-                                    <fileset dir="${project.build.directory}/native-stage"
-                                             includes="**/libtesseract.so.*"/>
-                                    <mapper type="merge" to="libtesseract.so"/>
-                                </copy>
-                                <copy todir="${ocr.natives.dir}" flatten="true" failonerror="true">
-                                    <fileset dir="${project.build.directory}/native-stage"
-                                             includes="**/libleptonica.so.*"/>
-                                </copy>
-                            </target>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
