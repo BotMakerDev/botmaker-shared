@@ -14,7 +14,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
-_Nothing yet._
+- **Installed-game discovery moved in from Studio** (`com.botmaker.shared.game`): the Steam, Epic, Heroic and
+  Faugus library scanners, `GameLibraries`, `GameLibraryProvider` and `InstalledGame`. Enumerating what is
+  installed on the machine is host-platform work, like enumerating windows and emulators, and it had to leave
+  Studio because the SDK's game-launch editors need it and a plugin cannot see Studio's classes.
+- Adds `jackson-databind` (2.17.0), because the Epic and Faugus launchers keep their catalogues as JSON. The
+  SDK and Studio already declared the same version themselves; `botmaker-session` is the one consumer for
+  which it is genuinely new.
 
 ## [0.0.18] — 2026-08-22
 

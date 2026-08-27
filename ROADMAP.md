@@ -8,6 +8,30 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-27 — installed-game discovery arrives from Studio (plugin platform, phase 12a)
+
+**Done**
+
+- `com.botmaker.studio.game` → **`com.botmaker.shared.game`**: `SteamLibraryScanner`, `EpicLibraryScanner`,
+  `HeroicLibraryScanner`, `FaugusLibraryScanner`, `GameLibraries`, `GameLibraryProvider`, `InstalledGame`, and
+  `GameLibraryScannerTest` with them.
+- `jackson-databind` 2.17.0 joins the pom: the Epic and Faugus launchers keep their catalogues as JSON.
+
+**Why here, and why all seven.** The plan named only four (Steam, Epic, `GameLibraryProvider`,
+`InstalledGame`) — the ones the SDK's game-launch editors need. Splitting the package there would have left
+Heroic and Faugus in Studio with the other five gone, so the whole package moved. It belongs in shared on the
+same reasoning as window enumeration and emulator discovery: **enumerating what is installed on this machine
+is host-platform work**, and the package proves it by depending on nothing but `shared.launch`, Jackson and
+the JDK. Studio keeps using it (`ToolbarManager`, `LaunchTargetDialog`); the SDK gains access to it, which is
+the point — a plugin cannot see Studio's classes.
+
+**The Jackson cost, recorded rather than waved through.** It is the first JSON library in shared. The SDK and
+Studio both already declared the same version, so for them it is nothing; **`botmaker-session` is the one
+consumer for which it is genuinely new**, and that module's pom exists partly to keep its footprint small
+(it excludes shared's OpenCV). It was accepted rather than worked around because the alternative — hand-rolling
+a JSON reader for two launcher manifests — is a parser nobody would maintain. Keep the version in step with
+the SDK's and Studio's rather than floating it.
+
 ## 2026-08-26 — OCR leaves shared for the SDK (plugin platform, phase 8b)
 
 **Done**

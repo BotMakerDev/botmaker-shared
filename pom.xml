@@ -68,6 +68,19 @@
             <version>1.2.9</version>
         </dependency>
 
+        <!--
+          Installed-game discovery (com.botmaker.shared.game): the Epic and Faugus launchers keep their
+          catalogues as JSON manifests, so a scanner has to read JSON. Compile scope, and it costs the
+          consumers nothing they did not already have — the SDK and Studio both declare jackson-databind
+          2.17.0 themselves. It is a new transitive dependency for botmaker-session alone, which is why the
+          version is kept in step with theirs rather than floated.
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.17.0</version>
+        </dependency>
+
         <!-- Tests: JUnit Jupiter (see CLAUDE.md). Used by the ipc telemetry round-trip/loopback tests. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
