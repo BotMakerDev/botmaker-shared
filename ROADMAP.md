@@ -8,6 +8,31 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-28 — the GitHub Release is published from here, by JReleaser
+
+**Done**
+
+- **`jreleaser.yml` and a `release` job in `ci.yml`.** A `v*` tag now publishes this module's GitHub
+  Release from its own CI, with the `## [x.y.z]` section of `CHANGELOG.md` as the body. It used to be a
+  `gh release create` inside the umbrella's `release.sh`, which keeps everything JReleaser cannot express:
+  which modules are being cut, at what versions, in what order, the `.deps.env` pins, and the tag itself.
+  JReleaser's unit of work is one repository; the umbrella's is eight with a dependency order between them.
+- **`tools/changelog-section.sh`** — the extractor, moved out of `release.sh` into this repository so the
+  two readers that must not disagree can both reach it: the umbrella's `check_changelog` gate calls it
+  before anything is tagged, and the workflow calls it for the notes. A release whose body is extracted by
+  a different rule than the one that gated it can pass the gate and then publish something else.
+- **Two findings worth keeping, because each reads as a configuration mistake until you hit it.** JReleaser
+  **cannot open a submodule**: here `.git` is a `gitdir:` FILE and its JGit reports *repository not found*,
+  while `--git-root-search` gets past that only by resolving the **umbrella** repository — which would
+  attach this module's release to the wrong repo. Hence CI, where a checkout is standalone. And
+  `jreleaser-maven-plugin` is not a way round it: it ignores `jreleaser.yml` entirely and takes the version
+  from `<version>`, which here is the cosmetic `0.0.0-SNAPSHOT` JitPack overrides. The version arrives as
+  `JRELEASER_PROJECT_VERSION`, read off the tag.
+- **This module's pom is untouched**, which matters more here than anywhere: every consumer resolves it as
+  committed, since it deliberately does not flatten.
+
+---
+
 ## 2026-08-27 — installed-game discovery arrives from Studio (plugin platform, phase 12a)
 
 **Done**
