@@ -140,7 +140,19 @@ parameter is a `java.awt.Dimension`, not the SDK's `Size` — the SDK converts o
 
 ## Android emulator (`com.botmaker.shared.emulator`)
 
-Discovery + ADB transport for Android emulators, hosted in shared so **both** consumers reach it: the SDK's
+**Six classes arrived here from Studio on 2026-08-30** and they are the editor-time half of this capability:
+`EmulatorProbe` (liveness, `screencap`, installed apps), `EmulatorAppCache` (what was last seen on an
+instance, on disk), `EmulatorInstanceScanner` (discovery across platforms), and the three capture surfaces
+`EmulatorSurface`/`AdbEmulatorSurface`/`ScrcpyEmulatorSurface`. Their only dependency outside shared was a
+cache directory, which came with them as `config/CacheDirs` — Studio's `BotMakerDirs` now delegates to it, so
+there is still exactly one cache root and not two.
+
+They moved because the Remote Pilot is becoming a plugin's feature and a plugin may not name a Studio type.
+The rule that put them here rather than in the SDK is this module's own: **a capability the host and every
+plugin it loads may consume**. A plugin wanting to screen-grab an emulator now can, and gets the same probe
+Studio's own picker uses rather than a second one that drifts.
+
+The rest of the package is the discovery + ADB transport, hosted in shared so **both** consumers reach it: the SDK's
 `api.emulator.Emulator` wraps it as a `CaptureSource` at runtime, and a Studio capture picker can screen-grab an
 emulator at edit time. `AdbDevice` is one dadb connection (`dev.mobile:dadb` — pure-JVM ADB, no `adb.exe`; `screencap()` plus
 `tap`/`swipe`/`key`/`text`/`startApp`/`shell`). Capture has **two** paths and picks between them by
