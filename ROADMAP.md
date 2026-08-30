@@ -8,6 +8,23 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-08-30 — the editor-time halves of two capabilities arrive
+
+**Done**
+
+- **`config/ProjectFile`** — `botmaker-project.properties` read from a **directory**, beside
+  `ProjectProperties`' classpath-side read. Studio's `ProjectCreator` delegates its four path readers to it,
+  and the SDK's Remote Pilot plugin uses it directly. Reads only: a write stamps a schema version from the
+  editor's own migration ledger, and a writer with two owners is how a stamp gets silently dropped.
+- **`emulator/`** gained the editor-time half of the emulator capability from Studio — `EmulatorProbe`,
+  `EmulatorAppCache`, `EmulatorInstanceScanner` and the three `*EmulatorSurface`s — with the cache root as
+  **`config/CacheDirs`**, which Studio's own `BotMakerDirs` now delegates to.
+
+Both are the same movement: the Remote Pilot became an SDK plugin's feature, and a plugin may not name a
+Studio type, so what it stood on had to be here — where, in both cases, it always belonged.
+
+---
+
 ## 2026-08-28 — the GitHub Release is published from here, by JReleaser
 
 **Done**
