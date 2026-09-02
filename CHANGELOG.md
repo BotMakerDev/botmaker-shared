@@ -12,7 +12,7 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
-## [Unreleased]
+## [0.0.20] — 2026-09-02
 
 - **Compiled for Java 25 (LTS).** Every consumer — the SDK, session, Studio and any plugin depending on this
   module directly — needs a 25 runtime. Nothing about the native plumbing changed.
