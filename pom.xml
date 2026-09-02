@@ -21,8 +21,7 @@
       no JavaFX, no OpenCV. Full-desktop capture backends deliberately live in the consumers, not here.
     -->
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 

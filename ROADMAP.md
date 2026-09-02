@@ -8,6 +8,18 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-02 — JDK 25 LTS
+
+**Done**
+
+- `jitpack.yml` → `openjdk25`, the pom to `maven.compiler.release` 25 (rather than `source`/`target`, which
+  compile against the *running* JDK's class library and so check nothing on a maintainer's newer box), CI to
+  `java-version: '25'`. No source changed; every consumer now needs a 25 runtime. The full account of the
+  constellation-wide move, including the JitPack probe that proved `openjdk25` exists, is in
+  `../botmaker-studio-api/ROADMAP.md`, dated the same day.
+
+---
+
 ## 2026-08-30 — the editor-time halves of two capabilities arrive
 
 **Done**
