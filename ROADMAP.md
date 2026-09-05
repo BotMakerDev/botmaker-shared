@@ -8,6 +8,32 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-05 — the GitHub layer arrives from Studio
+
+**Done**
+
+- `com.botmaker.shared.github`: `GitHubClient`, `GitHubAuth`, `GitHubConfig`, `SemVer`, moved from
+  `botmaker-studio`'s `sharing/` package with their bodies untouched. `SemVerTest` came with them.
+- Studio changed **import lines only** — 16 files retargeted, 5 more in the old `sharing/` package that had
+  been resolving these names same-package. Its own test count drops by the 8 that moved.
+
+**Why**
+
+- Studio is no longer the only operator of the gallery and the plugin registry: `botmaker-dashboard` (the
+  operator GUI) reads both, plus their pull requests. The device flow, its polling loop and the `0600` token
+  file are the kind of thing that must not exist twice, and the owner/repo names are one edit rather than two
+  when a repository moves.
+- The move was possible because none of the four names a JavaFX type and `GitHubAuth`'s only BotMaker import
+  was already `com.botmaker.shared.config.CacheDirs`.
+
+**Deferred / next**
+
+- `GoogleAuth`/`GoogleConfig` stay in Studio — one consumer, and no second one is coming. They still share
+  `credentials.json` with `GitHubAuth`, so the merge-don't-overwrite rule in `store` now spans two
+  repositories.
+
+---
+
 ## 2026-09-02 — JDK 25 LTS
 
 **Done**

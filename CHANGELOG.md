@@ -12,6 +12,17 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Added
+
+- **`com.botmaker.shared.github` — the GitHub layer.** `GitHubClient` (async REST over the JDK `HttpClient`),
+  `GitHubAuth` (the OAuth device flow, with the token stored `0600` under the cache dir), `GitHubConfig` (the
+  gallery / plugin-registry / Studio / CLI repository names and the raw-CDN URLs) and `SemVer`. Moved
+  verbatim from `botmaker-studio`, which is no longer the only operator of those repositories — the coming
+  `botmaker-dashboard` reads the same registry and the same pull requests, and a device flow with token
+  storage is not code that may exist twice.
+
 ## [0.0.20] — 2026-09-02
 
 - **Compiled for Java 25 (LTS).** Every consumer — the SDK, session, Studio and any plugin depending on this
