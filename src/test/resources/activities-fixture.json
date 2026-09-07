@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 2,
+  "activities": [
+    {
+      "name": "Mining",
+      "enabled": true,
+      "description": "Dig",
+      "outcomes": ["FOUND", "EMPTY"],
+      "goHome": true,
+      "popupCheck": false
+    },
+    {
+      "name": "Selling",
+      "enabled": false,
+      "description": "",
+      "outcomes": [],
+      "goHome": false,
+      "popupCheck": true
+    }
+  ],
+  "variables": [
+    { "name": "wait", "type": "DURATION", "value": ["3s500ms"] },
+    { "name": "minHealth", "type": "WHOLE_NUMBER", "value": ["40"] },
+    { "name": "zones", "type": "TEXT", "list": true, "value": ["north", "south", "east"] },
+    { "name": "emptyList", "type": "TEXT", "list": true, "value": [] },
+    { "name": "unreadable", "type": "DURATION", "value": ["not a duration"] }
+  ],
+  "flow": {
+    "start": "Mining",
+    "maxSteps": 50,
+    "stepDelayMs": 0,
+    "nodes": [
+      { "activity": "Mining", "x": 0, "y": 0 },
+      { "activity": "Selling", "x": 100, "y": 0 }
+    ],
+    "edges": [
+      { "from": "Mining", "outcome": "FOUND", "to": "Selling" },
+      { "from": "Mining", "outcome": "", "to": "Mining" }
+    ]
+  }
+}

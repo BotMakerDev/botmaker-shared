@@ -16,6 +16,43 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`com.botmaker.shared.config.Settings` — how a bot reads its own parameters, for every plugin rather than
+  for one.** Three classes, no new dependency (`jackson-databind` was already here):
+
+  ```java
+  Duration   wait = Settings.load("wait", Duration.class);
+  int      health = Settings.load("minHealth", int.class);
+  List<Rect> zones = Settings.loadAll("zones", Rect.class);
+  boolean       on = Settings.enabled("Mining");
+  ```
+
+  `ProjectValues` is the untyped store over `activities.json` — a name in, stored text out, nothing that
+  knows what a value means. `ValueGrammar` is `Class<T> → parse/store/fallback`, found by `ServiceLoader`.
+  `Settings` resolves one against the other.
+
+  **Why here and not in the SDK or the contract.** Of the five stages in a value's life, four were already
+  plugin-general — declaring, editing, writing and reading it in an *editor* are all contract types. The
+  fifth, reading it in a **running bot**, was `com.botmaker.sdk.api.config.Wire` and was plugin #1's alone.
+  It could not move to the contract, because a bot's classpath does not have the contract on it — the SDK
+  declares it `provided` deliberately. `botmaker-shared` is the only published module on **both** a bot's and
+  a plugin's classpath, with no JavaFX and no contract types. The placement is forced, not chosen.
+
+  **`activities.json` still has one owner and it is still the SDK.** What moved is the untyped key lookup,
+  which has no schema in it. The model records, the flow's meaning and every rule about what an activity is
+  stay in `com.botmaker.sdk.authoring`; `ProjectData` keeps the flow half and delegates the rest. Same line
+  the GitHub layer moved on — *shared owns the request, not what the JSON means*.
+
+  **Shared ships no grammar at all, and that is deliberate.** A vocabulary belongs to whoever introduced it,
+  so the SDK will supply one wrapping `WireText` — the parsers that already exist and already serve the
+  editor through `SdkValueTypes`. Putting "the obvious JDK ones" here would create a second `Duration` parser
+  beside the SDK's, which is the drift the design exists to prevent.
+
+  Every read is total: an undeclared name, text that will not parse, a name declared as another type and a
+  missing file all answer the type's own fallback, so *enforce a default for every type* is a property of the
+  grammar rather than a rule to remember per call site. **One thing throws** — a type no grammar on the
+  classpath claims, which is a packaging mistake rather than a bad file, and has no value to fall back to.
+  Two grammars claiming one type is refused by name rather than resolved by jar order.
+
 - **`com.botmaker.shared.github` — the GitHub layer.** `GitHubClient` (async REST over the JDK `HttpClient`),
   `GitHubAuth` (the OAuth device flow, with the token stored `0600` under the cache dir), `GitHubConfig` (the
   gallery / plugin-registry / Studio / CLI repository names and the raw-CDN URLs) and `SemVer`. Moved
