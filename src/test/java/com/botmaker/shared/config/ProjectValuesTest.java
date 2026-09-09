@@ -88,8 +88,10 @@ class ProjectValuesTest {
 
     @Test
     void theStoredTypeIdIsReadableWithoutResolvingIt() {
-        assertEquals("DURATION", FIXTURE.typeId("wait"));
-        assertEquals("WHOLE_NUMBER", FIXTURE.typeId("minHealth"));
+        // Two shapes, because the file has two: what the editor writes is an object carrying the shape
+        // beside the id, and a hand-written or older file holds a bare string.
+        assertEquals("DURATION", FIXTURE.typeId("wait"), "the object form the editor writes");
+        assertEquals("WHOLE_NUMBER", FIXTURE.typeId("minHealth"), "the bare-string form");
     }
 
     @Test

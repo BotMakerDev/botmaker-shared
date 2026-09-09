@@ -53,6 +53,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   classpath claims, which is a packaging mistake rather than a bad file, and has no value to fall back to.
   Two grammars claiming one type is refused by name rather than resolved by jar order.
 
+  `ProjectValues.typeId` reads **both shapes the file has**: the object the editor writes
+  (`"type": {"type": "WHOLE_NUMBER", "shape": "ONE", …}`, because a declared type carries its shape) and the
+  bare string a hand-written or older file holds. It landed reading only the second, which is the one no real
+  project contains.
+
 - **`com.botmaker.shared.github` — the GitHub layer.** `GitHubClient` (async REST over the JDK `HttpClient`),
   `GitHubAuth` (the OAuth device flow, with the token stored `0600` under the cache dir), `GitHubConfig` (the
   gallery / plugin-registry / Studio / CLI repository names and the raw-CDN URLs) and `SemVer`. Moved

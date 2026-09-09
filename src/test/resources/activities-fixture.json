@@ -19,7 +19,9 @@
     }
   ],
   "variables": [
-    { "name": "wait", "type": "DURATION", "value": ["3s500ms"] },
+    { "name": "wait",
+      "type": { "type": "DURATION", "shape": "ONE", "list": false, "void": false },
+      "value": ["3s500ms"] },
     { "name": "minHealth", "type": "WHOLE_NUMBER", "value": ["40"] },
     { "name": "zones", "type": "TEXT", "list": true, "value": ["north", "south", "east"] },
     { "name": "emptyList", "type": "TEXT", "list": true, "value": [] },

@@ -160,12 +160,18 @@ public final class ProjectValues {
      * ({@code "WHOLE_NUMBER"}, {@code "discord.Channel"}), and this class does not resolve it. It is here
      * because {@link Settings} has to answer <i>was this name declared as the type you are asking for</i>
      * without loading any vocabulary at all.
+     *
+     * <p><b>Two shapes are read, because the file has two.</b> What the editor writes is an object —
+     * {@code "type": {"type": "WHOLE_NUMBER", "shape": "ONE", "list": false}} — since the declared type
+     * carries a shape with it. A bare string is accepted as well, which is what a hand-written or older file
+     * holds. Neither is resolved here; the id is text either way.
      */
     public String typeId(String variable) {
         if (variable == null) return "";
         for (JsonNode candidate : root.path("variables")) {
             if (variable.equals(candidate.path("name").asText(null))) {
-                return candidate.path("type").asText("");
+                JsonNode type = candidate.path("type");
+                return type.isObject() ? type.path("type").asText("") : type.asText("");
             }
         }
         return "";
