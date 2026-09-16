@@ -8,6 +8,13 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-16 — the gallery gains a tiered catalog
+
+`GitHubConfig` names `catalog.json` (`CATALOG_PATH`, `catalogRawUrl()`) and the maintainer-only `vetted/`
+directory (`VETTED_DIR`, `vettedPath`). Names only: what the files mean is read in Studio and in
+`botmaker-cli`'s `com.botmaker.cli.gallery`, which generates them. The legacy `index.json` URL is untouched,
+because every installed Studio has it compiled in; it now holds only Vetted bots.
+
 ## 2026-09-05 — the GitHub layer arrives from Studio
 
 **Done**
