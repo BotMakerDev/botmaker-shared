@@ -12,6 +12,17 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+No source changes since v0.0.22; re-released for updated upstream pins.
+
+### Added
+
+- **The gallery's tiered catalog.** `GitHubConfig.CATALOG_PATH` and `catalogRawUrl()` name `catalog.json`,
+  which lists every bot with its tier (Vetted or Community). `VETTED_DIR` and `vettedPath(owner, repo)` name
+  the maintainer-only records saying which release of a bot is vetted. `indexRawUrl()` is unchanged: that
+  file now holds Vetted bots only, for the Studios already installed.
+
 ## [0.0.22] — 2026-09-17
 
 ### Added
