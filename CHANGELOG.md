@@ -12,6 +12,16 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Changed
+
+- **The gallery and plugin-registry indexes are read from `BotMakerDev` first, then `LiQiyeDev`.**
+  `GitHubConfig.catalogRawUrls()`, `indexRawUrls()` and `registryIndexRawUrls()` return both in that order,
+  and `GitHubClient.getFirstString` takes the first that answers. This is the first half of moving the
+  repositories into the organization; nothing has moved yet, so today the first URL answers 404 and the
+  second serves. The single-URL methods are gone.
+
 ## [0.0.23] — 2026-09-18
 
 No source changes since v0.0.22; re-released for updated upstream pins.

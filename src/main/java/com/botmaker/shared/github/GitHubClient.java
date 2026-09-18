@@ -45,6 +45,21 @@ public final class GitHubClient {
                 });
     }
 
+    /**
+     * {@link #getString} over each URL in turn, answering the first body that came back; {@code null} when
+     * none did. Sequential, not raced: the first URL is the one expected to answer, and a race would make the
+     * second one's request on every call.
+     */
+    public CompletableFuture<String> getFirstString(java.util.List<String> urls) {
+        CompletableFuture<String> chain = CompletableFuture.completedFuture(null);
+        for (String url : urls) {
+            chain = chain.thenCompose(found -> found != null
+                    ? CompletableFuture.completedFuture(found)
+                    : getString(url));
+        }
+        return chain;
+    }
+
     /** GET parsed as JSON (best-effort: {@code null} on any non-200 / failure). */
     public CompletableFuture<JsonNode> get(String url, String token) {
         HttpRequest req = authed(baseRequest(url), token).GET().build();
