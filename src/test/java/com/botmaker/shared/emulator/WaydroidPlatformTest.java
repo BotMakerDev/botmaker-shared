@@ -23,7 +23,7 @@ class WaydroidPlatformTest {
             Session:\tRUNNING
             Container:\tRUNNING
             Vendor type:\tMAINLINE
-            Session user:\tbenjamin(1000)
+            Session user:\tuser(1000)
             IP address:\t192.168.240.112""";
 
     @Test
