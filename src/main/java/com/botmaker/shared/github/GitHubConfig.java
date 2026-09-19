@@ -26,12 +26,34 @@ public final class GitHubConfig {
 
     public static final String OAUTH_CLIENT_ID = "Ov23lizugeHUiWl7WZhQ";
 
-    public static final String INDEX_OWNER = "LiQiyeDev";
+    /**
+     * The person who maintains the project — a GitHub <b>login</b>, never a repository owner.
+     *
+     * <p>Separate from the owner constants since 2026-09-18, when every repository moved into the
+     * {@code BotMakerDev} organization: an owner is now an organization, and a signed-in user's login can
+     * never equal it. The two readers that compare a login against it are asking *are you the maintainer*
+     * — the dashboard's draft-with-Claude gate and the publisher's commit-straight-to-the-gallery path —
+     * and comparing that to an organization name silently answers no for everybody, forever.
+     *
+     * <p>It is not a permission. What a login may actually do is read from the API
+     * ({@code permissions.push}); this only decides what is worth offering.
+     */
+    public static final String MAINTAINER = "LiQiyeDev";
+
+    /**
+     * The owner every repository moved to on 2026-09-18. GitHub redirects the old address for git, the API
+     * and the web, but not for {@code raw.githubusercontent.com} reliably and not for Pages at all — which
+     * is why {@link #PREVIOUS_OWNER} is still read as a fallback.
+     */
+    public static final String INDEX_OWNER = "BotMakerDev";
     public static final String INDEX_REPO = "botmaker-gallery";
 
+    /** Where the gallery and the registry were until 2026-09-18; still read when the new owner answers nothing. */
+    public static final String PREVIOUS_OWNER = "LiQiyeDev";
+
     /** The Studio's own repo, whose GitHub Releases host the app installers (used by the in-app updater). */
-    public static final String STUDIO_OWNER = "LiQiyeDev";
-    public static final String STUDIO_REPO = "BotMaker-Studio";
+    public static final String STUDIO_OWNER = "BotMakerDev";
+    public static final String STUDIO_REPO = "botmaker-studio";
 
     /**
      * The {@code botmaker} command-line tool's repo, whose latest release tag is the version Studio's
@@ -42,11 +64,11 @@ public final class GitHubConfig {
      * and {@code botmaker-plugin-host}. Reading the tag here is what lets a Studio that has not been
      * re-released still offer a newer CLI.
      */
-    public static final String CLI_OWNER = "LiQiyeDev";
+    public static final String CLI_OWNER = "BotMakerDev";
     public static final String CLI_REPO = "botmaker-cli";
 
     /** Umbrella repo that receives in-app bug reports (Help ▸ Report Issue…). */
-    public static final String ISSUE_OWNER = "LiQiyeDev";
+    public static final String ISSUE_OWNER = "BotMakerDev";
     public static final String ISSUE_REPO = "botmaker";
     public static final String INDEX_BRANCH = "main";
 
@@ -89,7 +111,7 @@ public final class GitHubConfig {
      * CLI, whose validator is the same code the registry's CI runs. There is deliberately no publish path
      * here, because the checks that decide a submission need the plugin's build, not a bot's editor.
      */
-    public static final String REGISTRY_OWNER = "LiQiyeDev";
+    public static final String REGISTRY_OWNER = "BotMakerDev";
     public static final String REGISTRY_REPO = "botmaker-plugin-registry";
 
     /** Discovery topic also applied to published repos (secondary signal; the index repo is authoritative). */
@@ -121,18 +143,6 @@ public final class GitHubConfig {
         return VETTED_DIR + "/" + owner + "-" + repo + ".json";
     }
 
-    /**
-     * The organization the gallery and the registry move to, read <b>before</b> their current owner
-     * (2026-09-18).
-     *
-     * <p>A raw URL is compiled into every shipped Studio, and GitHub Pages does not redirect after a transfer,
-     * so the move is done in two steps: first a Studio that reads the new owner and falls back to the old one
-     * ships and is adopted, and only then do the two repositories move. Until then the new owner answers 404
-     * and costs one request per browse. After the move, {@link #INDEX_OWNER} and {@link #REGISTRY_OWNER}
-     * become this, and the fallback keeps reading the old one for as long as GitHub redirects it.
-     */
-    public static final String NEXT_OWNER = "BotMakerDev";
-
     /** Raw (CDN) URLs of the legacy index, in the order to try: Vetted bots only, in the array shape older Studios read. */
     public static java.util.List<String> indexRawUrls() {
         return rawUrls(INDEX_REPO, INDEX_PATH, INDEX_OWNER);
@@ -148,9 +158,15 @@ public final class GitHubConfig {
         return rawUrls(REGISTRY_REPO, INDEX_PATH, REGISTRY_OWNER);
     }
 
-    /** {@link #NEXT_OWNER}'s copy first, then {@code owner}'s; one URL when they are the same owner. */
+    /**
+     * {@code owner}'s copy first, then {@link #PREVIOUS_OWNER}'s; one URL when they are the same owner.
+     *
+     * <p>The fallback is what a Studio released before the move still needs from this one, and what this one
+     * needs on the day a repository moves again: a raw URL is compiled into every shipped build, so the
+     * reader has to know both addresses rather than the release having to land first.
+     */
     private static java.util.List<String> rawUrls(String repo, String path, String owner) {
-        return java.util.stream.Stream.of(NEXT_OWNER, owner)
+        return java.util.stream.Stream.of(owner, PREVIOUS_OWNER)
                 .distinct()
                 .map(o -> "https://raw.githubusercontent.com/" + o + "/" + repo + "/" + INDEX_BRANCH + "/" + path)
                 .toList();
