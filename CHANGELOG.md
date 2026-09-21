@@ -12,6 +12,25 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+No source changes since v0.0.26; re-released for updated upstream pins.
+
+No source changes since v0.0.25; re-released for updated upstream pins.
+
+### Changed
+
+- **Every repository is `BotMakerDev`'s now.** `GitHubConfig`'s gallery, registry, Studio, CLI and issue
+  owners name the organization the repositories moved to on 2026-09-18. `STUDIO_REPO` is spelled
+  `botmaker-studio`, the repository's real name. The raw index URLs still fall back to the old owner,
+  now `PREVIOUS_OWNER`, which is `NEXT_OWNER`'s replacement.
+
+### Added
+
+- **`GitHubConfig.MAINTAINER`**, the maintainer's GitHub login, for the two places that ask "is this the
+  maintainer?". They compared a login with the repository owner, and since an owner can now be an
+  organization, no login would ever match.
+
 ## [0.0.26] — 2026-09-21
 
 No source changes since v0.0.25; re-released for updated upstream pins.
