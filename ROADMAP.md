@@ -8,6 +8,36 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-22 — the project-wide capture resolution is deleted, both halves of it
+
+**Done.** `ProjectProperties.KEY_CAPTURE_WIDTH`, `KEY_CAPTURE_HEIGHT` and `defaultResolution()`,
+`ProjectFile.captureSize` and its `number` helper, `ResolutionScaler.primaryScale(int, int)` and the
+project-wide fallback inside the three-argument overload. `ProjectFileTest`'s
+`aCaptureSizeNeedsBothHalvesAndBothPositive` with them.
+
+**Why, and it is the same finding three times over.** A tree-wide search on the day of the deletion found
+**no writer of `capture.width` or `capture.height` in any module** — not shared, not the SDK, not Studio,
+not the CLI. Only readers: `ResolutionScaler`'s fallback, `ProjectFile.captureSize` (for the size a
+background session's nested display is created at), and the SDK's `ProjectDefaults.defaultResolution`. So
+`defaultResolution()` returned `null` for every project that has ever existed, `primaryScale` returned
+`1.0`, and `QuickLaunch` used `BackgroundLauncher.DEFAULT_WIDTH`/`_HEIGHT`. **Deleting the branch changed
+no behaviour**; it removed a statement about the code that was not true of the program.
+
+The authoring half is the same story mirrored. `capture.json` carried a `reference` resolution, and
+`CaptureModel.withReference` had exactly one caller — the migration that read a pre-2026-08-31
+`settings.json`. The editor's Capture Targets window read it and wrote it straight back untouched. So
+neither the bot's half nor the editor's half was ever written by the program, and *Project Setup*'s
+"Reference resolution" required step was permanently red. Both halves are deleted in the same run
+(`botmaker-sdk`, same date), which is why this entry is worth reading beside that one: the repo's standing
+rule is that the half nobody is forced to write is the half that rots, and this is the case where **neither**
+half was written and the fact simply did not exist.
+
+**What is untouched, and is the reason none of this was load-bearing.** A template records the capture
+resolution it was authored at *beside the picture itself*, written by the capture that made it.
+`OpencvManager` passes that as `authored` at all three call sites, and it is the only resolution scaling
+that has ever actually happened. The deleted keys were a fallback for a template that carried no size of
+its own.
+
 ## 2026-09-16 — the gallery gains a tiered catalog
 
 `GitHubConfig` names `catalog.json` (`CATALOG_PATH`, `catalogRawUrl()`) and the maintainer-only `vetted/`

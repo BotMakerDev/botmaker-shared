@@ -1,6 +1,5 @@
 package com.botmaker.shared.config;
 
-import java.awt.Dimension;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,17 +58,11 @@ public final class ProjectFile {
         return value(resourcesDir, ProjectProperties.KEY_LAUNCH_TARGET);
     }
 
-    /**
-     * The project's standard capture resolution — the size its image templates were authored at, and therefore
-     * the size a private display is created at — or {@code null} when either key is absent or unparseable.
-     */
-    public static Dimension captureSize(Path resourcesDir) {
-        Properties properties = read(resourcesDir);
-        Integer width = number(properties.getProperty(ProjectProperties.KEY_CAPTURE_WIDTH));
-        Integer height = number(properties.getProperty(ProjectProperties.KEY_CAPTURE_HEIGHT));
-        if (width == null || height == null || width <= 0 || height <= 0) return null;
-        return new Dimension(width, height);
-    }
+    // captureSize stood here until 2026-09-22, reading capture.width / capture.height. Nothing ever wrote
+    // either key, so it answered null on every call and every caller took its own default — see the
+    // tombstone in ProjectProperties for why both halves of that size were deleted rather than one of them
+    // being given a writer. QuickLaunch now starts a nested session at BackgroundLauncher's own default,
+    // which is what it already did for every project in existence.
 
     /**
      * Whether the project runs its bot on a private nested display: {@code true} unless the key is explicitly
@@ -84,12 +77,4 @@ public final class ProjectFile {
         };
     }
 
-    private static Integer number(String value) {
-        if (value == null) return null;
-        try {
-            return Integer.valueOf(value.trim());
-        } catch (NumberFormatException notANumber) {
-            return null;
-        }
-    }
 }

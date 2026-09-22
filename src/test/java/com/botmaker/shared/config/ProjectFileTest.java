@@ -28,7 +28,6 @@ class ProjectFileTest {
         assertNull(ProjectFile.value(dir, ProjectProperties.KEY_CAPTURE_SOURCE));
         assertNull(ProjectFile.captureSource(dir));
         assertNull(ProjectFile.launchTarget(dir));
-        assertNull(ProjectFile.captureSize(dir));
         assertTrue(ProjectFile.sessionIsolated(dir), "isolation is on unless the project turns it off");
     }
 
@@ -50,21 +49,11 @@ class ProjectFileTest {
         assertNull(ProjectFile.launchTarget(dir));
     }
 
-    @Test
-    void aCaptureSizeNeedsBothHalvesAndBothPositive(@TempDir Path dir) throws IOException {
-        write(dir, "capture.width=1280\ncapture.height=720\n");
-        assertEquals(1280, ProjectFile.captureSize(dir).width);
-        assertEquals(720, ProjectFile.captureSize(dir).height);
-
-        write(dir, "capture.width=1280\n");
-        assertNull(ProjectFile.captureSize(dir), "half a size is no size");
-
-        write(dir, "capture.width=wide\ncapture.height=720\n");
-        assertNull(ProjectFile.captureSize(dir), "a hand-edited value must not stop a launch");
-
-        write(dir, "capture.width=0\ncapture.height=720\n");
-        assertNull(ProjectFile.captureSize(dir));
-    }
+    // aCaptureSizeNeedsBothHalvesAndBothPositive stood here until 2026-09-22. It was a thorough test of
+    // captureSize's four refusals, and every one of them was the only way that method could ever answer:
+    // nothing in any module wrote capture.width or capture.height, so the happy path this test had to
+    // construct by hand could not arise from the program. The keys and the reader are deleted; see
+    // ProjectProperties' tombstone.
 
     @Test
     void onlyAnExplicitlyOffValueTurnsIsolationOff(@TempDir Path dir) throws IOException {

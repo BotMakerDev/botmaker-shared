@@ -146,8 +146,9 @@ public final class OpencvManager {
      * Returns the single best match of {@code template} within {@code background} whose score meets
      * {@code confidenceThreshold}, or {@code null} if none qualifies.
      *
-     * <p>Resolution-independent: the template is first resized by the project's
-     * {@link ResolutionScaler#primaryScale primary scale}. If that misses the threshold, a small
+     * <p>Resolution-independent: the template is first resized by the
+     * {@link ResolutionScaler#primaryScale primary scale} of its own authored capture resolution. If that
+     * misses the threshold, a small
      * pyramid of {@link ResolutionScaler#fallbackScales fallback scales} is tried (only on a miss),
      * so templates keep matching across different screen resolutions / DPI.
      */
@@ -186,7 +187,7 @@ public final class OpencvManager {
      * the template can't fit the background. Callers that need a threshold gate use {@link #findBestMatch};
      * telemetry uses this so a miss can still report the real near-miss score instead of zero.
      *
-     * <p>Applies the project's {@link ResolutionScaler#primaryScale primary scale} (single scale, no
+     * <p>Applies the {@link ResolutionScaler#primaryScale primary scale} (single scale, no
      * pyramid) so the reported near-miss score reflects the resolution-corrected template.
      */
     public static RawMatch findBest(Mat template, Mat background, boolean grayscale) {
@@ -195,7 +196,7 @@ public final class OpencvManager {
 
     /**
      * As {@link #findBest(Mat, Mat, boolean)} but scaling the template by the given per-template
-     * {@code authored} capture resolution when non-null (falling back to the project default).
+     * {@code authored} capture resolution when non-null; a {@code null} is no scaling.
      */
     public static RawMatch findBest(Mat template, Mat background, boolean grayscale,
                                     Dimension authored) {

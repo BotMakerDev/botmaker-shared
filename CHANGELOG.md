@@ -14,6 +14,18 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Removed
+
+- **The project-wide capture resolution, both halves of it.** `ProjectProperties.KEY_CAPTURE_WIDTH`,
+  `KEY_CAPTURE_HEIGHT` and `defaultResolution()`, `ProjectFile.captureSize`, and `ResolutionScaler`'s
+  fallback onto them. **Nothing in any module ever wrote either key**, so every reader took its own default
+  on every call and always had: `primaryScale` returned `1.0`, and a background session started at
+  `BackgroundLauncher`'s own size. The authoring half of the same fact — `capture.json`'s `reference` — was
+  written by nothing either, so both halves went together rather than one of them acquiring a writer to
+  justify the other. A template's own `captureWidth`/`captureHeight`, recorded beside the picture by the
+  capture that made it, **is** written and is untouched: it is the `authored` argument `OpencvManager`
+  already passes, and the only resolution scaling that has ever happened.
+
 No source changes since v0.0.26; re-released for updated upstream pins.
 
 No source changes since v0.0.25; re-released for updated upstream pins.

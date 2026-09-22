@@ -1,6 +1,5 @@
 package com.botmaker.shared.config;
 
-import java.awt.Dimension;
 import java.io.InputStream;
 import java.util.Properties;
 
@@ -12,9 +11,9 @@ import java.util.Properties;
  * keys ({@code ProjectCreator}) and the SDK reads them. Two hand-kept copies of a key set do not stay
  * identical — {@link #KEY_CAPTURE_SOURCE} and friends are the single source of truth for both sides.
  *
- * <p>This reader is deliberately <b>raw</b>: it returns strings, ints and a {@link Dimension}, never an SDK
- * value type. The SDK's {@code internal.config.ProjectDefaults} maps those onto {@code CaptureSource} /
- * {@code Size}, which is where types shared cannot see belong.
+ * <p>This reader is deliberately <b>raw</b>: it returns strings, ints and booleans, never an SDK value type.
+ * The SDK's {@code internal.config.ProjectDefaults} maps those onto {@code CaptureSource} and friends, which
+ * is where types shared cannot see belong.
  *
  * <p>Everything is best-effort: a missing file, missing key or unparseable value yields {@code null} so each
  * caller falls back to its own default. Loaded once and cached.
@@ -26,7 +25,6 @@ import java.util.Properties;
  *   <li>{@link #KEY_CAPTURE_SOURCE} — {@code desktop} | {@code monitor:<index>} |
  *       {@code window:<titleSubstring>} | {@code emulator:<instanceName>}; the four forms and their prefixes
  *       are {@link CaptureSourceKind}</li>
- *   <li>{@link #KEY_CAPTURE_WIDTH} / {@link #KEY_CAPTURE_HEIGHT} — the resolution templates were authored at</li>
  *   <li>{@link #KEY_LAUNCH_TARGET} — what the bot launches, in the {@code com.botmaker.shared.launch.LaunchSpec}
  *       grammar ({@code steam:<appId>}, {@code emu-app:<pkg>@<instance>}, …); read raw here</li>
  *   <li>{@link #KEY_DEBUG} — {@code true}/{@code false} (default on): the initial state of the bot's debug
@@ -67,8 +65,24 @@ public final class ProjectProperties {
     public static final String KEY_SCHEMA_VERSION = "project.schemaVersion";
 
     public static final String KEY_CAPTURE_SOURCE = "capture.source";
-    public static final String KEY_CAPTURE_WIDTH = "capture.width";
-    public static final String KEY_CAPTURE_HEIGHT = "capture.height";
+
+    // KEY_CAPTURE_WIDTH = "capture.width" and KEY_CAPTURE_HEIGHT = "capture.height" stood here until
+    // 2026-09-22, with defaultResolution() reading them. Nothing in any module ever wrote either key, and a
+    // search of the whole tree on the day they were deleted found readers only: ResolutionScaler's
+    // project-wide fallback, ProjectFile.captureSize, ProjectDefaults.defaultResolution. So every one of
+    // them took its own default on every call, and had since the keys were introduced.
+    //
+    // The same fact held on the other side of the same question. capture.json's `reference` was the
+    // authoring half of this size, and CaptureModel.withReference had exactly one caller — the migration
+    // that read a pre-2026-08-31 settings.json. Two halves of one fact, each written by nothing, each
+    // read as absent. The rule this repo keeps stating is that the half nobody is forced to write is the
+    // half that rots; here neither half was written and both rotted, so both are gone rather than one of
+    // them being given a writer to justify the other.
+    //
+    // A template's own captureWidth/captureHeight, which IS written — beside every picture, by the capture
+    // that made it — is untouched: OpencvManager passes it to ResolutionScaler.primaryScale as `authored`,
+    // and that is the scaling this file's keys were only ever a fallback for.
+
     public static final String KEY_LAUNCH_TARGET = "launch.target";
     public static final String KEY_DEBUG = "debug";
     public static final String KEY_SESSION_ISOLATED = "session.isolated";
@@ -315,26 +329,7 @@ public final class ProjectProperties {
         return value == null || value < min || value > max ? null : value;
     }
 
-    /**
-     * The project's default capture resolution (the resolution its templates were authored at), or
-     * {@code null} when unset. Used by the matcher to rescale a live capture taken at a different
-     * resolution before template matching.
-     */
-    public static Dimension defaultResolution() {
-        String w = get(KEY_CAPTURE_WIDTH);
-        String h = get(KEY_CAPTURE_HEIGHT);
-        if (w == null || h == null) {
-            return null;
-        }
-        try {
-            int width = Integer.parseInt(w);
-            int height = Integer.parseInt(h);
-            if (width > 0 && height > 0) {
-                return new Dimension(width, height);
-            }
-        } catch (NumberFormatException ignored) {
-            // unparseable — treat as unset
-        }
-        return null;
-    }
+    // defaultResolution() stood here until 2026-09-22, reading the two capture-size keys deleted above.
+    // See the tombstone beside KEY_CAPTURE_SOURCE for why both halves went rather than one of them
+    // acquiring a writer.
 }
