@@ -14,6 +14,16 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **`ProjectFile.set(resourcesDir, key, value)`** — one key written into
+  `botmaker-project.properties`, load-modify-store, `false` rather than a throw when it cannot be written.
+  This class was deliberately read-only, deferring every write to the schema ledger that owned the file
+  being written beside; that ledger (`Authoring`, `capture.json`) is deleted, so what the rule protected no
+  longer exists and the one caller left — the SDK's emulator picker naming the instance it just chose — had
+  nowhere to write. A blank or null value removes the key rather than storing an empty one, so *unset* and
+  *set to nothing* stay the same state they have always been for every reader here.
+
 ### Removed
 
 - **The project-wide capture resolution, both halves of it.** `ProjectProperties.KEY_CAPTURE_WIDTH`,

@@ -15,9 +15,16 @@ import java.util.Properties;
  * disagree about what a missing file, a blank value or an unparseable number means. The keys, the parsing and
  * those answers belong to one place; this is the directory-shaped half of it.
  *
- * <p><b>Reads only, and deliberately.</b> Writing this file stamps a schema version from the editor's own
- * migration ledger, so the write path stays with whoever owns that ledger. A reader can be shared; a writer
- * with two owners is how a stamp gets silently dropped.
+ * <p><b>It writes one key at a time since 2026-09-22</b>, and the rule it replaces is worth recording: this
+ * class was reads-only because writing the file stamped a schema version from the SDK's own migration
+ * ledger, so the write path had to stay with whoever owned that ledger. <b>The ledger is gone</b> — it had
+ * exactly one entry point, {@code capture.json}, and that file is deleted now that a project's capture
+ * source is the expression {@code Sdk.captureSource()} returns. Nothing left in this file is versioned, so
+ * there is no stamp for a second writer to drop.
+ *
+ * <p>{@link #set} is a load-modify-store of the whole file, so a key nobody here knows about survives a
+ * write by somebody who does. It is not a general settings API: the keys are
+ * {@link ProjectProperties}', and what may be written is what no {@code @Managed} value already says.
  *
  * <p>Every answer here is best-effort: an absent directory, an absent file, an unreadable file and an
  * unparseable value all yield the caller's own default rather than an exception. A project file that has been
@@ -40,6 +47,34 @@ public final class ProjectFile {
             return new Properties();
         }
         return properties;
+    }
+
+    /**
+     * Writes one key, leaving every other line of the file as it was.
+     *
+     * <p>Best-effort like every read here: an absent directory or an unwritable file is a no-op rather than
+     * an exception, because what this records is secondary — the caller's own edit has already happened, and
+     * failing the edit because a properties file could not be written would lose the thing the user actually
+     * did.
+     *
+     * @param value the new value, or {@code null} to remove the key
+     * @return whether the file now says what was asked
+     */
+    public static boolean set(Path resourcesDir, String key, String value) {
+        if (resourcesDir == null || key == null || key.isBlank()) return false;
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
+        Properties properties = read(resourcesDir);
+        if (value == null || value.isBlank()) {
+            properties.remove(key);
+        } else {
+            properties.setProperty(key, value.trim());
+        }
+        try (var out = Files.newOutputStream(file)) {
+            properties.store(out, null);
+            return true;
+        } catch (IOException unwritable) {
+            return false;
+        }
     }
 
     /** One key's trimmed value, or {@code null} when the key, the file or the directory is absent. */
