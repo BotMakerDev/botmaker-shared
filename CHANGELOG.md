@@ -12,6 +12,49 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+No source changes since v0.0.27; re-released for updated upstream pins.
+
+### Added
+
+- **`ProjectFile.set(resourcesDir, key, value)`** — one key written into
+  `botmaker-project.properties`, load-modify-store, `false` rather than a throw when it cannot be written.
+  This class was deliberately read-only, deferring every write to the schema ledger that owned the file
+  being written beside; that ledger (`Authoring`, `capture.json`) is deleted, so what the rule protected no
+  longer exists and the one caller left — the SDK's emulator picker naming the instance it just chose — had
+  nowhere to write. A blank or null value removes the key rather than storing an empty one, so *unset* and
+  *set to nothing* stay the same state they have always been for every reader here.
+
+### Removed
+
+- **The project-wide capture resolution, both halves of it.** `ProjectProperties.KEY_CAPTURE_WIDTH`,
+  `KEY_CAPTURE_HEIGHT` and `defaultResolution()`, `ProjectFile.captureSize`, and `ResolutionScaler`'s
+  fallback onto them. **Nothing in any module ever wrote either key**, so every reader took its own default
+  on every call and always had: `primaryScale` returned `1.0`, and a background session started at
+  `BackgroundLauncher`'s own size. The authoring half of the same fact — `capture.json`'s `reference` — was
+  written by nothing either, so both halves went together rather than one of them acquiring a writer to
+  justify the other. A template's own `captureWidth`/`captureHeight`, recorded beside the picture by the
+  capture that made it, **is** written and is untouched: it is the `authored` argument `OpencvManager`
+  already passes, and the only resolution scaling that has ever happened.
+
+No source changes since v0.0.26; re-released for updated upstream pins.
+
+No source changes since v0.0.25; re-released for updated upstream pins.
+
+### Changed
+
+- **Every repository is `BotMakerDev`'s now.** `GitHubConfig`'s gallery, registry, Studio, CLI and issue
+  owners name the organization the repositories moved to on 2026-09-18. `STUDIO_REPO` is spelled
+  `botmaker-studio`, the repository's real name. The raw index URLs still fall back to the old owner,
+  now `PREVIOUS_OWNER`, which is `NEXT_OWNER`'s replacement.
+
+### Added
+
+- **`GitHubConfig.MAINTAINER`**, the maintainer's GitHub login, for the two places that ask "is this the
+  maintainer?". They compared a login with the repository owner, and since an owner can now be an
+  organization, no login would ever match.
+
 ## [0.0.27] — 2026-09-23
 
 ### Added
