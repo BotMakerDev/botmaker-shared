@@ -8,6 +8,12 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-26 — `ColorMatcher.matchMask` (picker phase 6a)
+
+**Done**
+- `matchMask(image, target, tolerance)` returns the `deltaEMask` `findClusters` labels, as a row-major
+  `boolean[]`. The SDK's Precision overlay tints from it, so the preview and the bot share one threshold.
+
 ## 2026-09-22 — the project-wide capture resolution is deleted, both halves of it
 
 **Done.** `ProjectProperties.KEY_CAPTURE_WIDTH`, `KEY_CAPTURE_HEIGHT` and `defaultResolution()`,

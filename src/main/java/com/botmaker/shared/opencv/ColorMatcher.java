@@ -120,6 +120,27 @@ public final class ColorMatcher {
         return tally(image, target, tolerance).matching();
     }
 
+    /**
+     * Which pixels of {@code image} are within {@code tolerance} of {@code target}, row-major — the mask
+     * {@link #findClusters} labels into blobs, before it does. For an editor that draws what a search sees:
+     * computing the same answer any other way (a Java loop over {@link #deltaE}) is a second implementation of
+     * the threshold, and the two would disagree at the boundary where it matters.
+     */
+    public static boolean[] matchMask(BufferedImage image, Color target, double tolerance) {
+        Mat bgr = null, mask = null;
+        try {
+            bgr = OpencvManager.bufferedImageToMat(image);
+            mask = deltaEMask(bgr, target, tolerance);
+            byte[] bytes = new byte[(int) mask.total()];
+            mask.get(0, 0, bytes);
+            boolean[] out = new boolean[bytes.length];
+            for (int i = 0; i < bytes.length; i++) out[i] = bytes[i] != 0;
+            return out;
+        } finally {
+            release(bgr, mask);
+        }
+    }
+
     /** Matching and total pixel counts of one ΔE mask — the single place either number is produced. */
     private record Tally(int matching, int total) {}
 

@@ -14,9 +14,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
-No source changes since v0.0.27; re-released for updated upstream pins.
-
 ### Added
+
+- **`ColorMatcher.matchMask(image, target, tolerance)`** — the per-pixel ΔE mask `findClusters` labels,
+  row-major, so an editor (the SDK's Precision overlay) draws exactly what a search sees rather than a second
+  threshold of its own.
 
 - **`ProjectFile.set(resourcesDir, key, value)`** — one key written into
   `botmaker-project.properties`, load-modify-store, `false` rather than a throw when it cannot be written.
