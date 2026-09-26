@@ -14,6 +14,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- **uinput presses every key the SDK's `Key` names.** Punctuation, Home/End/Page Up/Page Down/Insert, Caps
+  and Num Lock and the numpad were dropped silently under real input on Linux; each now has its evdev code.
+  Keypad Enter is `KEY_KPENTER` rather than the main Enter.
+
 ### Added
 
 - **`ColorMatcher.matchMask(image, target, tolerance)`** — the per-pixel ΔE mask `findClusters` labels,

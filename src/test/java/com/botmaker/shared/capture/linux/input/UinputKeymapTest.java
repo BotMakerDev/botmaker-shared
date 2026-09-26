@@ -63,4 +63,28 @@ class UinputKeymapTest {
         assertMapped("BackSpace", 0xFF08);
         assertMapped("Delete", 0xFFFF);
     }
+
+    @Test
+    void mapsPunctuationNavigationAndLocks() {
+        int[] keys = {'`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/',
+            0xFF50, 0xFF57, 0xFF55, 0xFF56, 0xFF63, 0xFFE5, 0xFF7F};
+        String[] names = {"grave", "minus", "equal", "bracketleft", "bracketright", "backslash", "semicolon",
+            "apostrophe", "comma", "period", "slash", "Home", "End", "Prior", "Next", "Insert", "Caps_Lock",
+            "Num_Lock"};
+        for (int i = 0; i < keys.length; i++) {
+            assertMapped(names[i], keys[i]);
+        }
+    }
+
+    @Test
+    void mapsTheNumpad() {
+        for (int i = 0; i < 10; i++) {
+            assertMapped("KP_" + i, 0xFFB0 + i);
+        }
+        assertMapped("KP_Multiply", 0xFFAA);
+        assertMapped("KP_Add", 0xFFAB);
+        assertMapped("KP_Subtract", 0xFFAD);
+        assertMapped("KP_Decimal", 0xFFAE);
+        assertMapped("KP_Divide", 0xFFAF);
+    }
 }

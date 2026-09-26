@@ -8,6 +8,14 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-26 — uinput maps the SDK's new keys (picker phase 6b)
+
+**Done**
+- `UinputBackend.buildKeymap` maps US punctuation, Home/End/Page Up/Page Down/Insert, Caps and Num Lock, and the
+  numpad (`KP_0`…`KP_9`, operators, decimal) to their evdev codes — the keys the SDK's `Key` gains. KP_Enter moves
+  from `KEY_ENTER` to `KEY_KPENTER`, so the SDK's `NUMPAD_ENTER` presses the keypad key. `UinputKeymapTest` pins
+  each. The virtual device advertises those codes too (derived from the map); check the pointer still moves.
+
 ## 2026-09-26 — `ColorMatcher.matchMask` (picker phase 6a)
 
 **Done**

@@ -300,7 +300,7 @@ public final class UinputBackend implements LinuxInputBackend {
         m.put((int) '.', KEY_DOT);
         m.put((int) ',', KEY_COMMA);
         m.put(0xFF0D, KEY_ENTER);     // Return
-        m.put(0xFF8D, KEY_ENTER);     // KP_Enter
+        m.put(0xFF8D, 96);            // KP_Enter -> KEY_KPENTER (the SDK's NUMPAD_ENTER, not ENTER)
         m.put(0xFF09, KEY_TAB);       // Tab
         m.put(0xFF08, KEY_BACKSPACE); // BackSpace
         m.put(0xFF1B, KEY_ESC);       // Escape
@@ -326,6 +326,33 @@ public final class UinputBackend implements LinuxInputBackend {
         for (int i = 0; i < fKeys.length; i++) {
             m.put(0xFFBE + i, fKeys[i]);
         }
+        // Punctuation (US layout keysym == ASCII). KEY_MINUS, KEY_DOT and KEY_COMMA are mapped above.
+        m.put((int) '`', 41);   // KEY_GRAVE
+        m.put((int) '=', 13);   // KEY_EQUAL
+        m.put((int) '[', 26);   // KEY_LEFTBRACE
+        m.put((int) ']', 27);   // KEY_RIGHTBRACE
+        m.put((int) '\\', 43);  // KEY_BACKSLASH
+        m.put((int) ';', 39);   // KEY_SEMICOLON
+        m.put((int) '\'', 40);  // KEY_APOSTROPHE
+        m.put((int) '/', 53);   // KEY_SLASH
+        // Navigation and locks.
+        m.put(0xFF50, 102);     // Home      -> KEY_HOME
+        m.put(0xFF57, 107);     // End       -> KEY_END
+        m.put(0xFF55, 104);     // Prior     -> KEY_PAGEUP
+        m.put(0xFF56, 109);     // Next      -> KEY_PAGEDOWN
+        m.put(0xFF63, 110);     // Insert    -> KEY_INSERT
+        m.put(0xFFE5, 58);      // Caps_Lock -> KEY_CAPSLOCK
+        m.put(0xFF7F, 69);      // Num_Lock  -> KEY_NUMLOCK
+        // Numpad: KP_0..KP_9 == 0xFFB0..0xFFB9; evdev's keypad codes follow the physical rows, not the digits.
+        int[] keypad = {82, 79, 80, 81, 75, 76, 77, 71, 72, 73};   // KEY_KP0..KEY_KP9
+        for (int i = 0; i < keypad.length; i++) {
+            m.put(0xFFB0 + i, keypad[i]);
+        }
+        m.put(0xFFAA, 55);      // KP_Multiply -> KEY_KPASTERISK
+        m.put(0xFFAB, 78);      // KP_Add      -> KEY_KPPLUS
+        m.put(0xFFAD, 74);      // KP_Subtract -> KEY_KPMINUS
+        m.put(0xFFAE, 83);      // KP_Decimal  -> KEY_KPDOT
+        m.put(0xFFAF, 98);      // KP_Divide   -> KEY_KPSLASH
         return m;
     }
 }
