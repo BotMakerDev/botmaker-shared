@@ -20,6 +20,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   and Num Lock and the numpad were dropped silently under real input on Linux; each now has its evdev code.
   Keypad Enter is `KEY_KPENTER` rather than the main Enter.
 
+### Fixed
+
+- **uinput follows the keyboard layout.** It emitted the US board's positions, so on AZERTY `a` typed `q`
+  (and `z`/`w`, `m` and punctuation landed on the wrong keys) while XTest and Windows typed what was asked.
+  The virtual device now reads the X keyboard mapping once when it is created and sends each key where the
+  layout puts it, falling back to the US position for a key the layout lacks. A layout switched mid-run is not
+  followed; as with XTest, only the key is pressed — a character on a shifted level (AZERTY's digits) gets no
+  Shift added.
+
 ### Added
 
 - **`ColorMatcher.matchMask(image, target, tolerance)`** — the per-pixel ΔE mask `findClusters` labels,

@@ -39,7 +39,10 @@ public final class UinputBackend implements LinuxInputBackend {
         KEY_LEFTCTRL = 29, KEY_RIGHTCTRL = 97, KEY_LEFTALT = 56, KEY_RIGHTALT = 100, KEY_LEFTMETA = 125,
         KEY_RIGHTMETA = 126, KEY_DELETE = 111, KEY_LEFT = 105, KEY_RIGHT = 106, KEY_UP = 103, KEY_DOWN = 108;
 
-    /** keysym (X) → evdev KEY_* code. Letters map by identity of the letter (case handled via Shift keysym). */
+    /**
+     * keysym (X) → evdev KEY_* code on a US board. Letters map by identity of the letter (case handled via Shift
+     * keysym). A device emits this as the active layout places it ({@link #keymapFor}).
+     */
     private static final Map<Integer, Integer> KEYSYM_TO_KEY = buildKeymap();
 
     /** Keysyms already reported as unmapped, so a held-down key logs once instead of per event. */
@@ -49,9 +52,12 @@ public final class UinputBackend implements LinuxInputBackend {
     private final int screenW;
     private final int screenH;
     private final Pointer display; // only used to convert window-relative clicks to screen coordinates
+    /** {@link #KEYSYM_TO_KEY} as the active layout places it ({@link #keymapFor}). */
+    private final Map<Integer, Integer> keymap;
 
-    private UinputBackend(int fd, int screenW, int screenH, Pointer display) {
+    private UinputBackend(int fd, int screenW, int screenH, Pointer display, Map<Integer, Integer> keymap) {
         this.fd = fd;
+        this.keymap = keymap;
         this.screenW = Math.max(1, screenW);
         this.screenH = Math.max(1, screenH);
         this.display = display;
@@ -68,6 +74,7 @@ public final class UinputBackend implements LinuxInputBackend {
             return null;
         }
         try {
+            Map<Integer, Integer> keymap = layoutKeymap(display);
             // Capabilities: keys/buttons, relative wheel, absolute X/Y, sync.
             ioctlInt(fd, CLib.UI_SET_EVBIT(), CLib.EV_KEY);
             ioctlInt(fd, CLib.UI_SET_EVBIT(), CLib.EV_REL);
@@ -82,7 +89,7 @@ public final class UinputBackend implements LinuxInputBackend {
             // reads to libinput as an ambiguous keyboard/joystick. If widening the keymap ever makes the
             // compositor stop treating this as a pointer, split into two virtual devices (pointer + keyboard)
             // rather than dropping keys back out of the map — a missing key is invisible at runtime.
-            for (int key : new java.util.HashSet<>(KEYSYM_TO_KEY.values())) {
+            for (int key : new java.util.HashSet<>(keymap.values())) {
                 ioctlInt(fd, CLib.UI_SET_KEYBIT(), key);
             }
             ioctlInt(fd, CLib.UI_SET_RELBIT(), CLib.REL_WHEEL);
@@ -110,7 +117,7 @@ public final class UinputBackend implements LinuxInputBackend {
                 return null;
             }
             sleep(120); // let udev create the node and the compositor attach the device
-            return new UinputBackend(fd, screenW, screenH, display);
+            return new UinputBackend(fd, screenW, screenH, display, keymap);
         } catch (Throwable t) {
             Diag.error("[Linux/uinput] Failed to create virtual device: " + t.getMessage());
             try {
@@ -172,7 +179,7 @@ public final class UinputBackend implements LinuxInputBackend {
 
     @Override
     public void key(int keysym, boolean press) {
-        Integer code = KEYSYM_TO_KEY.get(keysym);
+        Integer code = keymap.get(keysym);
         if (code == null) {
             // Silence here is how CTRL/ALT/arrows/F-keys "did nothing" for a whole release: the keysym missed
             // the map and the event evaporated with no trace. Report it (once per keysym) instead.
@@ -269,6 +276,64 @@ public final class UinputBackend implements LinuxInputBackend {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /** {@link #keymapFor} over the display's layout, or the built-in table when it cannot be read. */
+    private static Map<Integer, Integer> layoutKeymap(Pointer display) {
+        if (display == null) {
+            return KEYSYM_TO_KEY;
+        }
+        try {
+            return keymapFor(new XlibKeymapOps(display));
+        } catch (Throwable t) {
+            Diag.error("[Linux/uinput] Could not read the keyboard layout, keys assume US: " + t.getMessage());
+            return KEYSYM_TO_KEY;
+        }
+    }
+
+    /**
+     * The built-in table corrected by the active layout. uinput emits <em>positions</em>, and the built-in table
+     * is the US board's, so on AZERTY {@code a} went out as evdev 30 — the key that layout calls Q — while the
+     * XTest and Windows backends, which ask the layout, typed {@code a}. Each keysym now goes to the key the X
+     * keyboard mapping binds it to (X keycode = evdev code + 8): the built-in key when it still carries the
+     * keysym, else the first key carrying it unshifted, else shifted — only the position, never an added Shift,
+     * exactly as XTest does. A keysym the layout lacks keeps its built-in code.
+     *
+     * <p>Read once, when the device is created: a layout switched mid-run is not followed, and only the first
+     * XKB group is read.
+     */
+    static Map<Integer, Integer> keymapFor(KeymapOps layout) {
+        Map<Integer, Integer> m = new HashMap<>(KEYSYM_TO_KEY);
+        m.replaceAll((keysym, builtIn) -> onLayout(layout, keysym, builtIn));
+        return m;
+    }
+
+    private static int onLayout(KeymapOps layout, int keysym, int builtIn) {
+        if (carries(layout, builtIn + 8, keysym, 2)) {
+            return builtIn;
+        }
+        for (int levels = 1; levels <= 2; levels++) {
+            for (int kc = Math.max(9, layout.minKeycode()); kc <= layout.maxKeycode(); kc++) {
+                if (carries(layout, kc, keysym, levels)) {
+                    return kc - 8;
+                }
+            }
+        }
+        return builtIn;
+    }
+
+    /** Whether {@code keycode} produces {@code keysym} within its first {@code levels} shift levels. */
+    private static boolean carries(KeymapOps layout, int keycode, int keysym, int levels) {
+        if (keycode < layout.minKeycode() || keycode > layout.maxKeycode()) {
+            return false;
+        }
+        long[] syms = layout.keysymsFor(keycode);
+        for (int i = 0; i < Math.min(levels, syms.length); i++) {
+            if (syms[i] == keysym) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Map<Integer, Integer> buildKeymap() {

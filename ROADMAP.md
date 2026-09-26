@@ -8,6 +8,21 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-26 — uinput follows the keyboard layout
+
+**Done**
+- `UinputBackend.keymapFor(KeymapOps)` corrects the built-in US keysym → evdev table against the X keyboard
+  mapping (X keycode = evdev + 8): the built-in key when it still carries the keysym, else the first key with it
+  unshifted, else shifted, else the built-in code. Read once in `tryCreate` through `XlibKeymapOps`; the device
+  advertises and emits from that per-device map. `UinputLayoutTest` pins AZERTY letters, shifted digits, the US
+  no-op and the fallback.
+
+**Deferred / next**
+- A layout switched mid-run is not followed (re-read on XkbMapNotify, or per key with a cache).
+- Only the first XKB group is read; a multi-layout setup on its second group gets the first.
+- No backend adds Shift for a character on a shifted level: `typeText("1")` on AZERTY types `&` under XTest and
+  uinput alike. `typeVia` shifts uppercase only; a level lookup would fix both backends at once.
+
 ## 2026-09-26 — uinput maps the SDK's new keys (picker phase 6b)
 
 **Done**
