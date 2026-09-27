@@ -13,7 +13,7 @@ import java.awt.Dimension;
  * and DPI quirks — the matcher only pays for it on a miss.
  *
  * <p><b>The project-wide fallback is gone</b> (2026-09-22). A template with no authored size of its own used
- * to fall back to {@code ProjectProperties.defaultResolution()}, read from {@code capture.width} /
+ * to fall back to a project-wide default resolution, read from {@code capture.width} /
  * {@code capture.height}. Nothing in any module ever wrote those keys, so the fallback answered {@code null}
  * for every project that has ever existed and this method returned {@code 1.0} — exactly what it returns
  * now. The branch is deleted rather than kept, because a fallback that has never once been taken is a

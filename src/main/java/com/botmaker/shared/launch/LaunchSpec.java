@@ -3,9 +3,9 @@ package com.botmaker.shared.launch;
 import com.botmaker.shared.emulator.WaydroidPlatform;
 
 /**
- * A parsed {@code launch.target} spec — the {@code <kind>:<token>} string persisted in
- * {@code botmaker-project.properties} and the single value both the SDK (which launches it) and Studio (which
- * shows and edits it) work from.
+ * A parsed {@code launch.target} spec — the {@code <kind>:<token>} string a bot is started with (the
+ * {@code botmaker.launch.target} property, kept per machine since 2026-09-27) and the single value both the
+ * SDK (which launches it) and its Studio half (which shows and edits it) work from.
  *
  * <pre>
  *   steam:&lt;appId&gt;

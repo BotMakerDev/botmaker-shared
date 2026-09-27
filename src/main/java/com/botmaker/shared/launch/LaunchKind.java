@@ -6,7 +6,8 @@ import java.util.Set;
  * The closed set of things a bot can be pointed at — the {@code <kind>} half of a {@code launch.target} spec.
  *
  * <p>The {@code PlatformId} pattern the repo prescribes for exactly this shape: a stable wire {@link #id()}
- * (which <em>is persisted</em>, in {@code botmaker-project.properties}, so it must never change) plus the
+ * (which <em>is persisted</em> — a machine's launch target, a published bot's tested-on list — so it must
+ * never change) plus the
  * {@link #displayName()} a human reads, so no consumer keeps its own id→name switch. Before this existed the
  * set lived twice — as a {@code switch} in the SDK's {@code LaunchTarget.parse} and again in Studio's
  * {@code LaunchTargetNames.describe} — which is how a kind could be launchable but undescribable.

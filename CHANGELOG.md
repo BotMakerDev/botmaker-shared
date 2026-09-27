@@ -12,6 +12,14 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Removed
+
+- **`config.ProjectProperties`, `config.ProjectFile` and `config.CaptureSourceKind`.** A bot has no
+  `botmaker-project.properties` any more: its tuning is the SDK's `@Managed("settings")` value in its own
+  Java, and what it launches on this machine arrives as the `botmaker.launch.target` system property.
+
 ## [0.0.28] — 2026-09-27
 
 ### Changed

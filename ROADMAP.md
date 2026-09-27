@@ -8,6 +8,18 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-27 — `config.ProjectProperties`, `ProjectFile`, `CaptureSourceKind` deleted (studio cleanup 7a)
+
+**Done**
+- The three classes and their tests are gone. Every reader was the SDK's or Studio's, and every one has moved:
+  the tuning keys became the SDK's `@Managed("settings")` value (`BotSettings`, in the bot's own Java), the
+  session and debug keys went into it, `launch.target` became the `botmaker.launch.target` system property
+  Studio passes to each run, and `capture.source` had been `Sdk.captureSource()` since 2026-09-22.
+  `ProjectProperties.parseBoolean` lives in the SDK's `internal.config.ProjectDefaults` now, for the session
+  switches that still arrive as a property or an environment variable.
+- Comments that named the file (`LaunchKind`, `LaunchSpec`, `LinuxInputBackendId`, `ResolutionScaler`) say
+  where the value lives instead.
+
 ## 2026-09-26 — uinput follows the keyboard layout
 
 **Done**

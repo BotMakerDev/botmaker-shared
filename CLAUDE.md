@@ -96,15 +96,11 @@ Package map:
 - `opencv/` — matching engines: `OpencvManager` (template matching), `ColorMatcher` (CIELAB ΔE clusters),
   `ResolutionScaler`, the raw results `RawMatch`/`RawColorMatch`, and `OpenCvNative` — **the** process-wide
   OpenCV loader (see below).
-- `config/` — `ProjectProperties`: the `botmaker-project.properties` key names + raw reader, shared because
-  Studio writes exactly the keys the SDK reads. Beside it, **`ProjectFile` (2026-08-30) reads the same file
-  from a *directory*** rather than off the classpath, for everything that *holds* a project instead of being
-  one — the editor, a launcher, a plugin serving the open project. Those had a copy each, and what they
-  disagreed about was never the happy path: it was whether a missing file, a blank value or an unparseable
-  monitor index is an exception, a zero, or the caller's own default. **Reads only** — a write stamps a
-  schema version from the editor's migration ledger, so the write path stays with whoever owns that ledger.
-  `CaptureSourceKind` is here too: the four forms a `capture.source` spec can take, and the one owner of the
-  tokens that separate them.
+- `config/` — `CacheDirs` alone since 2026-09-27. `ProjectProperties`, `ProjectFile` and `CaptureSourceKind`
+  (the `botmaker-project.properties` keys, its readers, and the `capture.source` grammar) are **deleted**: a
+  bot's tuning is the SDK's `@Managed("settings")` value in its own Java, what it launches on this machine is
+  the `botmaker.launch.target` system property Studio passes to the run, and the capture source has been
+  `Sdk.captureSource()` since 2026-09-22. Nothing reads an old project's file; nothing deletes it either.
 - `launch/` — the launch stack: `LaunchKind`/`LaunchSpec` (the `launch.target` grammar), `GameLauncher`,
   `UriLauncher`, `EmulatorAppLauncher`, `RunningProbe` and the `Launcher` facade.
 - `emulator/` — Android-emulator capability (see below): `AdbDevice` (dadb transport), `Platforms` +

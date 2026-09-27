@@ -10,7 +10,8 @@ import java.util.Locale;
  * {@link com.botmaker.shared.capture.linux.LinuxController} selects a {@link LinuxInputBackend} from.
  *
  * <p>The {@code PlatformId} pattern the repo prescribes for this shape: a stable wire {@link #id()} (it is
- * persisted, in {@code botmaker-project.properties}, so it must never change) plus a total
+ * persisted, in a bot's {@code BotSettings} and the {@code botmaker.linux.input} property, so it must never
+ * change) plus a total
  * {@link #fromId(String)}. Before this existed the set was spelled five times — once as a {@code switch} in
  * {@code LinuxController.selectBackend}, and once more in each backend's own {@code name()} — and the two
  * session call sites passed the bare literal {@code "xtest"}.
