@@ -8,7 +8,7 @@ import java.awt.image.BufferedImage;
 
 /**
  * Captures the full virtual desktop via AWT {@link Robot}. Works on Windows, X11, and XWayland.
- * (Under native Wayland this typically returns black — {@link SpectacleCapture} is preferred there.)
+ * (Under native Wayland this typically returns black — a {@link ToolCapture} program is preferred there.)
  */
 public final class RobotCapture implements CaptureBackend {
 

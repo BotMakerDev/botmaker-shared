@@ -14,6 +14,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- **Desktop capture under Wayland uses grim (Sway, Hyprland) or gnome-screenshot (GNOME) when Spectacle is not
+  installed**, instead of falling back to Robot, which returns black or asks the portal on every grab.
+  `SpectacleCapture` is replaced by `ToolCapture`, one constant per program.
+
 ### Removed
 
 - **`config.ProjectProperties`, `config.ProjectFile` and `config.CaptureSourceKind`.** A bot has no

@@ -69,8 +69,10 @@ own full-desktop fallback), window management (`focus`/`move`/`resize`), and inp
 (`keyDown`/`keyUp`/`typeText`/`mouseMove`/`mouseButton`/`scroll`, plus `postLeftClick*`).
 
 Full-desktop capture is **not** on that interface but does live in this module, as the static
-`capture.ScreenCapture` facade over a sealed `CaptureBackend` (`RobotCapture` on Windows/X11/XWayland,
-`SpectacleCapture` on KDE Wayland, chosen by `CaptureBackend.select()`); `getVirtualScreenBounds()` is the one
+`capture.ScreenCapture` facade over a sealed `CaptureBackend` (`RobotCapture` on Windows/X11/XWayland, and
+under Wayland the first installed `ToolCapture` program — Spectacle, grim, gnome-screenshot — chosen by
+`CaptureBackend.select()`; the SDK's plugin kept its own grim/gnome-screenshot list until 2026-09-28, and a
+GNOME user got a working grab from one path and a black one from the other); `getVirtualScreenBounds()` is the one
 AWT all-monitor union. It used to live in the SDK under the rule "full-desktop capture belongs to each
 consumer", which was wrong on its own terms: the platform knowledge is identical to per-window capture's, and
 Studio's picker wants the same grab. Adding a GNOME/sway portal+PipeWire path means one new `CaptureBackend`
@@ -89,7 +91,7 @@ Windows); consumers resolve them from their own platform-neutral key enums.
 
 Package map:
 - `capture/` — the cross-platform surface: `NativeController`, `NativeControllerFactory`, `GenericWindow`,
-  plus full-desktop capture (`ScreenCapture`, `CaptureBackend`, `RobotCapture`, `SpectacleCapture`).
+  plus full-desktop capture (`ScreenCapture`, `CaptureBackend`, `RobotCapture`, `ToolCapture`).
 - `capture/windows/` — JNA Windows backend: `User32`/`GDI32` bindings, `WindowsController`, `WindowFinder`,
   `WindowInfo`, `WindowCapture`, `Clicker`.
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.

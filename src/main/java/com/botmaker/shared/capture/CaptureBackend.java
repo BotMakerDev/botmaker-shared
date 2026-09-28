@@ -9,7 +9,7 @@ import java.awt.image.BufferedImage;
  * open for additional backends (e.g. an xdg-desktop-portal / PipeWire path) without touching
  * callers.
  */
-public sealed interface CaptureBackend permits RobotCapture, SpectacleCapture {
+public sealed interface CaptureBackend permits RobotCapture, ToolCapture {
 
     /** Captures every monitor, in their relative layout, as one image. Returns null on failure. */
     BufferedImage captureDesktop();
@@ -27,14 +27,11 @@ public sealed interface CaptureBackend permits RobotCapture, SpectacleCapture {
     String binaryName();
 
     /**
-     * Picks the best backend for the current environment: KDE-style Wayland with {@code spectacle}
-     * available uses {@link SpectacleCapture} (AWT {@link java.awt.Robot} returns black under
-     * Wayland); everything else uses {@link RobotCapture}.
+     * Picks the best backend for the current environment: under Wayland, the first screenshot program
+     * installed ({@link ToolCapture}: Spectacle, grim, gnome-screenshot), because AWT {@link java.awt.Robot}
+     * returns black there; everything else, and a Wayland machine with none of them, uses {@link RobotCapture}.
      */
     static CaptureBackend select() {
-        if (SpectacleCapture.isAvailable()) {
-            return new SpectacleCapture();
-        }
-        return new RobotCapture();
+        return ToolCapture.available().<CaptureBackend>map(tool -> tool).orElseGet(RobotCapture::new);
     }
 }

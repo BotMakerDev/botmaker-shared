@@ -31,8 +31,14 @@ public final class Executables {
      */
     public static final String GAMESCOPE = "gamescope";
 
-    /** KDE's screenshot tool, the desktop-capture backend under Wayland. */
+    /** KDE's screenshot tool, a desktop-capture backend under Wayland ({@code capture.ToolCapture}). */
     public static final String SPECTACLE = "spectacle";
+
+    /** The wlroots screenshot tool (Sway, Hyprland), a desktop-capture backend under Wayland. */
+    public static final String GRIM = "grim";
+
+    /** GNOME's screenshot tool, a desktop-capture backend under Wayland. */
+    public static final String GNOME_SCREENSHOT = "gnome-screenshot";
 
     private Executables() {}
 

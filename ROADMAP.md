@@ -8,6 +8,14 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-28 — `ToolCapture`: grim and gnome-screenshot beside Spectacle
+
+**Done**
+- `SpectacleCapture` became the enum `ToolCapture` (`SPECTACLE`, `GRIM`, `GNOME_SCREENSHOT`), each with the
+  arguments that grab every monitor with no picker. `CaptureBackend.select()` takes the first installed under
+  Wayland, Robot otherwise. The SDK's plugin had the other two in a private `DesktopGrab`, now deleted.
+- `Executables.GRIM`, `Executables.GNOME_SCREENSHOT`; `CaptureBackendTest` pins each argument vector.
+
 ## 2026-09-27 — `config.ProjectProperties`, `ProjectFile`, `CaptureSourceKind` deleted (studio cleanup 7a)
 
 **Done**
