@@ -8,6 +8,14 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-29 — `Diag` takes a source (rework follow-ups, phase 7b)
+
+**Done**
+- `Diag.log(source, message, count, where)` and `Diag.error(source, message[, t])` print `[source] message`
+  and trace under that source; one private `emit` serves every form. A message's own leading `[Name]` wins,
+  so this module's diagnostics keep naming themselves. The SDK passes the calling class's name, so no SDK line
+  writes a prefix any more.
+
 ## 2026-09-29 — the run trace on the wire (rework follow-ups, phase 7)
 
 Design: `../docs/refactor/40-run-trace.md`.

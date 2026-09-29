@@ -20,6 +20,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   text, repeat count, time, desktop rectangle and bot line. An older reader skips the frame and keeps reading.
 - **`Diag.setSink`**: each diagnostic printed while debugging is on also goes to the sink as a `Log`, with its
   source taken from the leading `[Name]`. The printed output is unchanged.
+- **`Diag.log(source, message, count, where)` and `Diag.error(source, message[, t])`** print and trace a line
+  under a source the caller names. A message's own leading `[Name]` still wins.
 - **`-Dbotmaker.debug=true|false`** (`Diag.RUN_PROPERTY`) sets whether diagnostics start on; `Diag.runOverride()`
   reads it.
 

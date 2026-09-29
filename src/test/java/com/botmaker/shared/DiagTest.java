@@ -4,6 +4,9 @@ import com.botmaker.shared.ipc.TelemetryEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -46,6 +49,27 @@ class DiagTest {
         assertEquals("Game", lines.get(1).source());
         assertEquals("", lines.get(2).source());
         assertEquals("no bracket here", lines.get(2).text());
+    }
+
+    @Test
+    void aGivenSourceIsPrintedAndTracedButAnExplicitPrefixWins() {
+        Diag.set(true);
+        Diag.setSink(lines::add);
+        PrintStream real = System.out;
+        ByteArrayOutputStream printed = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(printed, true, StandardCharsets.UTF_8));
+        try {
+            Diag.log("Mouse", "click (1,2)", 1, null);
+            Diag.log("Settings", "[Input] real device input active", 1, null);
+            Diag.log(" ", "no source", 1, null);
+        } finally {
+            System.setOut(real);
+        }
+
+        assertEquals(List.of("[Mouse] click (1,2)", "[Input] real device input active", "no source"),
+                printed.toString(StandardCharsets.UTF_8).lines().toList());
+        assertEquals(List.of("Mouse", "Input", ""), lines.stream().map(TelemetryEvent.Log::source).toList());
+        assertEquals("real device input active", lines.get(1).text());
     }
 
     @Test
