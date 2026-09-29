@@ -17,7 +17,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 ### Added
 
 - **Debug lines cross the telemetry wire.** `TelemetryEvent.Log` (frame tag 5) carries a line's level, source,
-  text, repeat count, time, desktop rectangle and bot line. An older reader skips the frame and keeps reading.
+  text, repeat count, time, desktop rectangle, and the bot's class and line that wrote it. An older reader
+  skips the frame and keeps reading.
+- **Frames can be relayed without being decoded.** `TelemetryFrame.readFrame` reads one whole frame as bytes,
+  `decode` reads those bytes back, and `isLog`/`log` pick out a debug line without decoding anything else.
+  `TelemetryServer.relaying(token, onFrame, onError)` hands each frame on as bytes, for a host that passes
+  frames to plugins without reading them.
 - **`Diag.setSink`**: each diagnostic printed while debugging is on also goes to the sink as a `Log`, with its
   source taken from the leading `[Name]`. The printed output is unchanged.
 - **`Diag.log(source, message, count, where)` and `Diag.error(source, message[, t])`** print and trace a line

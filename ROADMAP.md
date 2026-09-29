@@ -8,6 +8,19 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-29 — frames relayed as bytes; a debug line names its class (rework follow-ups, phase 8)
+
+**Done**
+- `TelemetryFrame.readFrame(in)` returns one whole frame, length prefix included, and `decode(frame)` reads it
+  back; `read(in)` is now `decode(readFrame(in))`. `isLog(frame)` reads only the version and type bytes, and
+  `log(frame)` decodes a `Log` and nothing else, so Studio can show the trace without naming a match or a click.
+- `TelemetryServer.relaying(token, onFrame, onError)`: the accept loop reads whole frames and hands them on
+  undecoded. The decoding constructors are a handler over the same loop, so a frame they cannot read is still
+  skipped and reported once.
+- `TelemetryEvent.Log` gains `className` (the bot class whose `line` wrote it), written before `line`; `atLine`
+  became `at(className, line)`. A line number alone named no file, and Studio's Trace tab needs one to reveal
+  the block. The frame layout changed before any release carried tag 5, so nothing reads the old one.
+
 ## 2026-09-29 — `Diag` takes a source (rework follow-ups, phase 7b)
 
 **Done**

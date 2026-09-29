@@ -144,7 +144,7 @@ public final class Diag {
         Consumer<TelemetryEvent.Log> lines = sink;
         if (lines == null) return;
         try {
-            lines.accept(new TelemetryEvent.Log(level, source, text, count, System.currentTimeMillis(), where, -1));
+            lines.accept(new TelemetryEvent.Log(level, source, text, count, System.currentTimeMillis(), where, "", -1));
         } catch (RuntimeException ignored) {
             // A trace is best-effort: the line was printed, and a broken sink must not break the bot.
         }

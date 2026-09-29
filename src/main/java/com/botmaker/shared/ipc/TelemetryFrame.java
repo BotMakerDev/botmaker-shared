@@ -6,6 +6,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.Optional;
 
 /**
  * Length-prefixed binary framing for {@link TelemetryEvent}s — dependency-free (no JSON/Jackson), keeping
@@ -96,6 +97,7 @@ public final class TelemetryFrame {
                 p.writeInt(l.count());
                 p.writeLong(l.atMillis());
                 writeNullableRect(p, l.rect());
+                p.writeUTF(l.className());
                 p.writeInt(l.line());
             }
         }
@@ -124,17 +126,68 @@ public final class TelemetryFrame {
      * when only the payload is undecodable (recoverable — framing is still aligned to the next frame).
      */
     public static TelemetryEvent read(DataInputStream in) throws IOException {
+        return decode(readFrame(in));
+    }
+
+    /**
+     * Reads one whole frame, length prefix included, without decoding it: the bytes {@link #write} wrote, which
+     * {@link #decode} reads back. For a host that relays frames it does not read — what a match or a click means
+     * is the runtime's vocabulary, and the host passes it on as bytes ({@code docs/refactor/40-run-trace.md}).
+     * Fails like {@link #read} does when the stream itself is gone; never on the payload.
+     */
+    public static byte[] readFrame(DataInputStream in) throws IOException {
         int length = in.readInt();
         if (length < 0 || length > MAX_FRAME_BYTES) {
             throw new IOException("Bad telemetry frame length: " + length);
         }
-        byte[] payload = in.readNBytes(length);
-        if (payload.length < length) throw new EOFException("Truncated telemetry frame");
+        byte[] frame = new byte[4 + length];
+        frame[0] = (byte) (length >>> 24);
+        frame[1] = (byte) (length >>> 16);
+        frame[2] = (byte) (length >>> 8);
+        frame[3] = (byte) length;
+        int read = in.readNBytes(frame, 4, length);
+        if (read < length) throw new EOFException("Truncated telemetry frame");
+        return frame;
+    }
 
-        // The socket stream is now aligned to the next frame; decode the in-memory payload. Any failure here
-        // (version skew, unknown tag, short payload) is recoverable — surface it as FrameFormatException.
+    /**
+     * Whether {@code frame} (as {@link #readFrame} returned it) is a debug line, read off its type tag alone.
+     * A frame of a version this reader does not know is not.
+     */
+    public static boolean isLog(byte[] frame) {
+        return frame != null && frame.length > 5
+                && (frame[4] & 0xFF) == PROTOCOL_VERSION && (frame[5] & 0xFF) == TYPE_LOG;
+    }
+
+    /**
+     * The debug line {@code frame} carries, or empty when it carries something else or cannot be read. Decodes
+     * nothing but a {@link TelemetryEvent.Log}, so a host that shows the trace names no other event.
+     */
+    public static Optional<TelemetryEvent.Log> log(byte[] frame) {
+        if (!isLog(frame)) return Optional.empty();
         try {
-            DataInputStream p = new DataInputStream(new ByteArrayInputStream(payload));
+            return Optional.of((TelemetryEvent.Log) decode(frame));
+        } catch (FrameFormatException unreadable) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Decodes one whole frame, as {@link #readFrame} returned it. Every failure is a {@link FrameFormatException}:
+     * the bytes are all here, so nothing about the stream they came from is in doubt.
+     */
+    public static TelemetryEvent decode(byte[] frame) throws FrameFormatException {
+        if (frame == null || frame.length < 4) throw new FrameFormatException("Truncated telemetry frame");
+        int length = ((frame[0] & 0xFF) << 24) | ((frame[1] & 0xFF) << 16) | ((frame[2] & 0xFF) << 8)
+                | (frame[3] & 0xFF);
+        if (length != frame.length - 4) {
+            throw new FrameFormatException("Telemetry frame length " + length + " does not match its payload");
+        }
+
+        // Any failure here (version skew, unknown tag, short payload) is recoverable — surface it as
+        // FrameFormatException.
+        try {
+            DataInputStream p = new DataInputStream(new ByteArrayInputStream(frame, 4, length));
             int version = p.readUnsignedByte();
             if (version != PROTOCOL_VERSION) {
                 throw new IOException("Unsupported telemetry protocol version: " + version);
@@ -152,7 +205,7 @@ public final class TelemetryFrame {
                         p.readLong(), p.readInt());
                 case TYPE_LOG -> new TelemetryEvent.Log(
                         p.readUTF(), p.readUTF(), p.readUTF(), p.readInt(), p.readLong(),
-                        readNullableRect(p), p.readInt());
+                        readNullableRect(p), p.readUTF(), p.readInt());
                 default -> throw new IOException("Unknown telemetry type tag: " + type);
             };
         } catch (IOException decodeError) {

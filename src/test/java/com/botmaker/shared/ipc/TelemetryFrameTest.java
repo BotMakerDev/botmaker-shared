@@ -7,9 +7,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TelemetryFrameTest {
 
@@ -65,23 +68,56 @@ class TelemetryFrameTest {
     @Test
     void aLogLineRoundTripsWithOrWithoutARect() throws Exception {
         TelemetryEvent located = new TelemetryEvent.Log(TelemetryEvent.Log.DEBUG, "Vision", "find ore → (1,2)",
-                47, 1_700_000_000_000L, new TelemetryEvent.Rect(1, 2, 3, 4), 12);
-        TelemetryEvent plain = new TelemetryEvent.Log("error", "", "crashed", 1, 5L, null, -1);
+                47, 1_700_000_000_000L, new TelemetryEvent.Rect(1, 2, 3, 4), "com.example.Collect", 12);
+        TelemetryEvent plain = new TelemetryEvent.Log("error", "", "crashed", 1, 5L, null, "", -1);
         assertEquals(located, roundTrip(located));
         assertEquals(plain, roundTrip(plain));
     }
 
     @Test
     void aLogLineIsReadTotallyAndARunawayTextIsCutToFitTheFrame() throws Exception {
-        TelemetryEvent.Log empty = new TelemetryEvent.Log(null, null, null, 0, 0L, null, -1);
+        TelemetryEvent.Log empty = new TelemetryEvent.Log(null, null, null, 0, 0L, null, null, -1);
         assertEquals("", empty.level());
+        assertEquals("", empty.className());
         assertEquals(1, empty.count());
         assertEquals(new TelemetryEvent.Target(null, 0, 0, 0, 0), empty.target());
 
         // Three bytes a character in modified UTF-8: the worst case for writeUTF's 64 KiB.
-        TelemetryEvent.Log huge = new TelemetryEvent.Log("debug", "Bot", "€".repeat(100_000), 1, 0L, null, -1);
+        TelemetryEvent.Log huge = new TelemetryEvent.Log("debug", "Bot", "€".repeat(100_000), 1, 0L, null, "", -1);
         assertEquals(TelemetryEvent.Log.MAX_TEXT + 1, huge.text().length());
         assertEquals(huge, roundTrip(huge));
+    }
+
+    /** A relaying host reads frames whole and decodes only the debug lines it shows. */
+    @Test
+    void aRelayedFrameIsTheWrittenBytesAndOnlyALogFrameReadsAsALine() throws Exception {
+        TelemetryEvent.Log line = new TelemetryEvent.Log("warn", "Game", "slow start", 1, 9L, null,
+                "com.example.Gamebot", 30);
+        TelemetryEvent click = new TelemetryEvent.Click(WINDOW, 7, 8, 1);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bos);
+        TelemetryFrame.write(out, line);
+        int lineBytes = bos.size();
+        TelemetryFrame.write(out, click);
+
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(bos.toByteArray()));
+        byte[] first = TelemetryFrame.readFrame(in);
+        byte[] second = TelemetryFrame.readFrame(in);
+
+        assertEquals(lineBytes, first.length, "the length prefix travels with the frame");
+        assertTrue(TelemetryFrame.isLog(first));
+        assertEquals(Optional.of(line), TelemetryFrame.log(first));
+        assertFalse(TelemetryFrame.isLog(second));
+        assertEquals(Optional.empty(), TelemetryFrame.log(second));
+        assertEquals(click, TelemetryFrame.decode(second));
+        assertThrows(EOFException.class, () -> TelemetryFrame.readFrame(in));
+    }
+
+    @Test
+    void aFrameWhoseLengthLiesDoesNotDecode() {
+        byte[] lying = {0, 0, 0, 9, TelemetryFrame.PROTOCOL_VERSION, 5};
+        assertThrows(TelemetryFrame.FrameFormatException.class, () -> TelemetryFrame.decode(lying));
+        assertEquals(Optional.empty(), TelemetryFrame.log(lying));
     }
 
     @Test

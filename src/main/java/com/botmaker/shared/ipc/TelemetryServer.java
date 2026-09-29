@@ -33,7 +33,8 @@ public final class TelemetryServer implements AutoCloseable {
 
     private final ServerSocket serverSocket;
     private final String token;
-    private final Consumer<TelemetryEvent> onEvent;
+    /** Each whole frame as read, decoded here or not depending on how the server was made. */
+    private final FrameHandler onFrame;
     private final Consumer<String> onError;
     private final AtomicBoolean frameErrorReported = new AtomicBoolean(false);
     private final AtomicBoolean listenerFaultReported = new AtomicBoolean(false);
@@ -49,8 +50,29 @@ public final class TelemetryServer implements AutoCloseable {
      *                (e.g. wire-version skew from an old SDK). May be {@code null}.
      */
     public TelemetryServer(String token, Consumer<TelemetryEvent> onEvent, Consumer<String> onError) throws IOException {
+        this(token, (FrameHandler) frame -> onEvent.accept(TelemetryFrame.decode(frame)), onError);
+    }
+
+    /**
+     * A server that hands on every frame as {@link TelemetryFrame#readFrame} read it, decoding none: for a host
+     * that relays what it does not read ({@code docs/refactor/40-run-trace.md}). A frame this build could not
+     * decode is still delivered, since the consumer it is relayed to may be newer than this build; {@code
+     * onError} hears only of a consumer that threw.
+     */
+    public static TelemetryServer relaying(String token, Consumer<byte[]> onFrame, Consumer<String> onError)
+            throws IOException {
+        return new TelemetryServer(token, (FrameHandler) onFrame::accept, onError);
+    }
+
+    /** What one whole frame is handed to; a decoding handler throws for a payload it cannot read. */
+    @FunctionalInterface
+    private interface FrameHandler {
+        void accept(byte[] frame) throws TelemetryFrame.FrameFormatException;
+    }
+
+    private TelemetryServer(String token, FrameHandler onFrame, Consumer<String> onError) throws IOException {
         this.token = token;
-        this.onEvent = onEvent;
+        this.onFrame = onFrame;
         this.onError = onError;
         this.serverSocket = new ServerSocket();
         this.serverSocket.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
@@ -73,16 +95,7 @@ public final class TelemetryServer implements AutoCloseable {
                 String presented = in.readUTF(); // handshake
                 if (!token.equals(presented)) continue; // ignore stray/unauthorized; keep serving
                 while (!closed) {
-                    TelemetryEvent event;
-                    try {
-                        event = TelemetryFrame.read(in);
-                    } catch (TelemetryFrame.FrameFormatException recoverable) {
-                        // Framing stays aligned — skip this frame and keep reading. Report the cause once so
-                        // a version-skewed (old-SDK) bot surfaces a clear notice instead of a silent blank.
-                        reportErrorOnce(frameErrorReported, recoverable.getMessage());
-                        continue;
-                    }
-                    dispatch(event);
+                    dispatch(TelemetryFrame.readFrame(in));
                 }
             } catch (IOException e) {
                 // This client's stream ended/reset, or the server socket was closed. Loop to re-accept a
@@ -97,14 +110,18 @@ public final class TelemetryServer implements AutoCloseable {
      * there — and before this catch existed it unwound {@link #acceptLoop}, ended the daemon accept thread and
      * left the run silent with {@link #close()} and {@link #port()} both still answering normally.
      */
-    private void dispatch(TelemetryEvent event) {
+    private void dispatch(byte[] frame) {
         try {
-            onEvent.accept(event);
+            onFrame.accept(frame);
+        } catch (TelemetryFrame.FrameFormatException recoverable) {
+            // Framing stays aligned — skip this frame and keep reading. Report the cause once so a
+            // version-skewed (old-SDK) bot surfaces a clear notice instead of a silent blank.
+            reportErrorOnce(frameErrorReported, recoverable.getMessage());
         } catch (RuntimeException listenerFault) {
             // The stack is the only thing that makes the listener bug fixable, so it is printed even when a
             // notice reaches the user; Diag keeps a quiet run quiet.
-            Diag.error("[Telemetry] listener threw on " + event.getClass().getSimpleName()
-                    + "; dropping that event and keeping the channel", listenerFault);
+            Diag.error("[Telemetry] listener threw on a " + frame.length
+                    + "-byte frame; dropping that event and keeping the channel", listenerFault);
             reportErrorOnce(listenerFaultReported, "A telemetry listener failed: " + listenerFault);
         }
     }

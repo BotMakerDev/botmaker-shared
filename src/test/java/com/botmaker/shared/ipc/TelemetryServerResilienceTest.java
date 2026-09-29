@@ -54,6 +54,20 @@ class TelemetryServerResilienceTest {
         }
     }
 
+    /** A relaying server hands on the bytes as written, and decodes nothing it could refuse. */
+    @Test
+    void aRelayingServerHandsOnEachFrameUndecoded() throws Exception {
+        BlockingQueue<byte[]> received = new ArrayBlockingQueue<>(8);
+        try (TelemetryServer server = TelemetryServer.relaying("secret", received::offer, null);
+             TelemetryClient client = new TelemetryClient(server.port(), "secret")) {
+            client.send(click(4));
+
+            byte[] frame = received.poll(5, TimeUnit.SECONDS);
+            assertNotNull(frame, "the relayed frame never arrived");
+            assertEquals(click(4), TelemetryFrame.decode(frame));
+        }
+    }
+
     @Test
     void everyConsumerThrowStillLeavesTheServerAcceptingReconnects() throws Exception {
         AtomicInteger delivered = new AtomicInteger();

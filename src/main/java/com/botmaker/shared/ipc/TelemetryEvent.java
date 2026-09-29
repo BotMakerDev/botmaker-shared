@@ -68,12 +68,14 @@ public sealed interface TelemetryEvent
      * {@link #ERROR}) and stays a string on the wire, so a level a newer bot adds still reads; {@code source} is
      * the name the line was written under ({@code "Vision"}), empty when it had none; {@code count} is how many
      * times a collapsed line happened, at least 1; {@code rect} is where on the desktop it happened, or null.
+     * {@code className} is the binary name of the bot's class whose {@code line} wrote it ({@code
+     * com.example.Collect}), empty when unknown: a line number alone names no file, and a bot is several.
      *
      * <p>A log line acts on no surface, so {@link #target()} is the whole screen: a consumer that draws events
      * by their target draws nothing for it.
      */
-    record Log(String level, String source, String text, int count, long atMillis, Rect rect, int line)
-            implements TelemetryEvent {
+    record Log(String level, String source, String text, int count, long atMillis, Rect rect, String className,
+               int line) implements TelemetryEvent {
 
         public static final String DEBUG = "debug";
         public static final String INFO = "info";
@@ -90,6 +92,7 @@ public sealed interface TelemetryEvent
             source = source == null ? "" : source;
             text = text == null ? "" : text.length() > MAX_TEXT ? text.substring(0, MAX_TEXT) + "…" : text;
             count = Math.max(1, count);
+            className = className == null ? "" : className;
         }
 
         @Override
@@ -97,9 +100,9 @@ public sealed interface TelemetryEvent
             return NO_SURFACE;
         }
 
-        /** This line attributed to {@code line} of the bot's source. */
-        public Log atLine(int line) {
-            return new Log(level, source, text, count, atMillis, rect, line);
+        /** This line attributed to {@code line} of the bot's class {@code className}. */
+        public Log at(String className, int line) {
+            return new Log(level, source, text, count, atMillis, rect, className, line);
         }
     }
 
