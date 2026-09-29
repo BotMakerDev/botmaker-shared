@@ -14,6 +14,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **Debug lines cross the telemetry wire.** `TelemetryEvent.Log` (frame tag 5) carries a line's level, source,
+  text, repeat count, time, desktop rectangle and bot line. An older reader skips the frame and keeps reading.
+- **`Diag.setSink`**: each diagnostic printed while debugging is on also goes to the sink as a `Log`, with its
+  source taken from the leading `[Name]`. The printed output is unchanged.
+- **`-Dbotmaker.debug=true|false`** (`Diag.RUN_PROPERTY`) sets whether diagnostics start on; `Diag.runOverride()`
+  reads it.
+
 ### Changed
 
 - **Desktop capture under Wayland uses grim (Sway, Hyprland) or gnome-screenshot (GNOME) when Spectacle is not

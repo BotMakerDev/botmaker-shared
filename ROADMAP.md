@@ -8,6 +8,26 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-29 — the run trace on the wire (rework follow-ups, phase 7)
+
+Design: `../docs/refactor/40-run-trace.md`.
+
+**Done**
+- `TelemetryEvent.Log(level, source, text, count, atMillis, rect, line)`, frame tag 5, with no protocol
+  version bump (an older reader skips it as `FrameFormatException`). The level is an id string
+  (`Log.DEBUG`/`INFO`/`WARN`/`ERROR`) so shared names no contract type, and so a level a newer bot adds still
+  reads. Its text is cut at `MAX_TEXT` (16 384 characters), which keeps `writeUTF` under 64 KiB. Its
+  `target()` is the whole screen: a log line acts on no surface.
+- `Diag` has a sink (`setSink`): each printed line also goes there as a `Log`, with its source read from the
+  leading `[Name]` every diagnostic already starts with. Printing is unchanged. `log(message, count, where)`
+  is the form a collapsed or located line uses. A sink that throws loses the line, not the bot.
+- `Diag.RUN_PROPERTY` (`botmaker.debug`, the contract's `Runs.DEBUG_PROPERTY`) sets the flag's start value,
+  and `runOverride()` is what the SDK applies over the bot's settings.
+
+**Deferred / next**
+- Studio decodes `Log` into the contract's `TraceLine` (phase 8). Until then it relays the frame to plugins
+  through `onTelemetry` like any other, and the SDK's Pilot skips it.
+
 ## 2026-09-28 — `ToolCapture`: grim and gnome-screenshot beside Spectacle
 
 **Done**

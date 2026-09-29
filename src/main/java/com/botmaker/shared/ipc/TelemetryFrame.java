@@ -14,7 +14,7 @@ import java.io.IOException;
  * <pre>
  *   int32  payloadLength (big-endian, via DataOutputStream)
  *   byte   protocolVersion
- *   byte   typeTag  (1=Match, 2=Click, 3=Region, 4=Swipe)
+ *   byte   typeTag  (1=Match, 2=Click, 3=Region, 4=Swipe, 5=Log)
  *   ...    type-specific fields, encoded field-by-field
  * </pre>
  *
@@ -40,6 +40,12 @@ public final class TelemetryFrame {
      * older-SDK bot, including the three kinds that reader understands perfectly.
      */
     private static final int TYPE_SWIPE = 4;
+    /**
+     * A debug line ({@link TelemetryEvent.Log}), added the same way as {@link #TYPE_SWIPE}. Its text fits
+     * {@code writeUTF}'s 64 KiB because {@link TelemetryEvent.Log#MAX_TEXT} characters are at most three bytes
+     * each.
+     */
+    private static final int TYPE_LOG = 5;
 
     private TelemetryFrame() {}
 
@@ -81,6 +87,16 @@ public final class TelemetryFrame {
                 p.writeInt(s.y2());
                 p.writeLong(s.durationMs());
                 p.writeInt(s.line());
+            }
+            case TelemetryEvent.Log l -> {
+                p.writeByte(TYPE_LOG);
+                p.writeUTF(l.level());
+                p.writeUTF(l.source());
+                p.writeUTF(l.text());
+                p.writeInt(l.count());
+                p.writeLong(l.atMillis());
+                writeNullableRect(p, l.rect());
+                p.writeInt(l.line());
             }
         }
         byte[] payload = buffer.toByteArray();
@@ -134,6 +150,9 @@ public final class TelemetryFrame {
                 case TYPE_SWIPE -> new TelemetryEvent.Swipe(
                         readTarget(p), p.readInt(), p.readInt(), p.readInt(), p.readInt(),
                         p.readLong(), p.readInt());
+                case TYPE_LOG -> new TelemetryEvent.Log(
+                        p.readUTF(), p.readUTF(), p.readUTF(), p.readInt(), p.readLong(),
+                        readNullableRect(p), p.readInt());
                 default -> throw new IOException("Unknown telemetry type tag: " + type);
             };
         } catch (IOException decodeError) {

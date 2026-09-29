@@ -63,6 +63,28 @@ class TelemetryFrameTest {
     }
 
     @Test
+    void aLogLineRoundTripsWithOrWithoutARect() throws Exception {
+        TelemetryEvent located = new TelemetryEvent.Log(TelemetryEvent.Log.DEBUG, "Vision", "find ore → (1,2)",
+                47, 1_700_000_000_000L, new TelemetryEvent.Rect(1, 2, 3, 4), 12);
+        TelemetryEvent plain = new TelemetryEvent.Log("error", "", "crashed", 1, 5L, null, -1);
+        assertEquals(located, roundTrip(located));
+        assertEquals(plain, roundTrip(plain));
+    }
+
+    @Test
+    void aLogLineIsReadTotallyAndARunawayTextIsCutToFitTheFrame() throws Exception {
+        TelemetryEvent.Log empty = new TelemetryEvent.Log(null, null, null, 0, 0L, null, -1);
+        assertEquals("", empty.level());
+        assertEquals(1, empty.count());
+        assertEquals(new TelemetryEvent.Target(null, 0, 0, 0, 0), empty.target());
+
+        // Three bytes a character in modified UTF-8: the worst case for writeUTF's 64 KiB.
+        TelemetryEvent.Log huge = new TelemetryEvent.Log("debug", "Bot", "€".repeat(100_000), 1, 0L, null, -1);
+        assertEquals(TelemetryEvent.Log.MAX_TEXT + 1, huge.text().length());
+        assertEquals(huge, roundTrip(huge));
+    }
+
+    @Test
     void anUnknownTypeTagSkipsOneFrameRatherThanKillingTheStream() throws Exception {
         // Why Swipe could be added without bumping PROTOCOL_VERSION: a reader that predates a tag consumes
         // the whole payload before it fails, so the next frame — one it does understand — still reads.

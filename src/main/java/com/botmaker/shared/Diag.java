@@ -1,5 +1,13 @@
 package com.botmaker.shared;
 
+import com.botmaker.shared.ipc.TelemetryEvent;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.function.Consumer;
+
 /**
  * The process-wide diagnostic-output switch, and the <em>only</em> one — the SDK's
  * {@code com.botmaker.sdk.api.Debug} is a thin delegate over this class, so a single toggle governs both
@@ -10,13 +18,26 @@ package com.botmaker.shared;
  * must silence those too. The alternative — a second flag in {@code shared} — would silently diverge from the
  * SDK's the first time only one of them was flipped.
  *
- * <p><b>Default: on</b>, matching the SDK. The SDK narrows it at start-up from the project's {@code debug}
- * key; anything printed before that class loads (in practice nothing, since a bot touches the SDK first)
- * prints under the default.
+ * <p><b>Default: on</b>, matching the SDK, unless the run says otherwise with {@code -Dbotmaker.debug}
+ * ({@link #RUN_PROPERTY}, which a host sets from its Debug output toggle). The SDK narrows it at start-up from
+ * the bot's settings, where the run property still wins ({@link #runOverride()}).
+ *
+ * <p><b>The trace.</b> Every line printed here also goes to the {@linkplain #setSink sink}, when one is set, as a
+ * {@link TelemetryEvent.Log}: the SDK sets one when a host started the run, so the host shows the line in a trace
+ * with its level and source ({@code docs/refactor/40-run-trace.md}). The printing is unchanged by it, so a bot
+ * run from a terminal reads exactly as before. The source is the leading {@code [Name]} every diagnostic here and
+ * in the SDK already starts with, read on the bot's side where that convention is written.
  */
 public final class Diag {
 
-    private static volatile boolean enabled = true;
+    /** The run property that forces diagnostics on or off, the same name as the contract's {@code Runs.DEBUG_PROPERTY}. */
+    public static final String RUN_PROPERTY = "botmaker.debug";
+
+    /** The longest {@code [Name]} read as a source; a longer bracket is part of the text. */
+    private static final int MAX_SOURCE = 32;
+
+    private static volatile boolean enabled = runOverride().orElse(true);
+    private static volatile Consumer<TelemetryEvent.Log> sink;
 
     private Diag() {}
 
@@ -30,10 +51,38 @@ public final class Diag {
         enabled = on;
     }
 
+    /**
+     * What the run's {@link #RUN_PROPERTY} says: {@code true} or {@code false} (any case, trimmed), or empty
+     * when it is unset or says anything else, and the bot decides.
+     */
+    public static Optional<Boolean> runOverride() {
+        String value = System.getProperty(RUN_PROPERTY);
+        if (value == null) return Optional.empty();
+        return switch (value.trim().toLowerCase(Locale.ROOT)) {
+            case "true" -> Optional.of(true);
+            case "false" -> Optional.of(false);
+            default -> Optional.empty();
+        };
+    }
+
+    /** Where each line also goes, or {@code null} for nowhere. A sink that throws loses that line, never the bot. */
+    public static void setSink(Consumer<TelemetryEvent.Log> lines) {
+        sink = lines;
+    }
+
     /** Prints {@code message} to stdout when diagnostics are on; a no-op when off. */
     public static void log(String message) {
+        log(message, 1, null);
+    }
+
+    /**
+     * Prints {@code message} to stdout when diagnostics are on, and traces it as having happened {@code count}
+     * times at {@code where} on the desktop ({@code null} when nowhere in particular).
+     */
+    public static void log(String message, int count, TelemetryEvent.Rect where) {
         if (enabled) {
             System.out.println(message);
+            trace(TelemetryEvent.Log.DEBUG, message, count, where);
         }
     }
 
@@ -41,6 +90,7 @@ public final class Diag {
     public static void error(String message) {
         if (enabled) {
             System.err.println(message);
+            trace(TelemetryEvent.Log.ERROR, message, 1, null);
         }
     }
 
@@ -52,6 +102,33 @@ public final class Diag {
         if (enabled) {
             System.err.println(message);
             t.printStackTrace();
+            StringWriter stack = new StringWriter();
+            t.printStackTrace(new PrintWriter(stack));
+            trace(TelemetryEvent.Log.ERROR, message + System.lineSeparator() + stack, 1, null);
         }
+    }
+
+    private static void trace(String level, String message, int count, TelemetryEvent.Rect where) {
+        Consumer<TelemetryEvent.Log> lines = sink;
+        if (lines == null) return;
+        String text = message == null ? "" : message;
+        String source = sourceOf(text);
+        if (!source.isEmpty()) {
+            text = text.substring(source.length() + 2).stripLeading();
+        }
+        try {
+            lines.accept(new TelemetryEvent.Log(level, source, text, count, System.currentTimeMillis(), where, -1));
+        } catch (RuntimeException ignored) {
+            // A trace is best-effort: the line was printed, and a broken sink must not break the bot.
+        }
+    }
+
+    /** The name in a leading {@code [Name]}, or empty when {@code message} does not start with one. */
+    static String sourceOf(String message) {
+        if (message == null || !message.startsWith("[")) return "";
+        int close = message.indexOf(']');
+        if (close < 2 || close > MAX_SOURCE + 1) return "";
+        String name = message.substring(1, close);
+        return name.isBlank() || !name.strip().equals(name) ? "" : name;
     }
 }

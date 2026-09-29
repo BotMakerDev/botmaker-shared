@@ -9,7 +9,8 @@ package com.botmaker.shared.ipc;
  * (consumer) depend on, so the wire vocabulary has one definition. Encoded/decoded by {@link TelemetryFrame}.
  */
 public sealed interface TelemetryEvent
-        permits TelemetryEvent.Match, TelemetryEvent.Click, TelemetryEvent.Region, TelemetryEvent.Swipe {
+        permits TelemetryEvent.Match, TelemetryEvent.Click, TelemetryEvent.Region, TelemetryEvent.Swipe,
+                TelemetryEvent.Log {
 
     /** The surface an event refers to, so the Studio can capture the right window/screen. */
     record Target(String title, int x, int y, int width, int height) {}
@@ -58,6 +59,47 @@ public sealed interface TelemetryEvent
         /** Line-less convenience (line = {@code -1}). */
         public Swipe(Target target, int x1, int y1, int x2, int y2, long durationMs) {
             this(target, x1, y1, x2, y2, durationMs, -1);
+        }
+    }
+
+    /**
+     * One line of the bot's debug output, as a host shows it in a trace rather than a console
+     * ({@code docs/refactor/40-run-trace.md}). {@code level} is an id ({@link #DEBUG}, {@link #INFO}, {@link #WARN},
+     * {@link #ERROR}) and stays a string on the wire, so a level a newer bot adds still reads; {@code source} is
+     * the name the line was written under ({@code "Vision"}), empty when it had none; {@code count} is how many
+     * times a collapsed line happened, at least 1; {@code rect} is where on the desktop it happened, or null.
+     *
+     * <p>A log line acts on no surface, so {@link #target()} is the whole screen: a consumer that draws events
+     * by their target draws nothing for it.
+     */
+    record Log(String level, String source, String text, int count, long atMillis, Rect rect, int line)
+            implements TelemetryEvent {
+
+        public static final String DEBUG = "debug";
+        public static final String INFO = "info";
+        public static final String WARN = "warn";
+        public static final String ERROR = "error";
+
+        /** The longest text a line carries; a longer one (a runaway stack trace) is cut, never dropped. */
+        public static final int MAX_TEXT = 16_384;
+
+        private static final Target NO_SURFACE = new Target(null, 0, 0, 0, 0);
+
+        public Log {
+            level = level == null ? "" : level;
+            source = source == null ? "" : source;
+            text = text == null ? "" : text.length() > MAX_TEXT ? text.substring(0, MAX_TEXT) + "…" : text;
+            count = Math.max(1, count);
+        }
+
+        @Override
+        public Target target() {
+            return NO_SURFACE;
+        }
+
+        /** This line attributed to {@code line} of the bot's source. */
+        public Log atLine(int line) {
+            return new Log(level, source, text, count, atMillis, rect, line);
         }
     }
 
