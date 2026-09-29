@@ -158,11 +158,26 @@ public final class GitHubAuth {
      * is stored and returned. Runs on a background thread — do not call on the FX thread.
      */
     public CompletableFuture<String> pollForToken(DeviceCode code) {
+        return pollForToken(code, () -> false);
+    }
+
+    /**
+     * {@link #pollForToken(DeviceCode)}, stopping when {@code cancelled} says so.
+     *
+     * <p>Cancelling the returned future does not stop the loop, which runs inside {@code supplyAsync}: a
+     * dialog closed with Cancel kept polling for the code's whole life and, had the user finished in the
+     * browser after all, stored a token nobody was waiting for (the dashboard, 2026-09-29). The loop asks
+     * {@code cancelled} before each poll and fails with a {@link java.util.concurrent.CancellationException}.
+     */
+    public CompletableFuture<String> pollForToken(DeviceCode code, java.util.function.BooleanSupplier cancelled) {
         return CompletableFuture.supplyAsync(() -> {
             long deadline = System.currentTimeMillis() + code.expiresInSeconds() * 1000L;
             int interval = Math.max(1, code.intervalSeconds());
             while (System.currentTimeMillis() < deadline) {
                 sleep(interval);
+                if (cancelled.getAsBoolean()) {
+                    throw new java.util.concurrent.CancellationException("Sign-in was cancelled.");
+                }
                 JsonNode n = pollOnce(code.deviceCode());
                 if (n == null) continue;
                 if (n.hasNonNull("access_token")) {

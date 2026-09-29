@@ -8,6 +8,16 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-29 — a device-flow poll can be cancelled (dashboard pass, phase 2)
+
+**Done**
+- `GitHubAuth.pollForToken(DeviceCode, BooleanSupplier cancelled)`: the loop asks before each poll and fails
+  with a `CancellationException`. The one-argument form delegates with `() -> false`, so Studio is unchanged.
+- Why: the loop runs inside `supplyAsync`, which ignores `cancel`. The dashboard's Cancel closed the dialog, the
+  loop polled on for the code's life, and a late approval in the browser stored a token nobody waited for.
+
+---
+
 ## 2026-09-29 — a refused GitHub read can be told from an empty one (dashboard pass, phase 1)
 
 **Done**
