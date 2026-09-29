@@ -97,6 +97,8 @@ public final class TelemetryFrame {
                 p.writeInt(l.count());
                 p.writeLong(l.atMillis());
                 writeNullableRect(p, l.rect());
+                p.writeUTF(l.writerClass());
+                p.writeUTF(l.writerMethod());
                 p.writeUTF(l.className());
                 p.writeInt(l.line());
             }
@@ -205,7 +207,7 @@ public final class TelemetryFrame {
                         p.readLong(), p.readInt());
                 case TYPE_LOG -> new TelemetryEvent.Log(
                         p.readUTF(), p.readUTF(), p.readUTF(), p.readInt(), p.readLong(),
-                        readNullableRect(p), p.readUTF(), p.readInt());
+                        readNullableRect(p), p.readUTF(), p.readUTF(), p.readUTF(), p.readInt());
                 default -> throw new IOException("Unknown telemetry type tag: " + type);
             };
         } catch (IOException decodeError) {

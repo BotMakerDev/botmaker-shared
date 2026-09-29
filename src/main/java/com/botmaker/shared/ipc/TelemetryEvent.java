@@ -70,12 +70,15 @@ public sealed interface TelemetryEvent
      * times a collapsed line happened, at least 1; {@code rect} is where on the desktop it happened, or null.
      * {@code className} is the binary name of the bot's class whose {@code line} wrote it ({@code
      * com.example.Collect}), empty when unknown: a line number alone names no file, and a bot is several.
+     * {@code writerClass} and {@code writerMethod} are the class and method that wrote the line, which a host
+     * filters by ({@code com.botmaker.sdk.api.interaction.Mouse}, {@code click}); for a bot's own line they are
+     * the same class as {@code className}. Empty when unknown.
      *
      * <p>A log line acts on no surface, so {@link #target()} is the whole screen: a consumer that draws events
      * by their target draws nothing for it.
      */
-    record Log(String level, String source, String text, int count, long atMillis, Rect rect, String className,
-               int line) implements TelemetryEvent {
+    record Log(String level, String source, String text, int count, long atMillis, Rect rect, String writerClass,
+               String writerMethod, String className, int line) implements TelemetryEvent {
 
         public static final String DEBUG = "debug";
         public static final String INFO = "info";
@@ -92,6 +95,8 @@ public sealed interface TelemetryEvent
             source = source == null ? "" : source;
             text = text == null ? "" : text.length() > MAX_TEXT ? text.substring(0, MAX_TEXT) + "…" : text;
             count = Math.max(1, count);
+            writerClass = writerClass == null ? "" : writerClass;
+            writerMethod = writerMethod == null ? "" : writerMethod;
             className = className == null ? "" : className;
         }
 
@@ -102,7 +107,7 @@ public sealed interface TelemetryEvent
 
         /** This line attributed to {@code line} of the bot's class {@code className}. */
         public Log at(String className, int line) {
-            return new Log(level, source, text, count, atMillis, rect, className, line);
+            return new Log(level, source, text, count, atMillis, rect, writerClass, writerMethod, className, line);
         }
     }
 

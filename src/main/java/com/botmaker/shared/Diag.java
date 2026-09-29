@@ -31,6 +31,10 @@ import java.util.function.Consumer;
  * that knows it passes it ({@link #log(String, String, int, TelemetryEvent.Rect)}); the SDK's {@code Debug}
  * passes the name of the class that called it, so no SDK line writes its own. A message that starts with a
  * {@code [Name]} of its own keeps that one, which is how this module's diagnostics name theirs.
+ *
+ * <p><b>The writer.</b> A traced line also carries the class and method that wrote it, so a host can hide one
+ * method's lines ({@link Origin}). The SDK passes it; for every other caller it is the first frame outside this
+ * class, looked for only when a sink is set.
  */
 public final class Diag {
 
@@ -93,7 +97,38 @@ public final class Diag {
      * {@code [Name]} keeps it: an explicit source wins over the one a caller was given.
      */
     public static void log(String source, String message, int count, TelemetryEvent.Rect where) {
-        if (enabled) emit(TelemetryEvent.Log.DEBUG, source, message, count, where, null);
+        if (enabled) emit(TelemetryEvent.Log.DEBUG, Origin.named(source), message, count, where, null);
+    }
+
+    /**
+     * Prints and traces {@code message} as written at {@code origin}: under its source, and attributed to its
+     * class and method, which a host filters the trace by. For a caller that walked the stack itself (the SDK's
+     * {@code Debug}); every other form finds the writer as the first frame outside this class.
+     */
+    public static void log(Origin origin, String message, int count, TelemetryEvent.Rect where) {
+        if (enabled) emit(TelemetryEvent.Log.DEBUG, origin, message, count, where, null);
+    }
+
+    /** {@link #error(String, String, Throwable)} as written at {@code origin}; {@code t} may be null. */
+    public static void error(Origin origin, String message, Throwable t) {
+        if (enabled) emit(TelemetryEvent.Log.ERROR, origin, message, 1, null, t);
+    }
+
+    /**
+     * Where a line was written: the source name it is printed under ({@code "Vision"}), and the class (binary
+     * name) and method that wrote it, each empty when unknown.
+     */
+    public record Origin(String source, String className, String method) {
+        public Origin {
+            source = source == null ? "" : source.strip();
+            className = className == null ? "" : className;
+            method = method == null ? "" : method;
+        }
+
+        /** A source name alone; the writer is found from the stack when the line is traced. */
+        public static Origin named(String source) {
+            return new Origin(source, "", "");
+        }
     }
 
     /** Prints {@code message} to stderr when diagnostics are on; a no-op when off. */
@@ -111,22 +146,23 @@ public final class Diag {
 
     /** {@link #error(String)} under {@code source}, the way {@link #log(String, String, int, TelemetryEvent.Rect)} is. */
     public static void error(String source, String message) {
-        if (enabled) emit(TelemetryEvent.Log.ERROR, source, message, 1, null, null);
+        if (enabled) emit(TelemetryEvent.Log.ERROR, Origin.named(source), message, 1, null, null);
     }
 
     /** {@link #error(String, Throwable)} under {@code source}. */
     public static void error(String source, String message, Throwable t) {
-        if (enabled) emit(TelemetryEvent.Log.ERROR, source, message, 1, null, t);
+        if (enabled) emit(TelemetryEvent.Log.ERROR, Origin.named(source), message, 1, null, t);
     }
 
-    private static void emit(String level, String given, String message, int count, TelemetryEvent.Rect where,
+    private static void emit(String level, Origin origin, String message, int count, TelemetryEvent.Rect where,
                              Throwable t) {
+        Origin given = origin == null ? Origin.named("") : origin;
         String text = message == null ? "" : message;
         String source = sourceOf(text);
         if (!source.isEmpty()) {
             text = text.substring(source.length() + 2).stripLeading();
-        } else if (given != null && !given.isBlank()) {
-            source = given.strip();
+        } else {
+            source = given.source();
         }
         String printed = source.isEmpty() ? text : "[" + source + "] " + text;
         boolean isError = TelemetryEvent.Log.ERROR.equals(level);
@@ -137,17 +173,32 @@ public final class Diag {
             t.printStackTrace(new PrintWriter(stack));
             text = text + System.lineSeparator() + stack;
         }
-        trace(level, source, text, count, where);
+        trace(level, source, given, text, count, where);
     }
 
-    private static void trace(String level, String source, String text, int count, TelemetryEvent.Rect where) {
+    private static void trace(String level, String source, Origin origin, String text, int count,
+                              TelemetryEvent.Rect where) {
         Consumer<TelemetryEvent.Log> lines = sink;
         if (lines == null) return;
         try {
-            lines.accept(new TelemetryEvent.Log(level, source, text, count, System.currentTimeMillis(), where, "", -1));
+            // The writer is looked for only here: a run no host traces never walks the stack for it.
+            Origin writer = origin.className().isEmpty() ? writer() : origin;
+            lines.accept(new TelemetryEvent.Log(level, source, text, count, System.currentTimeMillis(), where,
+                    writer.className(), writer.method(), "", -1));
         } catch (RuntimeException ignored) {
             // A trace is best-effort: the line was printed, and a broken sink must not break the bot.
         }
+    }
+
+    private static final StackWalker WALKER = StackWalker.getInstance();
+
+    /** The first frame outside this class: whoever called one of its methods. */
+    private static Origin writer() {
+        return WALKER.walk(frames -> frames
+                        .filter(f -> !f.getClassName().equals(Diag.class.getName()))
+                        .findFirst())
+                .map(f -> new Origin("", f.getClassName(), f.getMethodName()))
+                .orElse(Origin.named(""));
     }
 
     /** The name in a leading {@code [Name]}, or empty when {@code message} does not start with one. */

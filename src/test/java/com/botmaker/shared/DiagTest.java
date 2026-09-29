@@ -51,6 +51,22 @@ class DiagTest {
         assertEquals("no bracket here", lines.get(2).text());
     }
 
+    /** The trace names the class and method that wrote a line, so a host can hide one method's lines. */
+    @Test
+    void aTracedLineNamesItsWriterFoundOrGiven() {
+        Diag.set(true);
+        Diag.setSink(lines::add);
+
+        Diag.log("found on the stack");
+        Diag.log(new Diag.Origin("Mouse", "com.example.Mouse", "click"), "given", 1, null);
+
+        assertEquals(DiagTest.class.getName(), lines.get(0).writerClass());
+        assertEquals("aTracedLineNamesItsWriterFoundOrGiven", lines.get(0).writerMethod());
+        assertEquals("com.example.Mouse", lines.get(1).writerClass());
+        assertEquals("click", lines.get(1).writerMethod());
+        assertEquals("Mouse", lines.get(1).source());
+    }
+
     @Test
     void aGivenSourceIsPrintedAndTracedButAnExplicitPrefixWins() {
         Diag.set(true);

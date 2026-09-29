@@ -17,8 +17,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 ### Added
 
 - **Debug lines cross the telemetry wire.** `TelemetryEvent.Log` (frame tag 5) carries a line's level, source,
-  text, repeat count, time, desktop rectangle, and the bot's class and line that wrote it. An older reader
-  skips the frame and keeps reading.
+  text, repeat count, time, desktop rectangle, the class and method that wrote it, and the bot's class and line
+  it was written for. An older reader skips the frame and keeps reading.
+- **`Diag.Origin(source, className, method)`** and `Diag.log(Origin, …)`/`Diag.error(Origin, …)`: a caller that
+  knows where a line was written passes it. Otherwise the writer is the first caller outside `Diag`, looked up
+  only while a trace sink is set.
 - **Frames can be relayed without being decoded.** `TelemetryFrame.readFrame` reads one whole frame as bytes,
   `decode` reads those bytes back, and `isLog`/`log` pick out a debug line without decoding anything else.
   `TelemetryServer.relaying(token, onFrame, onError)` hands each frame on as bytes, for a host that passes

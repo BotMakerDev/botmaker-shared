@@ -8,6 +8,16 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-29 — a debug line names its writer (rework follow-ups, phase 8b)
+
+**Done**
+- The user asked for "a very fine filter over the debug output: which class, which method". `TelemetryEvent.Log`
+  gains `writerClass` and `writerMethod`, written before `className`. The layout changed in place, because no
+  release carries tag 5 yet.
+- `Diag.Origin(source, className, method)`: the SDK's `Debug` passes the one its stack walk found. For every
+  other caller, `Diag` walks to the first frame outside itself, and only when a sink is set, so a run no host
+  traces never walks the stack for it.
+
 ## 2026-09-29 — frames relayed as bytes; a debug line names its class (rework follow-ups, phase 8)
 
 **Done**
