@@ -106,6 +106,17 @@ public final class ScrcpyEmulatorSurface implements EmulatorSurface {
         floor.scroll(x, y, amount);
     }
 
+    /** Keys and text always take the ADB floor: the fast path carries frames and touches only. */
+    @Override
+    public void key(int androidKeyCode) {
+        floor.key(androidKeyCode);
+    }
+
+    @Override
+    public void text(String text) {
+        floor.text(text);
+    }
+
     /**
      * The live session, starting one if it is time to try. Null means "use the floor".
      *

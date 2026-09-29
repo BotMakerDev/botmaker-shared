@@ -38,6 +38,21 @@ class AdbDeviceTest {
     }
 
     @Test
+    void typedTextIsOneSingleQuotedShellWord() {
+        assertEquals("'hello%sworld'", AdbDevice.inputTextArgument("hello world"));
+        // Everything the device's sh would act on stays inside the quotes; a quote is closed, escaped, reopened.
+        assertEquals("'a;b&c$(id)`x`'", AdbDevice.inputTextArgument("a;b&c$(id)`x`"));
+        assertEquals("'it'\\''s'", AdbDevice.inputTextArgument("it's"));
+    }
+
+    @Test
+    void typedTextKeepsOnlyWhatInputTextCanType() {
+        assertEquals("'ab'", AdbDevice.inputTextArgument("a\nbé"));
+        assertEquals("", AdbDevice.inputTextArgument("\n\t"));
+        assertEquals("", AdbDevice.inputTextArgument(null));
+    }
+
+    @Test
     void foregroundPackageEmptyWhenAbsent() {
         assertEquals("", AdbDevice.parseForegroundPackage("nothing interesting here"));
         assertEquals("", AdbDevice.parseForegroundPackage(""));

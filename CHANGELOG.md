@@ -12,6 +12,20 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Added
+
+- **`EmulatorSurface.key(int)` and `text(String)`**, so the remote pilot's keyboard reaches the emulator
+  route: `input keyevent` and `input text` over the held ADB connection (the scrcpy surface uses its ADB
+  floor for both). Both default to doing nothing, so a test double needs no code.
+
+### Fixed
+
+- **`AdbDevice.text` single-quotes what it types.** The text went into the device's shell bare, with only
+  spaces escaped, so `&`, `;`, a quote or `$(…)` broke the command or ran what followed. Non-ASCII and
+  control characters, which `input text` cannot type, are dropped.
+
 ## [0.1.0] — 2026-09-29
 
 ### Added

@@ -41,6 +41,17 @@ public interface EmulatorSurface extends AutoCloseable {
      */
     void scroll(int x, int y, int amount);
 
+    /**
+     * Presses one Android key ({@code KEYCODE_*}). Default does nothing, so a surface that cannot press keys
+     * (a test double) needs no code; best-effort like the gestures.
+     */
+    default void key(int androidKeyCode) {
+    }
+
+    /** Types {@code text} into the focused field. Default does nothing; see {@link #key(int)}. */
+    default void text(String text) {
+    }
+
     /** Releases the held connection. Safe to call twice; never throws. */
     @Override
     void close();

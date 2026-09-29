@@ -78,6 +78,16 @@ public final class AdbEmulatorSurface implements EmulatorSurface {
     }
 
     @Override
+    public synchronized void key(int androidKeyCode) {
+        run(d -> d.key(androidKeyCode));
+    }
+
+    @Override
+    public synchronized void text(String text) {
+        run(d -> d.text(text));
+    }
+
+    @Override
     public synchronized void close() {
         drop();
     }

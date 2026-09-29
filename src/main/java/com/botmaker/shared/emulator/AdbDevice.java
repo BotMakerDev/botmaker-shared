@@ -169,12 +169,38 @@ public final class AdbDevice implements AutoCloseable {
         shell("input keyevent " + keyCode);
     }
 
-    /** {@code input text <text>} — types text into the focused field (spaces escaped for the shell). */
+    /**
+     * {@code input text <text>} — types text into the focused field.
+     *
+     * <p>The argument crosses the device's {@code sh}, so it is single-quoted ({@link #inputTextArgument}).
+     * It used to be pasted in bare with only spaces escaped, which broke on {@code &}, {@code ;} or a quote
+     * and ran whatever followed — harmless while only a bot's own strings reached it, not once the remote
+     * pilot's keyboard did (2026-09-29).
+     */
     public void text(String text) {
-        if (text == null || text.isEmpty()) {
+        String argument = inputTextArgument(text);
+        if (argument.isEmpty()) {
             return;
         }
-        shell("input text " + text.replace(" ", "%s"));
+        shell("input text " + argument);
+    }
+
+    /**
+     * {@code text} as one shell word for {@code input text}: printable ASCII only (the command types nothing
+     * else), a space as {@code %s} (its own escape for one), the whole wrapped in single quotes with each quote
+     * written {@code '\''}. Empty when nothing typeable is left.
+     */
+    static String inputTextArgument(String text) {
+        if (text == null) {
+            return "";
+        }
+        StringBuilder kept = new StringBuilder();
+        for (char c : text.toCharArray()) {
+            if (c >= 0x20 && c < 0x7F) {
+                kept.append(c == ' ' ? "%s" : c == '\'' ? "'\\''" : String.valueOf(c));
+            }
+        }
+        return kept.isEmpty() ? "" : "'" + kept + "'";
     }
 
     /**
