@@ -78,6 +78,34 @@ public final class GitHubClient {
     }
 
     /**
+     * GET parsed as JSON, failing the future with a {@link GitHubError} on anything but a 200.
+     *
+     * <p>For a caller that lists: {@link #get}'s {@code null} makes a refusal look like an empty answer. The
+     * future fails with a {@link java.util.concurrent.CompletionException} around the {@link GitHubError}.
+     */
+    public CompletableFuture<JsonNode> getOrFail(String url, String token) {
+        HttpRequest req = authed(baseRequest(url), token).GET().build();
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .handle((resp, error) -> {
+                    if (error != null) {
+                        Throwable cause = error.getCause() == null ? error : error.getCause();
+                        throw new GitHubError(GitHubError.UNREACHABLE, "GitHub could not be reached: "
+                                + cause.getMessage(), java.util.OptionalLong.empty());
+                    }
+                    java.util.OptionalLong remaining = resp.headers().firstValueAsLong("X-RateLimit-Remaining");
+                    if (resp.statusCode() != 200) {
+                        throw GitHubError.of(url, resp.statusCode(), resp.body(), remaining, mapper);
+                    }
+                    try {
+                        return mapper.readTree(resp.body());
+                    } catch (Exception e) {
+                        throw new GitHubError(200, "GitHub answered " + url + " with text that is not JSON",
+                                remaining);
+                    }
+                });
+    }
+
+    /**
      * Download raw bytes (e.g. a release zip), or fail the future on a non-200. {@code token} may be null for
      * a public repo; it is required for a private one (and lifts the 60-req/hour anonymous rate limit).
      */

@@ -16,6 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`GitHubClient.getOrFail`**: a GET that fails its future with a `GitHubError` on anything but 200. The error
+  carries the status, GitHub's own message and `X-RateLimit-Remaining`, and says plainly when the rate limit is
+  used up. `get` is unchanged and still answers `null`.
 - **Debug lines cross the telemetry wire.** `TelemetryEvent.Log` (frame tag 5) carries a line's level, source,
   text, repeat count, time, desktop rectangle, the class and method that wrote it, and the bot's class and line
   it was written for. An older reader skips the frame and keeps reading.

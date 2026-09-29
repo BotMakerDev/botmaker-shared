@@ -8,6 +8,18 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-29 — a refused GitHub read can be told from an empty one (dashboard pass, phase 1)
+
+**Done**
+- `github/GitHubError` (a `RuntimeException`: `status`, `rateLimitRemaining`, `rateLimited()`, and
+  `UNREACHABLE = -1`). `of(url, status, body, remaining, mapper)` builds its message from the body's `message`.
+- `GitHubClient.getOrFail(url, token)`: `get`, but the future fails with the error instead of answering `null`.
+  Additive; nothing that calls `get` changes.
+- Why: the dashboard's Catalog and Queue listed through `get`, so a spent anonymous rate limit (60 an hour)
+  read as "0 plugins · 0 bots". `GitHubErrorTest` covers a 404, a spent limit and a 403 with budget left.
+
+---
+
 ## 2026-09-29 — a debug line names its writer (rework follow-ups, phase 8b)
 
 **Done**
