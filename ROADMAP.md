@@ -8,6 +8,19 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-29 — conditional GETs (dashboard pass, phase 3)
+
+**Done**
+- `GitHubClient.conditionalGet`, under `get` and `getOrFail`: a synchronized access-ordered `LinkedHashMap` of
+  up to 512 `(etag, body)` entries, keyed by token and URL, so one account's body is never served to another.
+  A 304 with a cached body answers as a 200; a 304 with nothing cached is not a body.
+- Why: a 304 does not count against GitHub's rate limit, and the dashboard's Catalog spent one request per
+  entry on every reload against an anonymous budget of 60 an hour. Studio's reads get the same saving.
+- `ConditionalGetTest` runs against a JDK `HttpServer`: a repeat sends the ETag, another token does not share
+  the cache, and a stray 304 is not a body.
+
+---
+
 ## 2026-09-29 — a device-flow poll can be cancelled (dashboard pass, phase 2)
 
 **Done**

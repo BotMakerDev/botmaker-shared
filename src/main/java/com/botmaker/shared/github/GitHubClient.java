@@ -8,6 +8,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -60,13 +63,54 @@ public final class GitHubClient {
         return chain;
     }
 
+    /**
+     * The last 200 of each GET, by token and URL, with its {@code ETag}.
+     *
+     * <p>A repeat GET sends {@code If-None-Match}, and GitHub answers an unchanged resource with a 304 that
+     * does not count against the rate limit — the anonymous budget is 60 an hour, and the dashboard's Catalog
+     * spent a request per entry on every reload (2026-09-29). In memory only, least recently used first out.
+     */
+    private final Map<String, Cached> etags = Collections.synchronizedMap(
+            new LinkedHashMap<>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Cached> eldest) {
+                    return size() > MAX_CACHED;
+                }
+            });
+
+    private static final int MAX_CACHED = 512;
+
+    private record Cached(String etag, String body) {
+    }
+
+    /** A GET's answer after the cache: a 304 over a cached body reads as the 200 it stands for. */
+    private record Answer(int status, String body, java.net.http.HttpHeaders headers) {
+    }
+
+    private CompletableFuture<Answer> conditionalGet(String url, String token) {
+        String key = (token == null ? "" : token) + ' ' + url;
+        Cached cached = etags.get(key);
+        HttpRequest.Builder builder = authed(baseRequest(url), token).GET();
+        if (cached != null) {
+            builder.header("If-None-Match", cached.etag());
+        }
+        return http.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString()).thenApply(resp -> {
+            if (resp.statusCode() == 304 && cached != null) {
+                return new Answer(200, cached.body(), resp.headers());
+            }
+            if (resp.statusCode() == 200) {
+                resp.headers().firstValue("ETag").ifPresent(etag -> etags.put(key, new Cached(etag, resp.body())));
+            }
+            return new Answer(resp.statusCode(), resp.body(), resp.headers());
+        });
+    }
+
     /** GET parsed as JSON (best-effort: {@code null} on any non-200 / failure). */
     public CompletableFuture<JsonNode> get(String url, String token) {
-        HttpRequest req = authed(baseRequest(url), token).GET().build();
-        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+        return conditionalGet(url, token)
                 .thenApply(resp -> {
                     try {
-                        return resp.statusCode() == 200 ? mapper.readTree(resp.body()) : null;
+                        return resp.status() == 200 ? mapper.readTree(resp.body()) : null;
                     } catch (Exception e) {
                         return null;
                     }
@@ -84,8 +128,7 @@ public final class GitHubClient {
      * future fails with a {@link java.util.concurrent.CompletionException} around the {@link GitHubError}.
      */
     public CompletableFuture<JsonNode> getOrFail(String url, String token) {
-        HttpRequest req = authed(baseRequest(url), token).GET().build();
-        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+        return conditionalGet(url, token)
                 .handle((resp, error) -> {
                     if (error != null) {
                         Throwable cause = error.getCause() == null ? error : error.getCause();
@@ -93,8 +136,8 @@ public final class GitHubClient {
                                 + cause.getMessage(), java.util.OptionalLong.empty());
                     }
                     java.util.OptionalLong remaining = resp.headers().firstValueAsLong("X-RateLimit-Remaining");
-                    if (resp.statusCode() != 200) {
-                        throw GitHubError.of(url, resp.statusCode(), resp.body(), remaining, mapper);
+                    if (resp.status() != 200) {
+                        throw GitHubError.of(url, resp.status(), resp.body(), remaining, mapper);
                     }
                     try {
                         return mapper.readTree(resp.body());
