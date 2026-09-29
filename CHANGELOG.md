@@ -16,6 +16,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`Diag.Callers`**, the one walk of the stack for "who called us": `first(skip)` returns the first frame the
+  caller's own plumbing does not account for, and `method(name)` names a lambda after the method it was
+  written in. `Diag` finds a line's writer with it, and the SDK's trace sources and telemetry use it too. A
+  line written from a lambda is now attributed to its method (`body`, not `lambda$body$0`) for every caller.
 - **`GitHubClient.getOrFail`**: a GET that fails its future with a `GitHubError` on anything but 200. The error
   carries the status, GitHub's own message and `X-RateLimit-Remaining`, and says plainly when the rate limit is
   used up. `get` is unchanged and still answers `null`.
@@ -43,6 +47,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- **`TelemetryFrame`'s javadoc no longer says shared has no Jackson.** It does, for the GitHub client; the
+  frames are binary because every published SDK writes them and a host must keep reading them.
 - **Desktop capture under Wayland uses grim (Sway, Hyprland) or gnome-screenshot (GNOME) when Spectacle is not
   installed**, instead of falling back to Robot, which returns black or asks the portal on every grab.
   `SpectacleCapture` is replaced by `ToolCapture`, one constant per program.

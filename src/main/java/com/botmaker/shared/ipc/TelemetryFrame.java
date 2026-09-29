@@ -9,8 +9,9 @@ import java.io.IOException;
 import java.util.Optional;
 
 /**
- * Length-prefixed binary framing for {@link TelemetryEvent}s — dependency-free (no JSON/Jackson), keeping
- * {@code botmaker-shared} JNA-only. Wire layout of one frame:
+ * Length-prefixed binary framing for {@link TelemetryEvent}s. It stays binary for the wire, not for a dependency
+ * ({@code botmaker-shared} declares Jackson for its GitHub client): every published SDK writes these frames, and a
+ * host must keep reading them ({@code docs/refactor/40-run-trace.md}). Wire layout of one frame:
  *
  * <pre>
  *   int32  payloadLength (big-endian, via DataOutputStream)

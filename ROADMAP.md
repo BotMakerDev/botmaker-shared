@@ -8,6 +8,19 @@ Format: newest first. Each dated entry has a **Done** list and, when relevant, *
 
 ---
 
+## 2026-09-29 — one caller walk, telemetry trim (dashboard pass, phase 5)
+
+**Done**
+- `Diag.Callers`: `first(Predicate<StackFrame> skip)` over one `StackWalker` that keeps class references, and
+  `method(name)` for lambda frames. `Diag.writer()` uses it; the SDK's `TraceSources` and `IpcObserver` do too.
+  `CallersTest` covers the skip, the empty answer and a lambda frame.
+- `TelemetryFrame`'s javadoc: binary for the wire's sake, not to avoid Jackson.
+- Level ids: nothing duplicated to remove. `TelemetryEvent.Log`'s strings are the wire's and shared cannot see
+  the contract's `TraceLine.Level`; Studio's `RunTelemetryTest` now holds the two to each other.
+
+**Deferred / next**
+- No logging library (the user's call): `docs/refactor/40-run-trace.md` § *Why no logging library*.
+
 ## 2026-09-29 — conditional GETs (dashboard pass, phase 3)
 
 **Done**

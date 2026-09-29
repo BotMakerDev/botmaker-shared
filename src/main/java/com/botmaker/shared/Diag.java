@@ -7,6 +7,7 @@ import java.io.StringWriter;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * The process-wide diagnostic-output switch, and the <em>only</em> one — the SDK's
@@ -34,7 +35,7 @@ import java.util.function.Consumer;
  *
  * <p><b>The writer.</b> A traced line also carries the class and method that wrote it, so a host can hide one
  * method's lines ({@link Origin}). The SDK passes it; for every other caller it is the first frame outside this
- * class, looked for only when a sink is set.
+ * class, looked for only when a sink is set, by the one stack walk the SDK uses too ({@link Callers}).
  */
 public final class Diag {
 
@@ -190,15 +191,42 @@ public final class Diag {
         }
     }
 
-    private static final StackWalker WALKER = StackWalker.getInstance();
-
     /** The first frame outside this class: whoever called one of its methods. */
     private static Origin writer() {
-        return WALKER.walk(frames -> frames
-                        .filter(f -> !f.getClassName().equals(Diag.class.getName()))
-                        .findFirst())
-                .map(f -> new Origin("", f.getClassName(), f.getMethodName()))
+        return Callers.first(f -> f.getClassName().equals(Diag.class.getName()))
+                .map(f -> new Origin("", f.getClassName(), Callers.method(f.getMethodName())))
                 .orElse(Origin.named(""));
+    }
+
+    /**
+     * The one walk of the stack for "who called us", which this class, the SDK's trace sources and its
+     * telemetry each need. A caller says which frames are its own plumbing; the first frame beyond them is the
+     * answer. Walking costs, so each caller walks only while a line or an event is going somewhere.
+     */
+    public static final class Callers {
+
+        private static final StackWalker WALKER =
+                StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
+
+        private Callers() {}
+
+        /**
+         * The first frame of the current thread, beyond {@link #first}'s own, that {@code skip} does not
+         * refuse, or empty when every frame is skipped. Frames carry their class, so a caller may test
+         * {@link StackWalker.StackFrame#getDeclaringClass()}.
+         */
+        public static Optional<StackWalker.StackFrame> first(Predicate<StackWalker.StackFrame> skip) {
+            return WALKER.walk(frames -> frames
+                    .filter(f -> f.getDeclaringClass() != Callers.class && !skip.test(f))
+                    .findFirst());
+        }
+
+        /** {@code name}, or the method a lambda named {@code lambda$<method>$<n>} was written in. */
+        public static String method(String name) {
+            if (name == null || !name.startsWith("lambda$")) return name;
+            int end = name.indexOf('$', "lambda$".length());
+            return end < 0 ? name : name.substring("lambda$".length(), end);
+        }
     }
 
     /** The name in a leading {@code [Name]}, or empty when {@code message} does not start with one. */
