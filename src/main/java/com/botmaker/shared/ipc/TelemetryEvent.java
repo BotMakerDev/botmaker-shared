@@ -71,7 +71,7 @@ public sealed interface TelemetryEvent
      * {@code className} is the binary name of the bot's class whose {@code line} wrote it ({@code
      * com.example.Collect}), empty when unknown: a line number alone names no file, and a bot is several.
      * {@code writerClass} and {@code writerMethod} are the class and method that wrote the line, which a host
-     * filters by ({@code com.botmaker.sdk.api.interaction.Mouse}, {@code click}); for a bot's own line they are
+     * filters by ({@code com.botmaker.sdk.api.input.Mouse}, {@code click}); for a bot's own line they are
      * the same class as {@code className}. Empty when unknown.
      *
      * <p>A log line acts on no surface, so {@link #target()} is the whole screen: a consumer that draws events
