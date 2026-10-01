@@ -51,6 +51,29 @@ class TelemetryFrameTest {
     }
 
     @Test
+    void askAndAnswerRoundTrip() throws Exception {
+        TelemetryEvent.Ask ask = new TelemetryEvent.Ask(7, "choice", "Mode?", java.util.List.of("farm", "fight"), 12);
+        assertEquals(ask, roundTrip(ask));
+        assertEquals(TelemetryEvent.Ask.Kind.CHOICE, ask.asked());
+        assertEquals(new TelemetryEvent.Answer(7, "farm"), roundTrip(new TelemetryEvent.Answer(7, "farm")));
+        assertEquals(new TelemetryEvent.Answer(7, null), roundTrip(new TelemetryEvent.Answer(7, null)));
+
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        TelemetryFrame.write(new DataOutputStream(bos), ask);
+        TelemetryFrame.write(new DataOutputStream(bos), new TelemetryEvent.Click(WINDOW, 1, 2, 1));
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(bos.toByteArray()));
+        assertEquals(Optional.of(ask), TelemetryFrame.ask(TelemetryFrame.readFrame(in)));
+        assertEquals(Optional.empty(), TelemetryFrame.ask(TelemetryFrame.readFrame(in)));
+    }
+
+    @Test
+    void anAskOfAKindThisBuildDoesNotKnowReadsAsUnknown() {
+        assertEquals(TelemetryEvent.Ask.Kind.UNKNOWN,
+                new TelemetryEvent.Ask(1, "colour", "", null, -1).asked());
+        assertEquals(TelemetryEvent.Ask.Kind.UNKNOWN, TelemetryEvent.Ask.Kind.fromId(""));
+    }
+
+    @Test
     void regionRoundTrips() throws Exception {
         TelemetryEvent event = new TelemetryEvent.Region(
                 SCREEN, new TelemetryEvent.Rect(0, 0, 100, 100));

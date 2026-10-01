@@ -3,7 +3,9 @@ package com.botmaker.shared.ipc;
 import com.botmaker.shared.Diag;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -39,6 +41,10 @@ public final class TelemetryServer implements AutoCloseable {
     private final AtomicBoolean frameErrorReported = new AtomicBoolean(false);
     private final AtomicBoolean listenerFaultReported = new AtomicBoolean(false);
     private final Thread acceptThread;
+    /** The connected bot's side of the socket, for {@link #reply}; null between connections. */
+    private volatile DataOutputStream replies;
+    /** The connected bot's socket, closed with the server so a question it left open fails at once. */
+    private volatile Socket connected;
     private volatile boolean closed;
 
     public TelemetryServer(String token, Consumer<TelemetryEvent> onEvent) throws IOException {
@@ -94,12 +100,35 @@ public final class TelemetryServer implements AutoCloseable {
                 DataInputStream in = new DataInputStream(new BufferedInputStream(client.getInputStream()));
                 String presented = in.readUTF(); // handshake
                 if (!token.equals(presented)) continue; // ignore stray/unauthorized; keep serving
+                connected = client;
+                replies = new DataOutputStream(new BufferedOutputStream(client.getOutputStream()));
                 while (!closed) {
                     dispatch(TelemetryFrame.readFrame(in));
                 }
             } catch (IOException e) {
                 // This client's stream ended/reset, or the server socket was closed. Loop to re-accept a
                 // possible reconnect; if we were closed, the while condition exits us.
+            } finally {
+                replies = null;
+                connected = null;
+            }
+        }
+    }
+
+    /**
+     * Writes {@code reply} to the bot that is connected now: the {@link TelemetryEvent.Answer} to its
+     * {@link TelemetryEvent.Ask}. False when no bot is connected or the write failed, in which case the bot's
+     * question stays unanswered until its connection drops, which fails it.
+     */
+    public boolean reply(TelemetryEvent.Answer reply) {
+        DataOutputStream out = replies;
+        if (out == null || reply == null) return false;
+        synchronized (out) {
+            try {
+                TelemetryFrame.write(out, reply);
+                return true;
+            } catch (IOException e) {
+                return false;
             }
         }
     }
@@ -143,6 +172,13 @@ public final class TelemetryServer implements AutoCloseable {
         try {
             serverSocket.close();
         } catch (IOException ignored) {
+        }
+        Socket client = connected;
+        if (client != null) {
+            try {
+                client.close();
+            } catch (IOException ignored) {
+            }
         }
     }
 }

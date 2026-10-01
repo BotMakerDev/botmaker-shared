@@ -3,14 +3,18 @@ package com.botmaker.shared.ipc;
 /**
  * A single geometry-only telemetry frame sent from a running bot to the Studio's window-preview panel.
  * Deliberately carries <em>no image bytes</em> — the Studio captures the window frame itself; these events
- * only describe <em>where</em> the vision/interaction functions acted, so frames stay tiny.
+ * only describe <em>where</em> the vision/interaction functions acted, so frames stay tiny. One kind travels the
+ * other way: an {@link Answer} to the bot's {@link Ask}.
  *
  * <p>Lives in {@code botmaker-shared} because it is the single module both the SDK (emitter) and the Studio
  * (consumer) depend on, so the wire vocabulary has one definition. Encoded/decoded by {@link TelemetryFrame}.
  */
 public sealed interface TelemetryEvent
         permits TelemetryEvent.Match, TelemetryEvent.Click, TelemetryEvent.Region, TelemetryEvent.Swipe,
-                TelemetryEvent.Log {
+                TelemetryEvent.Log, TelemetryEvent.Ask, TelemetryEvent.Answer {
+
+    /** What an event that acts on no surface answers for {@link #target()}: the whole screen. */
+    Target NO_SURFACE = new Target(null, 0, 0, 0, 0);
 
     /** The surface an event refers to, so the Studio can capture the right window/screen. */
     record Target(String title, int x, int y, int width, int height) {}
@@ -88,8 +92,6 @@ public sealed interface TelemetryEvent
         /** The longest text a line carries; a longer one (a runaway stack trace) is cut, never dropped. */
         public static final int MAX_TEXT = 16_384;
 
-        private static final Target NO_SURFACE = new Target(null, 0, 0, 0, 0);
-
         public Log {
             level = level == null ? "" : level;
             source = source == null ? "" : source;
@@ -108,6 +110,88 @@ public sealed interface TelemetryEvent
         /** This line attributed to {@code line} of the bot's class {@code className}. */
         public Log at(String className, int line) {
             return new Log(level, source, text, count, atMillis, rect, writerClass, writerMethod, className, line);
+        }
+    }
+
+    /**
+     * The bot asks its user a question and blocks until the host sends an {@link Answer} with the same {@code id}.
+     * {@code kind} is an id ({@link Kind#id()}) and stays a string on the wire, so a kind a newer bot adds still
+     * reads, as {@link Kind#UNKNOWN}; {@code choices} are the options of a {@link Kind#CHOICE}, empty otherwise.
+     * {@code line} is the bot's own line that asked, or {@code -1}.
+     *
+     * <p>Replaces the {@code BM-INPUT} marker a bot printed on stdout before blocking on stdin (2026-10-01): the
+     * host had to scan every line of a run's output for it, could not be told what was asked, and answered on a
+     * pipe a terminal run does not have.
+     */
+    record Ask(long id, String kind, String prompt, java.util.List<String> choices, int line)
+            implements TelemetryEvent {
+
+        public Ask {
+            kind = kind == null ? "" : kind;
+            prompt = prompt == null ? "" : prompt;
+            choices = choices == null ? java.util.List.of() : java.util.List.copyOf(choices);
+        }
+
+        @Override
+        public Target target() {
+            return NO_SURFACE;
+        }
+
+        /** What the bot wants back; the host draws a different control for each. */
+        public enum Kind {
+            /** Any line of text. */
+            TEXT("text"),
+            /** A number, fractions allowed. */
+            NUMBER("number"),
+            /** A whole number. */
+            WHOLE("whole"),
+            /** Yes or no, answered {@code "true"} or {@code "false"}. */
+            YES_NO("yes-no"),
+            /** One of {@link Ask#choices()}, answered as the choice's text. */
+            CHOICE("choice"),
+            /** A kind this build does not know: asked as text. */
+            UNKNOWN("");
+
+            private final String id;
+
+            Kind(String id) {
+                this.id = id;
+            }
+
+            /** The id on the wire. */
+            public String id() {
+                return id;
+            }
+
+            /** The kind with this id, or {@link #UNKNOWN}. */
+            public static Kind fromId(String id) {
+                for (Kind kind : values()) {
+                    if (kind != UNKNOWN && kind.id.equals(id)) return kind;
+                }
+                return UNKNOWN;
+            }
+        }
+
+        /** {@link #kind()} as a constant. */
+        public Kind asked() {
+            return Kind.fromId(kind);
+        }
+    }
+
+    /**
+     * The host's reply to the {@link Ask} with the same {@code id}, the one frame that travels from the host to
+     * the bot. {@code value} is what the user entered, as text, or {@code null} when they cancelled.
+     */
+    record Answer(long id, String value) implements TelemetryEvent {
+
+        @Override
+        public Target target() {
+            return NO_SURFACE;
+        }
+
+        @Override
+        public int line() {
+            return -1;
         }
     }
 

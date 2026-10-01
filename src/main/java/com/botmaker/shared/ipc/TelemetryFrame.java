@@ -16,7 +16,7 @@ import java.util.Optional;
  * <pre>
  *   int32  payloadLength (big-endian, via DataOutputStream)
  *   byte   protocolVersion
- *   byte   typeTag  (1=Match, 2=Click, 3=Region, 4=Swipe, 5=Log)
+ *   byte   typeTag  (1=Match, 2=Click, 3=Region, 4=Swipe, 5=Log, 6=Ask, 7=Answer)
  *   ...    type-specific fields, encoded field-by-field
  * </pre>
  *
@@ -48,6 +48,10 @@ public final class TelemetryFrame {
      * each.
      */
     private static final int TYPE_LOG = 5;
+    /** A question the bot asks ({@link TelemetryEvent.Ask}), added the same way (2026-10-01). */
+    private static final int TYPE_ASK = 6;
+    /** The host's reply ({@link TelemetryEvent.Answer}), the one tag a host writes and a bot reads. */
+    private static final int TYPE_ANSWER = 7;
 
     private TelemetryFrame() {}
 
@@ -102,6 +106,20 @@ public final class TelemetryFrame {
                 p.writeUTF(l.writerMethod());
                 p.writeUTF(l.className());
                 p.writeInt(l.line());
+            }
+            case TelemetryEvent.Ask a -> {
+                p.writeByte(TYPE_ASK);
+                p.writeLong(a.id());
+                p.writeUTF(a.kind());
+                p.writeUTF(a.prompt());
+                p.writeInt(a.choices().size());
+                for (String choice : a.choices()) p.writeUTF(choice);
+                p.writeInt(a.line());
+            }
+            case TelemetryEvent.Answer a -> {
+                p.writeByte(TYPE_ANSWER);
+                p.writeLong(a.id());
+                writeNullableString(p, a.value());
             }
         }
         byte[] payload = buffer.toByteArray();
@@ -176,6 +194,22 @@ public final class TelemetryFrame {
     }
 
     /**
+     * The question {@code frame} carries, or empty when it carries something else or cannot be read: a host that
+     * answers a bot reads this one kind and relays the rest, as it does with {@link #log}.
+     */
+    public static Optional<TelemetryEvent.Ask> ask(byte[] frame) {
+        if (frame == null || frame.length <= 5 || (frame[4] & 0xFF) != PROTOCOL_VERSION
+                || (frame[5] & 0xFF) != TYPE_ASK) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of((TelemetryEvent.Ask) decode(frame));
+        } catch (FrameFormatException unreadable) {
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Decodes one whole frame, as {@link #readFrame} returned it. Every failure is a {@link FrameFormatException}:
      * the bytes are all here, so nothing about the stream they came from is in doubt.
      */
@@ -209,6 +243,17 @@ public final class TelemetryFrame {
                 case TYPE_LOG -> new TelemetryEvent.Log(
                         p.readUTF(), p.readUTF(), p.readUTF(), p.readInt(), p.readLong(),
                         readNullableRect(p), p.readUTF(), p.readUTF(), p.readUTF(), p.readInt());
+                case TYPE_ASK -> {
+                    long id = p.readLong();
+                    String kind = p.readUTF();
+                    String prompt = p.readUTF();
+                    int count = p.readInt();
+                    if (count < 0 || count > MAX_FRAME_BYTES) throw new IOException("Bad choice count: " + count);
+                    java.util.List<String> choices = new java.util.ArrayList<>(count);
+                    for (int i = 0; i < count; i++) choices.add(p.readUTF());
+                    yield new TelemetryEvent.Ask(id, kind, prompt, choices, p.readInt());
+                }
+                case TYPE_ANSWER -> new TelemetryEvent.Answer(p.readLong(), readNullableString(p));
                 default -> throw new IOException("Unknown telemetry type tag: " + type);
             };
         } catch (IOException decodeError) {
