@@ -12,6 +12,15 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Changed
+
+- **`Diag.error` prints and traces whatever the debug switch says.** The switch governs debug lines only, so a
+  run with debugging off still shows its crashes.
+- **A repeated line prints its count once**: `Diag` appends `(×N)` to the console line, so a caller no longer
+  writes the count into its text, where the trace showed it a second time.
+
 ## [0.1.1] — 2026-09-29
 
 ### Added

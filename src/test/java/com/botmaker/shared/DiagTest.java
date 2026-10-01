@@ -78,13 +78,15 @@ class DiagTest {
             Diag.log("Mouse", "click (1,2)", 1, null);
             Diag.log("Settings", "[Input] real device input active", 1, null);
             Diag.log(" ", "no source", 1, null);
+            Diag.log("Vision", "ore not found", 47, null);
         } finally {
             System.setOut(real);
         }
 
-        assertEquals(List.of("[Mouse] click (1,2)", "[Input] real device input active", "no source"),
+        assertEquals(List.of("[Mouse] click (1,2)", "[Input] real device input active", "no source",
+                        "[Vision] ore not found  (×47)"),
                 printed.toString(StandardCharsets.UTF_8).lines().toList());
-        assertEquals(List.of("Mouse", "Input", ""), lines.stream().map(TelemetryEvent.Log::source).toList());
+        assertEquals(List.of("Mouse", "Input", "", "Vision"), lines.stream().map(TelemetryEvent.Log::source).toList());
         assertEquals("real device input active", lines.get(1).text());
     }
 
@@ -99,11 +101,15 @@ class DiagTest {
     }
 
     @Test
-    void aQuietRunTracesNothingAndABrokenSinkIsHarmless() {
+    void aQuietRunTracesNoDebugLineButEveryErrorAndABrokenSinkIsHarmless() {
         Diag.setSink(lines::add);
         Diag.set(false);
         Diag.log("[Vision] hidden");
         assertTrue(lines.isEmpty());
+        Diag.error("[Flow] Collect threw", new IllegalStateException("boom"));
+        assertEquals(1, lines.size());
+        assertEquals(TelemetryEvent.Log.ERROR, lines.getFirst().level());
+        lines.clear();
 
         Diag.set(true);
         Diag.setSink(line -> {

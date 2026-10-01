@@ -23,6 +23,9 @@ import java.util.function.Predicate;
  * ({@link #RUN_PROPERTY}, which a host sets from its Debug output toggle). The SDK narrows it at start-up from
  * the bot's settings, where the run property still wins ({@link #runOverride()}).
  *
+ * <p><b>The switch governs debug lines only.</b> An error is printed and traced whatever it says (2026-09-30):
+ * a quiet run is one with no chatter, never one where a crash leaves no line.
+ *
  * <p><b>The trace.</b> Every line printed here also goes to the {@linkplain #setSink sink}, when one is set, as a
  * {@link TelemetryEvent.Log}: the SDK sets one when a host started the run, so the host shows the line in a trace
  * with its level and source ({@code docs/refactor/40-run-trace.md}). The printing is unchanged by it, so a bot
@@ -112,7 +115,7 @@ public final class Diag {
 
     /** {@link #error(String, String, Throwable)} as written at {@code origin}; {@code t} may be null. */
     public static void error(Origin origin, String message, Throwable t) {
-        if (enabled) emit(TelemetryEvent.Log.ERROR, origin, message, 1, null, t);
+        emit(TelemetryEvent.Log.ERROR, origin, message, 1, null, t);
     }
 
     /**
@@ -132,14 +135,14 @@ public final class Diag {
         }
     }
 
-    /** Prints {@code message} to stderr when diagnostics are on; a no-op when off. */
+    /** Prints {@code message} to stderr, and traces it, whether diagnostics are on or off. */
     public static void error(String message) {
         error("", message);
     }
 
     /**
-     * Prints {@code message} to stderr followed by {@code t}'s stack trace, when diagnostics are on. Use this
-     * instead of {@code t.printStackTrace()} so a quiet run really is quiet.
+     * Prints {@code message} to stderr followed by {@code t}'s stack trace, whether diagnostics are on or off.
+     * Use this instead of {@code t.printStackTrace()} so the stack reaches the trace too.
      */
     public static void error(String message, Throwable t) {
         error("", message, t);
@@ -147,12 +150,12 @@ public final class Diag {
 
     /** {@link #error(String)} under {@code source}, the way {@link #log(String, String, int, TelemetryEvent.Rect)} is. */
     public static void error(String source, String message) {
-        if (enabled) emit(TelemetryEvent.Log.ERROR, Origin.named(source), message, 1, null, null);
+        emit(TelemetryEvent.Log.ERROR, Origin.named(source), message, 1, null, null);
     }
 
     /** {@link #error(String, Throwable)} under {@code source}. */
     public static void error(String source, String message, Throwable t) {
-        if (enabled) emit(TelemetryEvent.Log.ERROR, Origin.named(source), message, 1, null, t);
+        emit(TelemetryEvent.Log.ERROR, Origin.named(source), message, 1, null, t);
     }
 
     private static void emit(String level, Origin origin, String message, int count, TelemetryEvent.Rect where,
@@ -166,6 +169,8 @@ public final class Diag {
             source = given.source();
         }
         String printed = source.isEmpty() ? text : "[" + source + "] " + text;
+        // The count is printed here and nowhere in the text, so the console and the trace each show it once.
+        if (count > 1) printed = printed + "  (×" + count + ")";
         boolean isError = TelemetryEvent.Log.ERROR.equals(level);
         (isError ? System.err : System.out).println(printed);
         if (t != null) {
