@@ -159,7 +159,7 @@ plugin it loads may consume**. A plugin wanting to screen-grab an emulator now c
 Studio's own picker uses rather than a second one that drifts.
 
 The rest of the package is the discovery + ADB transport, hosted in shared so **both** consumers reach it: the SDK's
-`api.emulator.Emulator` wraps it as a `CaptureSource` at runtime, and a Studio capture picker can screen-grab an
+`internal.emulator.Emulator` wraps it as a `CaptureSource` at runtime (a bot writes `CaptureSource.emulator(name)`), and a Studio capture picker can screen-grab an
 emulator at edit time. `AdbDevice` is one dadb connection (`dev.mobile:dadb` — pure-JVM ADB, no `adb.exe`; `screencap()` plus
 `tap`/`swipe`/`key`/`text`/`startApp`/`shell`). Capture has **two** paths and picks between them by
 `AdbEndpoint.local()`: raw `exec:screencap` (no device-side encode, decoded by `RawFramebuffer`) on loopback,
