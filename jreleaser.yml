@@ -38,7 +38,7 @@ project:
     homepage: https://github.com/BotMakerDev/botmaker-shared
   languages:
     java:
-      groupId: com.github.LiQiyeDev
+      groupId: com.github.BotMakerDev
       artifactId: botmaker-shared
       version: '21'
 

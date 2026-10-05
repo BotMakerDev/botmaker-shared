@@ -84,7 +84,7 @@ removed — it was just that `mvn install`. See `../CLAUDE.md` › Local dev.
 
 ## groupId note
 
-This module's Maven `groupId` is `com.github.LiQiyeDev` (not `com.botmaker.shared`) on purpose — it matches
+This module's Maven `groupId` is `com.github.BotMakerDev` (not `com.botmaker.shared`) on purpose — it matches
 the coordinate JitPack serves, so one dependency line in the SDK/Studio resolves both locally (reactor) and
 from JitPack. See `pom.xml` and `../CLAUDE.md`.
 

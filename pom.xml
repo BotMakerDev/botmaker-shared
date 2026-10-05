@@ -5,13 +5,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <!--
-      groupId is com.github.LiQiyeDev (not com.botmaker.shared) on purpose: JitPack always serves this
-      repo as com.github.LiQiyeDev:botmaker-shared:<tag> regardless of the pom, so matching that here
+      groupId is com.github.BotMakerDev (not com.botmaker.shared) on purpose: JitPack always serves this
+      repo as com.github.BotMakerDev:botmaker-shared:<tag> regardless of the pom, so matching that here
       makes the umbrella reactor's GAV identical to the published GAV. That lets one dependency line in
       the SDK/Studio resolve locally (reactor, version 0.0.0-SNAPSHOT) *and* from JitPack (a real tag).
       The version below is cosmetic — JitPack overrides it with the git tag on tag builds.
     -->
-    <groupId>com.github.LiQiyeDev</groupId>
+    <groupId>com.github.BotMakerDev</groupId>
     <artifactId>botmaker-shared</artifactId>
     <version>0.0.0-SNAPSHOT</version>
 

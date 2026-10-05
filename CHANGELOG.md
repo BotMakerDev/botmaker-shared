@@ -14,6 +14,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- Published as `com.github.BotMakerDev:botmaker-shared` (was `com.github.LiQiyeDev`). Tags already built
+  under the old groupId still resolve under it.
+
 ### Added
 
 - **Click-through windows.** `NativeController.makeInputTransparent(title)` gives a shown window an empty
