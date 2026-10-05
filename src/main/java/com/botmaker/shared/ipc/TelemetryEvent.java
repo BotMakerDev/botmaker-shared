@@ -11,7 +11,7 @@ package com.botmaker.shared.ipc;
  */
 public sealed interface TelemetryEvent
         permits TelemetryEvent.Match, TelemetryEvent.Click, TelemetryEvent.Region, TelemetryEvent.Swipe,
-                TelemetryEvent.Log, TelemetryEvent.Ask, TelemetryEvent.Answer {
+                TelemetryEvent.Log, TelemetryEvent.Ask, TelemetryEvent.Answer, TelemetryEvent.Step {
 
     /** What an event that acts on no surface answers for {@link #target()}: the whole screen. */
     Target NO_SURFACE = new Target(null, 0, 0, 0, 0);
@@ -192,6 +192,27 @@ public sealed interface TelemetryEvent
         @Override
         public int line() {
             return -1;
+        }
+    }
+
+    /**
+     * Where the bot is in its own program: it entered {@code activity} and is starting {@code action}, at
+     * {@code line} of its source. Both are the runtime's names, shown as they are ({@code "Collect"},
+     * {@code "Mouse.click"}); {@code action} is empty when only the activity changed. A host relays it as bytes
+     * and the runtime's plugin reads it, as with {@link Match}.
+     *
+     * <p>Acts on no surface, so {@link #target()} is the whole screen.
+     */
+    record Step(String activity, String action, int line) implements TelemetryEvent {
+
+        public Step {
+            activity = activity == null ? "" : activity;
+            action = action == null ? "" : action;
+        }
+
+        @Override
+        public Target target() {
+            return NO_SURFACE;
         }
     }
 

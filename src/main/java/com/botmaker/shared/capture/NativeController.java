@@ -47,6 +47,20 @@ public interface NativeController {
     default void promoteOverlayAboveFullscreen(String windowTitle) {
     }
 
+    /**
+     * Make the window whose title equals {@code windowTitle} take no pointer input: it still draws, but every
+     * click, the user's and the ones this controller synthesizes, reaches the window beneath it. For an overlay
+     * drawn over a running bot's target, which must never catch the bot's own clicks. Call it once the window
+     * is shown (it is found by title), and after {@link #promoteOverlayAboveFullscreen}: that one may remap
+     * the window, and a remapped window takes input again until this is called once more.
+     *
+     * <p>Returns whether it was done. A caller that needs the window click-through must not keep it when this
+     * answers false. Default false; only the X11 backend implements it (the Shape extension's input region).
+     */
+    default boolean makeInputTransparent(String windowTitle) {
+        return false;
+    }
+
     void postLeftClick(GenericWindow window, int relativeX, int relativeY);
 
     /**

@@ -14,22 +14,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
-No source changes since v0.1.2; re-released for updated upstream pins.
-
 ### Added
 
-- **The telemetry channel works both ways.** A bot sends a question (`TelemetryEvent.Ask`, tag 6) with
-  `TelemetryClient.ask`, and the host answers it with `TelemetryServer.reply` (`TelemetryEvent.Answer`, tag 7)
-  on the same socket. A question still open when the connection drops fails. `TelemetryFrame.ask(frame)`
-  reads a question out of a relayed frame. An older host skips the new tags, as it does any tag it does not
-  know.
-
-### Changed
-
-- **`Diag.error` prints and traces whatever the debug switch says.** The switch governs debug lines only, so a
-  run with debugging off still shows its crashes.
-- **A repeated line prints its count once**: `Diag` appends `(×N)` to the console line, so a caller no longer
-  writes the count into its text, where the trace showed it a second time.
+- **Click-through windows.** `NativeController.makeInputTransparent(title)` gives a shown window an empty
+  input region (X11 Shape extension, libXext), so every click, the user's and the bot's own, reaches the
+  window beneath; it answers false where it cannot (Windows, Wayland, no libXext). For an overlay drawn over a
+  running bot.
+- **Where the bot is in its program.** `TelemetryEvent.Step(activity, action, line)`, tag 8. An older host
+  skips the new tag, as it does any tag it does not know.
 
 ## [0.1.2] — 2026-10-01
 

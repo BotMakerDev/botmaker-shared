@@ -16,7 +16,7 @@ import java.util.Optional;
  * <pre>
  *   int32  payloadLength (big-endian, via DataOutputStream)
  *   byte   protocolVersion
- *   byte   typeTag  (1=Match, 2=Click, 3=Region, 4=Swipe, 5=Log, 6=Ask, 7=Answer)
+ *   byte   typeTag  (1=Match, 2=Click, 3=Region, 4=Swipe, 5=Log, 6=Ask, 7=Answer, 8=Step)
  *   ...    type-specific fields, encoded field-by-field
  * </pre>
  *
@@ -52,6 +52,8 @@ public final class TelemetryFrame {
     private static final int TYPE_ASK = 6;
     /** The host's reply ({@link TelemetryEvent.Answer}), the one tag a host writes and a bot reads. */
     private static final int TYPE_ANSWER = 7;
+    /** Where the bot is in its program ({@link TelemetryEvent.Step}), added the same way (2026-10-05). */
+    private static final int TYPE_STEP = 8;
 
     private TelemetryFrame() {}
 
@@ -120,6 +122,12 @@ public final class TelemetryFrame {
                 p.writeByte(TYPE_ANSWER);
                 p.writeLong(a.id());
                 writeNullableString(p, a.value());
+            }
+            case TelemetryEvent.Step s -> {
+                p.writeByte(TYPE_STEP);
+                p.writeUTF(s.activity());
+                p.writeUTF(s.action());
+                p.writeInt(s.line());
             }
         }
         byte[] payload = buffer.toByteArray();
@@ -254,6 +262,7 @@ public final class TelemetryFrame {
                     yield new TelemetryEvent.Ask(id, kind, prompt, choices, p.readInt());
                 }
                 case TYPE_ANSWER -> new TelemetryEvent.Answer(p.readLong(), readNullableString(p));
+                case TYPE_STEP -> new TelemetryEvent.Step(p.readUTF(), p.readUTF(), p.readInt());
                 default -> throw new IOException("Unknown telemetry type tag: " + type);
             };
         } catch (IOException decodeError) {

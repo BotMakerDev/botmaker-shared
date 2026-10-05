@@ -114,6 +114,24 @@ class TelemetryFrameTest {
         assertEquals(huge, roundTrip(huge));
     }
 
+    @Test
+    void aStepRoundTripsAndActsOnNoSurface() throws Exception {
+        TelemetryEvent.Step step = new TelemetryEvent.Step("Collect", "Mouse.click", 42);
+        assertEquals(step, roundTrip(step));
+        assertEquals(TelemetryEvent.NO_SURFACE, step.target());
+
+        TelemetryEvent.Step entered = new TelemetryEvent.Step("Collect", null, -1);
+        assertEquals("", entered.action());
+        assertEquals(entered, roundTrip(entered));
+        assertFalse(TelemetryFrame.isLog(frameOf(entered)));
+    }
+
+    private static byte[] frameOf(TelemetryEvent event) throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        TelemetryFrame.write(new DataOutputStream(bos), event);
+        return bos.toByteArray();
+    }
+
     /** A relaying host reads frames whole and decodes only the debug lines it shows. */
     @Test
     void aRelayedFrameIsTheWrittenBytesAndOnlyALogFrameReadsAsALine() throws Exception {

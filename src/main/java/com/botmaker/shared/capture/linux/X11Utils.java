@@ -325,6 +325,47 @@ public class X11Utils {
     }
 
     /**
+     * Gives {@code window} an empty input region, so pointer events reach the window beneath it, and does the
+     * same to each of its ancestors below the root: a reparenting window manager frames the window, and a frame
+     * that still took input would catch the click the window let through. False when the Shape extension is
+     * missing, in which case nothing was changed.
+     *
+     * <p>A remap gets a fresh frame that takes input again, and {@link #promoteAboveFullscreen} remaps on its
+     * first call: promote first, then make transparent.
+     */
+    public static boolean makeInputTransparent(Pointer display, Pointer window) {
+        XShape shape = XShape.instance();
+        if (shape == null || window == null || Pointer.nativeValue(window) == 0
+                || !shape.XShapeQueryExtension(display, new IntByReference(), new IntByReference())) {
+            return false;
+        }
+        Pointer root = X11.INSTANCE.XDefaultRootWindow(display);
+        Pointer current = window;
+        while (current != null && Pointer.nativeValue(current) != 0
+                && Pointer.nativeValue(current) != Pointer.nativeValue(root)) {
+            shape.XShapeCombineRectangles(display, current, XShape.ShapeInput, 0, 0, null, 0, XShape.ShapeSet,
+                    XShape.Unsorted);
+            current = parentOf(display, current);
+        }
+        X11.INSTANCE.XFlush(display);
+        return true;
+    }
+
+    /** {@code window}'s parent, or null when the query fails. */
+    private static Pointer parentOf(Pointer display, Pointer window) {
+        PointerByReference rootReturn = new PointerByReference();
+        PointerByReference parentReturn = new PointerByReference();
+        PointerByReference childrenReturn = new PointerByReference();
+        IntByReference count = new IntByReference();
+        if (X11.INSTANCE.XQueryTree(display, window, rootReturn, parentReturn, childrenReturn, count) == 0) {
+            return null;
+        }
+        Pointer children = childrenReturn.getValue();
+        if (children != null) X11.INSTANCE.XFree(children);
+        return parentReturn.getValue();
+    }
+
+    /**
      * Force {@code window} to stack <em>above fullscreen</em> windows. A plain always-on-top window
      * (EWMH {@code _NET_WM_STATE_ABOVE}) is still ranked <em>below</em> a window holding
      * {@code _NET_WM_STATE_FULLSCREEN}, so a Studio overlay disappears behind a fullscreen game. Two

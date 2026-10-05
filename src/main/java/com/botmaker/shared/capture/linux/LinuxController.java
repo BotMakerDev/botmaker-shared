@@ -826,6 +826,30 @@ public class LinuxController implements NativeController, AutoCloseable {
         }
     }
 
+    @Override
+    public boolean makeInputTransparent(String windowTitle) {
+        checkNotClosed();
+        if (!x11Available || windowTitle == null || windowTitle.isEmpty()) {
+            return false;
+        }
+        try {
+            Pointer[] windows = X11Utils.getClientList(display);
+            if (windows == null) {
+                return false;
+            }
+            boolean made = false;
+            for (Pointer w : windows) {
+                if (windowTitle.equals(X11Utils.getWindowTitle(display, w))) {
+                    made |= X11Utils.makeInputTransparent(display, w);
+                }
+            }
+            return made;
+        } catch (Exception e) {
+            Diag.error("[Linux] makeInputTransparent failed: " + e.getMessage());
+            return false;
+        }
+    }
+
     // --- Input synthesis (delegated to the selected LinuxInputBackend) ---
 
     private static final int KEYSYM_SHIFT_L = 0xFFE1;
