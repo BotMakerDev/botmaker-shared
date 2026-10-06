@@ -73,13 +73,13 @@ holds open work only: add an item when work is left for later, remove it when do
 ```bash
 mvn compile        # Build
 mvn test           # Run tests (JUnit Jupiter; NativeControllerFactory.setForTesting injects a fake)
-mvn install        # Install to ~/.m2 at 0.0.0-SNAPSHOT so consumers pick up local changes with no tag
+mvn install        # Install to ~/.m2 at the pom's -SNAPSHOT so consumers pick up local changes with no tag
 ```
 
 This module is normally built from the umbrella root (`mvn install`), which builds it **first** so the SDK
 and Studio resolve it from the reactor. There is no coordinate trick to test local changes: because the
 groupId already matches JitPack, a plain `mvn install` (or `mvn -pl botmaker-shared -am install` from the
-umbrella) lands it at the default `0.0.0-SNAPSHOT` every consumer resolves. The old `dev-install.sh` was
+umbrella) lands it at its `main` `-SNAPSHOT`, which every consumer's pom on `main` pins (umbrella doc 43). The old `dev-install.sh` was
 removed — it was just that `mvn install`. See `../CLAUDE.md` › Local dev.
 
 ## groupId note

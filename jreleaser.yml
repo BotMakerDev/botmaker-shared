@@ -13,8 +13,8 @@
 # FILE (`gitdir: ../.git/modules/<mod>`) and JReleaser's JGit reports "repository not found", while
 # `--git-root-search` gets past it only by resolving the UMBRELLA repository — which would attach this
 # release to the wrong repo. jreleaser-maven-plugin is not used either: it ignores this file entirely (its
-# model comes from an XML block in the pom) and takes the version from <version>, which here is the cosmetic
-# 0.0.0-SNAPSHOT JitPack overrides.
+# model comes from an XML block in the pom) and takes the version from <version>, which was a cosmetic
+# 0.0.0-SNAPSHOT until 2026-10-06; the tag stays the version.
 #
 # THE VERSION ARRIVES AS JRELEASER_PROJECT_VERSION, set by the workflow from the tag that triggered it.
 #
