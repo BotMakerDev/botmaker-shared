@@ -16,6 +16,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- The pom carries a real version, `-SNAPSHOT` on `main` and the release version on a tag, instead of the
+  cosmetic `0.0.0-SNAPSHOT` (umbrella `docs/refactor/43-real-versions.md`).
 - Published as `com.github.BotMakerDev:botmaker-shared` (was `com.github.LiQiyeDev`). Tags already built
   under the old groupId still resolve under it.
 
