@@ -52,12 +52,21 @@ class WindowsDiscoveryTest {
     }
 
     @Test
-    void theConsoleToolsInstanceListsGiveTheNamesTheUserSees() {
-        assertEquals(Map.of(0, "LDPlayer", 1, "Farm"),
-                InstallLocator.titlesByIndex("0,LDPlayer,0,0,0,-1,-1,1600,900,240\r\n1,Farm,132,98,1,4410,4422,960,540,240\r\n"));
-        assertEquals(Map.of(0, "MEmu"), InstallLocator.titlesByIndex("0,MEmu,0,0,0\n\n"));
-        assertEquals(Map.of(), InstallLocator.titlesByIndex("ERROR: not found"));
-        assertEquals(Map.of(), InstallLocator.titlesByIndex(null));
+    void theConsoleToolsInstanceListsGiveTheNamesTheUserSeesAndWhetherEachIsUp() {
+        assertEquals(Map.of(
+                        0, new InstallLocator.ConsoleRow("LDPlayer", EmulatorState.STOPPED),
+                        1, new InstallLocator.ConsoleRow("Farm", EmulatorState.RUNNING),
+                        2, new InstallLocator.ConsoleRow("Booting", EmulatorState.STARTING)),
+                LdPlayerPlatform.parseList2("0,LDPlayer,0,0,0,-1,-1,1600,900,240\r\n"
+                        + "1,Farm,132,98,1,4410,4422,960,540,240\r\n"
+                        + "2,Booting,140,0,0,5120,5133,960,540,240\r\n"));
+        assertEquals(Map.of(0, new InstallLocator.ConsoleRow("MEmu", EmulatorState.STOPPED),
+                        1, new InstallLocator.ConsoleRow("MEmu_1", EmulatorState.STARTING)),
+                MemuPlatform.parseListVms("0,MEmu,0,0,0\n1,MEmu_1,3344,1,7788\n\n"));
+        assertEquals(Map.of(0, new InstallLocator.ConsoleRow("Short", EmulatorState.UNKNOWN)),
+                MemuPlatform.parseListVms("0,Short"), "a line too short to say is not a stopped instance");
+        assertEquals(Map.of(), LdPlayerPlatform.parseList2("ERROR: not found"));
+        assertEquals(Map.of(), MemuPlatform.parseListVms(null));
     }
 
     @Test
@@ -90,16 +99,30 @@ class WindowsDiscoveryTest {
     }
 
     @Test
-    void mumuManagerReportsEachInstancesNameAsJsonWhetherOneOrMany() {
+    void mumuManagerReportsEachInstancesNameAndStateAsJsonWhetherOneOrMany() {
         String many = """
                 {
-                  "0": {"index": "0", "is_android_started": false, "name": "Android Device"},
-                  "2": {"index": "2", "name": "Farm"}
+                  "0": {"index": "0", "is_android_started": false, "is_process_started": false, "name": "Android Device"},
+                  "1": {"index": "1", "is_android_started": false, "is_process_started": true, "name": "Booting"},
+                  "2": {"index": "2", "is_android_started": true, "is_process_started": true, "name": "Farm"}
                 }""";
-        assertEquals(Map.of(0, "Android Device", 2, "Farm"), MuMuPlatform.parseInfo(many));
-        assertEquals(Map.of(1, "Solo"), MuMuPlatform.parseInfo("{\"index\": \"1\", \"name\": \"Solo\"}"));
+        assertEquals(Map.of(
+                        0, new InstallLocator.ConsoleRow("Android Device", EmulatorState.STOPPED),
+                        1, new InstallLocator.ConsoleRow("Booting", EmulatorState.STARTING),
+                        2, new InstallLocator.ConsoleRow("Farm", EmulatorState.RUNNING)),
+                MuMuPlatform.parseInfo(many));
+        assertEquals(Map.of(1, new InstallLocator.ConsoleRow("Solo", EmulatorState.UNKNOWN)),
+                MuMuPlatform.parseInfo("{\"index\": \"1\", \"name\": \"Solo\"}"));
         assertEquals(Map.of(), MuMuPlatform.parseInfo("not json"));
         assertEquals(Map.of(), MuMuPlatform.parseInfo(null));
+    }
+
+    @Test
+    void aBlueStacksEditionHasStartedOnlyWhenItsOneInstanceIsTheOnePlayerRunningAndOtherwiseThePortSays() {
+        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(2, 0), "a player we can't see may still run");
+        assertEquals(EmulatorState.STARTING, BlueStacksPlatform.state(1, 1));
+        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(2, 1), "which of the two is up, its port says");
+        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(1, -1), "no player found to count");
     }
 
     @Test
@@ -167,8 +190,13 @@ class WindowsDiscoveryTest {
         Platforms.DiscoveryReport report = Platforms.discoverDetailed();
         System.out.printf("discovery took %d ms%n", (System.nanoTime() - start) / 1_000_000);
         report.statuses().forEach(s -> System.out.println("  " + s.statusLine()));
-        report.instances().forEach(i -> System.out.println("  " + i.caption() + " @ " + i.endpoint()
-                + (i.canLaunch() ? "  start: " + String.join(" ", i.launchCommand()) : "")));
+        report.instances().forEach(i -> {
+            EmulatorLiveness liveness = EmulatorLiveness.check(i);
+            String problem = liveness.problem(i);
+            System.out.println("  " + i.caption() + " @ " + i.endpoint() + " · " + liveness.label()
+                    + (problem == null ? "" : " · " + problem)
+                    + (i.canLaunch() ? "  start: " + String.join(" ", i.launchCommand()) : ""));
+        });
     }
 
     @Test

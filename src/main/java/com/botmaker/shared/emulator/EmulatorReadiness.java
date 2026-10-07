@@ -54,9 +54,12 @@ public final class EmulatorReadiness {
      * {@code sys.boot_completed}. A refused ADB handshake — the "Allow USB debugging?" prompt still waiting
      * inside the guest — also answers false here, because from a caller's point of view it is the same
      * situation: the device is not driveable yet.
+     *
+     * <p>The port must also be the instance's own ({@link EmulatorLiveness}): a stopped LDPlayer whose port
+     * 5555 a running BlueStacks answers is not ready, or the launch that waited for it would drive BlueStacks.
      */
     public static boolean isReady(EmulatorInstance instance) {
-        return portOpen(instance) && bootCompleted(instance);
+        return EmulatorLiveness.running(instance) && bootCompleted(instance);
     }
 
     /** {@link AdbDevice#bootCompleted()} over a short-lived connection; false when we can't ask. */

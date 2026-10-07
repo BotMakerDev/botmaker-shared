@@ -80,6 +80,19 @@ public enum PlatformId {
         return this == WAYDROID ? Duration.ofSeconds(240) : Duration.ofSeconds(90);
     }
 
+    /**
+     * Where the user turns this product's ADB on, for the products that ship with it off, or {@code null}.
+     * LDPlayer 14 is up with nothing listening on its port until it is set; MEmu and MuMu have it on from install.
+     */
+    public String adbSetting() {
+        return switch (this) {
+            case LDPLAYER -> "Settings › Other settings › ADB debugging › Open local connection";
+            case BLUESTACKS -> "Settings › Advanced › Android Debug Bridge (ADB)";
+            case GAMELOOP -> "Settings › Advanced › ADB debugging";
+            default -> null;
+        };
+    }
+
     /** The platform for a stored {@link #id()}; {@link #UNKNOWN} for null or anything unrecognised. */
     public static PlatformId fromId(String id) {
         if (id == null) return UNKNOWN;

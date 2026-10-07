@@ -28,9 +28,12 @@ public final class EmulatorProbe {
      * launcher's own probe, and the pair disagreeing about what "running" means is what let an app launch
      * fire into a half-booted Android. Note the distinction that survives the merge — a port that answers is
      * <em>not</em> a device that can be driven; that question is {@link EmulatorReadiness#isReady}.
+     *
+     * <p>The port counts only when it is the instance's own: {@link EmulatorLiveness#check}, which also says who
+     * holds it when it isn't.
      */
     public static boolean isRunning(EmulatorInstance instance) {
-        return EmulatorReadiness.portOpen(instance);
+        return EmulatorLiveness.running(instance);
     }
 
     /** One ADB {@code screencap} of a running instance; {@code null} if it isn't up or the grab fails. */

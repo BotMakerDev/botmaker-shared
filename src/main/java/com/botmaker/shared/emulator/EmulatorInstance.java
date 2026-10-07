@@ -19,14 +19,23 @@ import java.util.List;
  * @param launchCommand the host process + args that start this instance (empty if the product has no console
  *                      tool we can drive, it couldn't be located, or — for a phone — there is nothing to start)
  * @param stopCommand   the host process + args that stop this instance (empty when unsupported)
+ * @param state         whether the product said this instance was up when it was discovered; a snapshot, so
+ *                      ask {@link EmulatorLiveness#check} for now
  */
 public record EmulatorInstance(PlatformId platformId, String name, AdbEndpoint adb,
-                               List<String> launchCommand, List<String> stopCommand) {
+                               List<String> launchCommand, List<String> stopCommand, EmulatorState state) {
 
     public EmulatorInstance {
         platformId = platformId == null ? PlatformId.UNKNOWN : platformId;
         launchCommand = launchCommand == null ? List.of() : List.copyOf(launchCommand);
         stopCommand = stopCommand == null ? List.of() : List.copyOf(stopCommand);
+        state = state == null ? EmulatorState.UNKNOWN : state;
+    }
+
+    /** An instance whose product did not say whether it is up. */
+    public EmulatorInstance(PlatformId platformId, String name, AdbEndpoint adb,
+                            List<String> launchCommand, List<String> stopCommand) {
+        this(platformId, name, adb, launchCommand, stopCommand, EmulatorState.UNKNOWN);
     }
 
     /** A discovery-only descriptor with no launch/stop support (the parsers' pure form). */
@@ -85,12 +94,17 @@ public record EmulatorInstance(PlatformId platformId, String name, AdbEndpoint a
 
     /** A copy of this instance carrying the given host launch/stop commands. */
     public EmulatorInstance withCommands(List<String> launch, List<String> stop) {
-        return new EmulatorInstance(platformId, name, adb, launch, stop);
+        return new EmulatorInstance(platformId, name, adb, launch, stop, state);
     }
 
     /** A copy of this instance under the name its product's console tool reports for it. */
     public EmulatorInstance withName(String newName) {
-        return new EmulatorInstance(platformId, newName, adb, launchCommand, stopCommand);
+        return new EmulatorInstance(platformId, newName, adb, launchCommand, stopCommand, state);
+    }
+
+    /** A copy of this instance as its product reports it now. */
+    public EmulatorInstance withState(EmulatorState newState) {
+        return new EmulatorInstance(platformId, name, adb, launchCommand, stopCommand, newState);
     }
 
     /** Whether {@link EmulatorLauncher#launch} can start this instance (a launch command is known). */

@@ -32,6 +32,16 @@ VirtualBox `.memu` NAT forwarding rule (host port of guest 5555) and `MuMuPlatfo
 (`UserDirs.cache()/emulator-names`) when it doesn't, so a saved name doesn't flip with a slow tool. `GameloopPlatform` returns its
 single primary instance on port 5555 once its engine is downloaded, and a status note until then. Several
 products ask for 5555; `Platforms.dedupe` keeps them all and only drops a phone a product already reported.
+So the port can't say whether an instance is up: each one carries the `EmulatorState` its product reported in the
+same console call that named it (LDPlayer's `list2` Android flag, `memuc listvms`, MuMu's `is_android_started`),
+or that its engine process gives (`STARTING` — the process, not Android — for a BlueStacks edition with one
+instance and GameLoop; a process not found is `UNKNOWN`, never `STOPPED`), else `UNKNOWN`.
+`EmulatorLiveness.check` puts that beside a port probe, over a discovery at most 2 s old (`Platforms.recent`;
+`EmulatorLiveness.running`, which bots and launches poll, skips the discovery for a closed port and accepts one
+10 s old): a stopped instance whose port answers names who holds it ("port 5555 is in use by BlueStacks: Pie64"),
+two products both up on one address are both refused, and a product that says Android is up while its port is
+closed has its ADB off (`PlatformId.adbSetting` says where; LDPlayer 14 ships that way). `EmulatorProbe.isRunning`, `EmulatorReadiness.isReady` and the launcher all go
+through it, so nothing drives the emulator that happens to hold another's port.
 Beyond discovery, each
 `EmulatorInstance` also carries the host `launchCommand`/`stopCommand` its platform resolved (LDPlayer
 `ldconsole`, MuMu `MuMuManager`, MEmu `memuc`, BlueStacks `HD-Player --instance`, Gameloop engine exe), which

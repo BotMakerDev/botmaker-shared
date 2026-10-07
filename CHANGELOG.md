@@ -59,6 +59,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   one its config forwards, and two products asking for the same port are both listed instead of one hiding the
   other. A GameLoop with no Android engine yet says so. Registry reads no longer spawn `reg.exe`.
 
+- **An emulator is running when its product says so, not when its port answers.** BlueStacks, LDPlayer's
+  first instance and GameLoop share `127.0.0.1:5555`, so one running made all of them look running, and a launch
+  aimed at a stopped LDPlayer drove BlueStacks. Each instance now carries the `EmulatorState` its console tool
+  or engine process reports, and `EmulatorLiveness` combines it with the port: a stopped instance whose port
+  answers names who holds it ("port 5555 is in use by BlueStacks: Pie64"), two products both up on one address
+  are both refused, and a product up with its port
+  closed has its ADB off and says where to turn it on (LDPlayer 14 ships that way). `EmulatorProbe.isRunning`,
+  `EmulatorReadiness.isReady` and `EmulatorAppLauncher` use it.
+
 - **Game covers: Steam's are found again, and an Epic game has one.** A newer Steam client keeps each library
   picture one folder down, under a content hash (`librarycache/<appid>/<hash>/library_capsule.jpg`), so
   `SteamLibraryScanner` found no cover for a game it had cached that way; both levels are looked at now, the

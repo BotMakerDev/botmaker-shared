@@ -5,7 +5,9 @@ import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.shared.emulator.EmulatorLauncher;
+import com.botmaker.shared.emulator.EmulatorLiveness;
 import com.botmaker.shared.emulator.EmulatorReadiness;
+import com.botmaker.shared.emulator.EmulatorState;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.emulator.WaydroidApps;
@@ -205,7 +207,7 @@ public final class EmulatorAppLauncher {
      */
     public static Outcome restart(String packageName, String instance) {
         Optional<EmulatorInstance> match = find(instance);
-        if (match.isPresent() && EmulatorReadiness.portOpen(match.get())) {
+        if (match.isPresent() && EmulatorLiveness.running(match.get())) {
             try (AdbDevice device = connect(match.get())) {
                 Diag.log("[Target] emu-app: restarting " + packageName + " on " + instance);
                 device.shell("am force-stop " + packageName.trim());
@@ -224,7 +226,7 @@ public final class EmulatorAppLauncher {
      */
     public static boolean isRunning(String packageName, String instance) {
         Optional<EmulatorInstance> match = find(instance);
-        if (match.isEmpty() || !EmulatorReadiness.portOpen(match.get())) {
+        if (match.isEmpty() || !EmulatorLiveness.running(match.get())) {
             return false;
         }
         try (AdbDevice device = connect(match.get())) {
@@ -261,6 +263,10 @@ public final class EmulatorAppLauncher {
         if (ready.isEmpty()) {
             Duration budget = match.get().platformId().bootTimeout();
             Diag.log("[Target] emu-app: instance '" + instance + "' did not become ready");
+            String problem = EmulatorLiveness.check(match.get()).problem(match.get());
+            if (problem != null) {
+                return Outcome.failed(instance + " can't be driven: " + problem + ".");
+            }
             return Outcome.failed(instance + " didn't finish booting within " + budget.toSeconds() + "s. It may "
                     + "still be starting — try again in a moment — or Android is up but ADB isn't answering, "
                     + "which is usually an \"Allow USB debugging?\" prompt waiting inside the emulator.");
@@ -283,7 +289,10 @@ public final class EmulatorAppLauncher {
         if (EmulatorReadiness.isReady(instance)) {
             return Optional.of(instance);
         }
-        if (!EmulatorReadiness.portOpen(instance)) {
+        // Stopped, not "port closed": a stopped instance whose port another emulator answers still needs starting.
+        EmulatorLiveness liveness = EmulatorLiveness.check(instance);
+        if (liveness.clash() != null) Diag.log("[Target] emu-app: " + name + " is stopped; " + liveness.clash());
+        if (liveness.state() == EmulatorState.STOPPED) {
             Diag.log("[Target] emu-app: launching emulator instance '" + name + "'");
             report(progress, "Starting " + name + "…");
             EmulatorLauncher.launch(instance);

@@ -49,7 +49,9 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
         for (Edition edition : editions()) {
             if (edition.conf() == null || !Files.isReadable(edition.conf())) continue;
             try {
-                instances.addAll(parseConf(Files.readString(edition.conf()), edition.hdPlayer()));
+                List<EmulatorInstance> found = parseConf(Files.readString(edition.conf()), edition.hdPlayer());
+                EmulatorState state = state(found.size(), InstallLocator.processes(edition.hdPlayer()));
+                found.forEach(instance -> instances.add(instance.withState(state)));
             } catch (Exception e) {
                 // this edition's instances are lost, the others' are not
             }
@@ -65,6 +67,19 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
      * @param hdPlayer {@code HD-Player.exe} in its program folder, or {@code null}
      */
     private record Edition(Path conf, Path hdPlayer) {}
+
+    /**
+     * An edition's instances' state from how many of its {@code HD-Player.exe} processes run: each instance runs
+     * one, given its token on the command line, which another process cannot read. A player running says its
+     * instance has started (not that Android is up) only when the edition has a single instance. None found says
+     * nothing firm — a player elevated, or under a path spelled otherwise than the registry's, is not seen — so
+     * the port decides, as it does for an edition with several instances.
+     *
+     * @param processes the count, or {@code -1} when the edition's player is unknown
+     */
+    static EmulatorState state(int instances, int processes) {
+        return processes > 0 && instances == 1 ? EmulatorState.STARTING : EmulatorState.UNKNOWN;
+    }
 
     /** Every engine key under {@code HKLM\SOFTWARE} that names a program or a data folder. */
     private static List<Edition> editions() {

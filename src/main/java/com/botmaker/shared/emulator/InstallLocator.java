@@ -191,23 +191,80 @@ final class InstallLocator {
     }
 
     /**
-     * The instance titles a console tool lists one per line as {@code index,title,…} ({@code ldconsole list2},
-     * {@code memuc listvms}), by index — the names the user gave in the product's multi-instance manager, which
-     * the config files don't always carry. Empty for {@code null}; a line that isn't one is skipped.
+     * One instance as its product's console tool lists it.
+     *
+     * @param name  the name the user gave it in the product's multi-instance manager
+     * @param state whether the tool says it is up; {@link EmulatorState#UNKNOWN} when the tool did not answer
+     *              this time and the name is the remembered one
      */
-    static Map<Integer, String> titlesByIndex(String output) {
-        Map<Integer, String> titles = new LinkedHashMap<>();
-        if (output == null) return titles;
+    record ConsoleRow(String name, EmulatorState state) {}
+
+    /**
+     * The instances a console tool lists one per line as {@code index,title,…} ({@code ldconsole list2},
+     * {@code memuc listvms}), by index — the names the user gave in the product's multi-instance manager, which
+     * the config files don't always carry, and the state {@code state} reads off the line's fields. Empty for
+     * {@code null}; a line that isn't one is skipped.
+     */
+    static Map<Integer, ConsoleRow> csvRows(String output, Function<String[], EmulatorState> state) {
+        Map<Integer, ConsoleRow> rows = new LinkedHashMap<>();
+        if (output == null) return rows;
         for (String line : output.split("\\R")) {
             String[] fields = line.trim().split(",");
             if (fields.length < 2 || fields[1].isBlank()) continue;
+            for (int i = 0; i < fields.length; i++) fields[i] = fields[i].trim();
             try {
-                titles.put(Integer.parseInt(fields[0].trim()), fields[1].trim());
+                rows.put(Integer.parseInt(fields[0]), new ConsoleRow(fields[1], state.apply(fields)));
             } catch (NumberFormatException e) {
                 // not an instance line
             }
         }
-        return titles;
+        return rows;
+    }
+
+    /**
+     * How many processes run {@code program} now, compared by path and case-insensitively (Windows paths), or
+     * {@code -1} when {@code program} is {@code null}. A process whose image path we may not read is not counted;
+     * a product's engine runs as the user, so its own are readable.
+     */
+    static int processes(Path program) {
+        if (program == null) return -1;
+        String wanted = program.toString();
+        List<String> images = processImages();
+        if (images == null) return -1;
+        return (int) images.stream().filter(image -> image.equalsIgnoreCase(wanted)).count();
+    }
+
+    private record Images(long at, List<String> paths) {}
+
+    private static volatile Images lastImages;
+
+    /**
+     * Every readable process's image path, read once a second at most: one discovery asks for several products'
+     * engines, and reading each process's image opens a handle to it. {@code null} when the table can't be read.
+     */
+    private static List<String> processImages() {
+        Images images = lastImages;
+        if (images != null && System.currentTimeMillis() - images.at() < 1_000) return images.paths();
+        try {
+            List<String> paths = ProcessHandle.allProcesses()
+                    .map(process -> process.info().command().orElse(null))
+                    .filter(command -> command != null)
+                    .toList();
+            lastImages = new Images(System.currentTimeMillis(), paths);
+            return paths;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Field {@code i} of a console line as a number, or {@code null} when it is missing or isn't one. */
+    static Long field(String[] fields, int i) {
+        if (i >= fields.length) return null;
+        try {
+            return Long.parseLong(fields[i]);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**
@@ -225,23 +282,29 @@ final class InstallLocator {
     }
 
     /**
-     * The instance names a product's console tool reports, by index, as {@code parse} reads its output.
+     * The instances a product's console tool lists, by index, as {@code parse} reads its output: one call gives
+     * both the names and whether each is up.
      *
-     * <p>Each answer is remembered on disk, and given back when the tool doesn't answer this time (absent,
-     * failing, or slower than {@link #CONSOLE_TIMEOUT} while its service starts). A saved reference names an
-     * instance by name, so a name must not change between two scans because a tool was slow in one of them.
-     * Empty when the tool has never answered; discovery then uses the config files' names.
+     * <p>Each answer's names are remembered on disk, and given back when the tool doesn't answer this time
+     * (absent, failing, or slower than {@link #CONSOLE_TIMEOUT} while its service starts), with an
+     * {@link EmulatorState#UNKNOWN} state. A saved reference names an instance by name, so a name must not change
+     * between two scans because a tool was slow in one of them. Empty when the tool has never answered;
+     * discovery then uses the config files' names.
      */
-    static Map<Integer, String> names(Path tool, Charset charset, Function<String, Map<Integer, String>> parse,
-                                      String... arguments) {
+    static Map<Integer, ConsoleRow> list(Path tool, Charset charset,
+                                         Function<String, Map<Integer, ConsoleRow>> parse, String... arguments) {
         if (tool == null) return Map.of();
         Path memory = namesFile(tool, arguments);
-        Map<Integer, String> names = parse.apply(console(tool, charset, arguments));
-        if (!names.isEmpty()) {
+        Map<Integer, ConsoleRow> rows = parse.apply(console(tool, charset, arguments));
+        if (!rows.isEmpty()) {
+            Map<Integer, String> names = new LinkedHashMap<>();
+            rows.forEach((index, row) -> names.put(index, row.name()));
             writeNames(memory, names);
-            return names;
+            return rows;
         }
-        return readNames(memory);
+        Map<Integer, ConsoleRow> remembered = new LinkedHashMap<>();
+        readNames(memory).forEach((index, name) -> remembered.put(index, new ConsoleRow(name, EmulatorState.UNKNOWN)));
+        return remembered;
     }
 
     /** What {@code tool} prints, or {@code null} when it is absent, fails or takes too long. */

@@ -48,8 +48,10 @@ public final class GameloopPlatform implements EmulatorPlatform {
         if (engine == null) {
             return List.of();
         }
-        // No console tool: launch is just the engine exe; there's no clean CLI stop (close the window).
-        return List.of(singleInstance().get(0).withCommands(List.of(engine.toString()), List.of()));
+        // No console tool: launch is just the engine exe; there's no clean CLI stop (close the window). The engine's
+        // process running says the one instance has started; not finding it says nothing firm (see BlueStacks).
+        EmulatorState state = InstallLocator.processes(engine) > 0 ? EmulatorState.STARTING : EmulatorState.UNKNOWN;
+        return List.of(singleInstance().get(0).withCommands(List.of(engine.toString()), List.of()).withState(state));
     }
 
     @Override

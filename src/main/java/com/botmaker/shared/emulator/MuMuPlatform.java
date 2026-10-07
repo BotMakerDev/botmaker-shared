@@ -54,7 +54,7 @@ public final class MuMuPlatform implements EmulatorPlatform {
         List<EmulatorInstance> instances = new ArrayList<>();
         for (Path install : installDirs()) {
             Path console = consoleOf(install);
-            Map<Integer, String> names = InstallLocator.names(console, StandardCharsets.UTF_8,
+            Map<Integer, InstallLocator.ConsoleRow> rows = InstallLocator.list(console, StandardCharsets.UTF_8,
                     MuMuPlatform::parseInfo, "info", "-v", "all");
             instances.addAll(PlatformScan.directory(install.resolve("vms"), dir -> {
                 if (!Files.isDirectory(dir)) {
@@ -67,7 +67,8 @@ public final class MuMuPlatform implements EmulatorPlatform {
                 }
                 int index = Integer.parseInt(m.group(1));
                 return parseInstance(folder, readConfig(dir))
-                        .map(base -> names.containsKey(index) ? base.withName(names.get(index)) : base)
+                        .map(base -> rows.containsKey(index)
+                                ? base.withName(rows.get(index).name()).withState(rows.get(index).state()) : base)
                         .map(base -> withLaunch(base, index, console));
             }));
         }
@@ -99,13 +100,14 @@ public final class MuMuPlatform implements EmulatorPlatform {
     }
 
     /**
-     * The instance names {@code MuMuManager info -v all} reports, by index. Its answer is a JSON object keyed by
-     * index ({@code {"0": {"index": "0", "name": "Android Device", …}}}), or one such object alone when there is a
-     * single instance. Empty for {@code null} or anything unreadable.
+     * The instances {@code MuMuManager info -v all} reports, by index. Its answer is a JSON object keyed by
+     * index ({@code {"0": {"index": "0", "name": "Android Device", "is_android_started": false, …}}}), or one
+     * such object alone when there is a single instance. {@code is_process_started} without
+     * {@code is_android_started} is an instance still booting. Empty for {@code null} or anything unreadable.
      */
-    static Map<Integer, String> parseInfo(String output) {
-        Map<Integer, String> names = new LinkedHashMap<>();
-        if (output == null || output.isBlank()) return names;
+    static Map<Integer, InstallLocator.ConsoleRow> parseInfo(String output) {
+        Map<Integer, InstallLocator.ConsoleRow> rows = new LinkedHashMap<>();
+        if (output == null || output.isBlank()) return rows;
         try {
             JsonNode root = JSON.readTree(output.substring(Math.max(0, output.indexOf('{'))));
             List<JsonNode> entries = new ArrayList<>();
@@ -114,12 +116,21 @@ public final class MuMuPlatform implements EmulatorPlatform {
             for (JsonNode entry : entries) {
                 String name = entry.path("name").asText("");
                 String index = entry.path("index").asText("");
-                if (!name.isBlank() && index.matches("\\d+")) names.put(Integer.parseInt(index), name);
+                if (!name.isBlank() && index.matches("\\d+")) {
+                    rows.put(Integer.parseInt(index), new InstallLocator.ConsoleRow(name, state(entry)));
+                }
             }
         } catch (Exception e) {
             // the config names, then
         }
-        return names;
+        return rows;
+    }
+
+    private static EmulatorState state(JsonNode entry) {
+        JsonNode android = entry.get("is_android_started");
+        if (android == null) return EmulatorState.UNKNOWN;
+        if (android.asBoolean()) return EmulatorState.RUNNING;
+        return entry.path("is_process_started").asBoolean() ? EmulatorState.STARTING : EmulatorState.STOPPED;
     }
 
     /** {@code <instanceDir>\configs\vm_config.json} (or {@code config\} in older builds), or {@code ""}. */

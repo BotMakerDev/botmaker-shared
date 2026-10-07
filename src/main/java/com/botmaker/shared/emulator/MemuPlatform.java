@@ -51,8 +51,8 @@ public final class MemuPlatform implements EmulatorPlatform {
             return List.of();
         }
         Path console = install.resolve("memuc.exe");
-        Map<Integer, String> titles = InstallLocator.names(console, InstallLocator.SYSTEM_CODE_PAGE,
-                InstallLocator::titlesByIndex, "listvms");
+        Map<Integer, InstallLocator.ConsoleRow> rows = InstallLocator.list(console, InstallLocator.SYSTEM_CODE_PAGE,
+                MemuPlatform::parseListVms, "listvms");
         return PlatformScan.directory(install.resolve(VMS_DIRNAME), dir -> {
             if (!Files.isDirectory(dir)) {
                 return Optional.empty();
@@ -64,8 +64,21 @@ public final class MemuPlatform implements EmulatorPlatform {
             }
             Integer index = vmIndex(vmName);
             return parseVm(vmName, Files.readString(memu))
-                    .map(base -> index != null && titles.containsKey(index) ? base.withName(titles.get(index)) : base)
+                    .map(base -> index != null && rows.containsKey(index)
+                            ? base.withName(rows.get(index).name()).withState(rows.get(index).state()) : base)
                     .map(base -> withLaunch(base, vmName, console));
+        });
+    }
+
+    /**
+     * {@code memuc listvms}, one VM per line: {@code index,title,hwnd,running,pid}; {@code running} is 1 or 0, and
+     * says the VM runs, not that Android has booted in it — so starting, and the port says when it is up.
+     */
+    static Map<Integer, InstallLocator.ConsoleRow> parseListVms(String output) {
+        return InstallLocator.csvRows(output, fields -> {
+            Long running = InstallLocator.field(fields, 3);
+            if (running == null) return EmulatorState.UNKNOWN;
+            return running == 1 ? EmulatorState.STARTING : EmulatorState.STOPPED;
         });
     }
 

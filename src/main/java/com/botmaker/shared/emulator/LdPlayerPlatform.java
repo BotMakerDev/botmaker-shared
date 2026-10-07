@@ -43,9 +43,8 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
         List<EmulatorInstance> instances = new ArrayList<>();
         for (Path install : installDirs()) {
             Path console = consoleOf(install);
-            // index,title,topHwnd,bindHwnd,running,pid,vboxPid,width,height,dpi
-            Map<Integer, String> titles = InstallLocator.names(console, InstallLocator.SYSTEM_CODE_PAGE,
-                    InstallLocator::titlesByIndex, "list2");
+            Map<Integer, InstallLocator.ConsoleRow> rows = InstallLocator.list(console,
+                    InstallLocator.SYSTEM_CODE_PAGE, LdPlayerPlatform::parseList2, "list2");
             instances.addAll(PlatformScan.directory(install.resolve("vms").resolve("config"), file -> {
                 String fileName = file.getFileName().toString();
                 Matcher m = CONFIG_INDEX.matcher(fileName);
@@ -54,11 +53,27 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
                 }
                 int index = Integer.parseInt(m.group(1));
                 return parseInstance(fileName, Files.readString(file))
-                        .map(base -> titles.containsKey(index) ? base.withName(titles.get(index)) : base)
+                        .map(base -> rows.containsKey(index)
+                                ? base.withName(rows.get(index).name()).withState(rows.get(index).state()) : base)
                         .map(base -> withLaunch(base, index, console));
             }));
         }
         return instances;
+    }
+
+    /**
+     * {@code ldconsole list2}, one instance per line: {@code index,title,topHwnd,bindHwnd,android,pid,vboxPid,
+     * width,height,dpi}. {@code android} is 1 once Android is up (2 while it boots, in LDPlayer 14); a positive
+     * {@code pid} before that means the player is starting.
+     */
+    static Map<Integer, InstallLocator.ConsoleRow> parseList2(String output) {
+        return InstallLocator.csvRows(output, fields -> {
+            Long android = InstallLocator.field(fields, 4);
+            Long pid = InstallLocator.field(fields, 5);
+            if (android == null) return EmulatorState.UNKNOWN;
+            if (android == 1) return EmulatorState.RUNNING;
+            return pid != null && pid > 0 ? EmulatorState.STARTING : EmulatorState.STOPPED;
+        });
     }
 
     /**

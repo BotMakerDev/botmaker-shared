@@ -1,5 +1,6 @@
 package com.botmaker.shared.emulator;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -38,6 +39,23 @@ public final class Platforms {
         return discoverDetailed().instances();
     }
 
+    private record Snapshot(long at, List<EmulatorInstance> instances) {}
+
+    private static volatile Snapshot last;
+
+    /**
+     * {@link #discoverAll()}, or the last one when it is younger than {@code maxAge}. A picker checks every row's
+     * liveness at once and a launch polls it, and each check needs every product's state; one scan answers
+     * them all instead of one per row. Never throws.
+     */
+    public static synchronized List<EmulatorInstance> recent(Duration maxAge) {
+        Snapshot snapshot = last;
+        if (snapshot != null && System.currentTimeMillis() - snapshot.at() < maxAge.toMillis()) {
+            return snapshot.instances();
+        }
+        return discoverAll();
+    }
+
     /**
      * Discovery plus a per-product status line, so a UI can tell the user what it actually saw — "MuMu:
      * installed, 2 instances · BlueStacks: not installed · LDPlayer: read failed" — instead of a bare empty
@@ -63,7 +81,9 @@ public final class Platforms {
                 statuses.add(new PlatformStatus(platform.id(), installed, 0, e.getClass().getSimpleName(), null));
             }
         }
-        return new DiscoveryReport(dedupe(all), List.copyOf(statuses));
+        DiscoveryReport report = new DiscoveryReport(dedupe(all), List.copyOf(statuses));
+        last = new Snapshot(System.currentTimeMillis(), report.instances());
+        return report;
     }
 
     /**
