@@ -65,6 +65,20 @@ public final class LaunchCommands {
         return ladder(LaunchKind.FAUGUS, "faugus-launcher", List.of("--game", require(gameId)));
     }
 
+    /** Lutris's CLI ladder: its own URL in its argv, the native launcher then its Flatpak form. */
+    public static List<List<String>> lutris(String id) {
+        return ladder(LaunchKind.LUTRIS, "lutris", List.of("lutris:rungameid/" + require(id)));
+    }
+
+    /**
+     * An installed app by its desktop-entry id: {@code gtk-launch}, which runs the entry's {@code Exec} line
+     * with our environment — so a private {@code DISPLAY} reaches it, except for an app that asks D-Bus to start
+     * it ({@code DBusActivatable=true}), which the session bus starts on the desktop.
+     */
+    public static List<List<String>> desktop(String desktopId) {
+        return List.of(List.of("gtk-launch", require(desktopId)));
+    }
+
     /**
      * The two-rung ladder every store kind has: the native {@code binary} with {@code args}, then the same
      * arguments behind {@code flatpak run <appId>}. The app id comes from {@link LaunchKind#flatpakAppId()} —
@@ -120,6 +134,8 @@ public final class LaunchCommands {
             case HEROIC -> heroic(spec.token());
             case STEAM -> steam(spec.token());
             case FAUGUS -> faugus(spec.token());
+            case LUTRIS -> lutris(spec.token());
+            case DESKTOP -> desktop(spec.token());
             case EMULATOR_APP, EPIC, UNKNOWN -> List.of();
         };
     }

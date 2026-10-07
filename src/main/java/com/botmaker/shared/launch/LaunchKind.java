@@ -34,6 +34,13 @@ public enum LaunchKind {
     /** A Faugus Launcher entry, keyed by its {@code gameid}; runs non-Steam Windows games under umu/Proton. */
     FAUGUS("faugus", "Faugus game", "Faugus Launcher", Set.of("faugus-launcher", "faugus"),
             "io.github.Faugus.faugus-launcher"),
+    /** A Lutris entry, keyed by its numeric library id ({@code lutris:rungameid/<id>}). */
+    LUTRIS("lutris", "Lutris game", "Lutris", Set.of("lutris"), "net.lutris.Lutris"),
+    /**
+     * An installed application, keyed by its desktop-entry id ({@code org.kde.kpat} for
+     * {@code org.kde.kpat.desktop}) and started with {@code gtk-launch} — whatever the menu would start.
+     */
+    DESKTOP("desktop", "App"),
     /** An arbitrary command line — the escape hatch for any launcher not modelled directly. */
     CLI("cli", "Command"),
     /** A plain executable, launched directly. */

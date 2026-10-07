@@ -59,6 +59,7 @@ public final class SteamLibraryScanner implements GameLibraryProvider {
                 try (Stream<Path> manifests = Files.list(steamapps)) {
                     manifests.filter(SteamLibraryScanner::isAppManifest)
                             .forEach(acf -> parseManifest(acf, root)
+                                    .filter(g -> !isTool(g.id(), g.name()))
                                     .ifPresent(g -> byId.putIfAbsent(g.id(), g)));
                 } catch (IOException ignored) {
                     // unreadable library folder — skip it
@@ -71,6 +72,22 @@ public final class SteamLibraryScanner implements GameLibraryProvider {
         games.sort((a, b) -> a.name().compareToIgnoreCase(b.name()));
         return games;
     }
+
+    /**
+     * Whether an installed app is one of Steam's own tools rather than a game: Proton, the Steam Linux Runtimes
+     * and the shared redistributables are installed as apps, have manifests like any game, and launch nothing a
+     * bot could drive. Known ids first, then the names Valve gives each new Proton and runtime.
+     */
+    static boolean isTool(String appId, String name) {
+        return TOOL_IDS.contains(appId) || TOOL_NAME.matcher(name == null ? "" : name).find();
+    }
+
+    /** Steamworks redistributables, Steam Linux Runtime 1.0–3.0, Proton Experimental/Hotfix/EAC/BattlEye. */
+    private static final java.util.Set<String> TOOL_IDS = java.util.Set.of("228980", "1070560", "1391110",
+            "1628350", "1493710", "2180100", "1826330", "1161040");
+
+    private static final Pattern TOOL_NAME =
+            Pattern.compile("^(Proton(\\s|$)|Steam Linux Runtime|Steamworks Common Redistributables)");
 
     private static boolean isAppManifest(Path p) {
         String n = p.getFileName().toString();

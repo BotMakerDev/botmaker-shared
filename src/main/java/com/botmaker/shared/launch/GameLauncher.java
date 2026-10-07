@@ -162,6 +162,37 @@ public final class GameLauncher {
     }
 
     /**
+     * Launches a Lutris entry by its library id: {@code lutris lutris:rungameid/<id>}, then its Flatpak form. A
+     * Lutris already open takes the request over, so no URL opener is needed in front of the CLI.
+     *
+     * @throws IllegalArgumentException if {@code id} is null/blank
+     * @throws RuntimeException         if neither CLI form could be invoked
+     */
+    public static void lutris(String id) {
+        String gameId = require(id, "id");
+        Diag.log("[Game] launchLutris " + gameId);
+        if (runFirst(LaunchCommands.lutris(gameId))) {
+            return;
+        }
+        throw new RuntimeException("Failed to launch Lutris game " + gameId + ". Is Lutris installed?");
+    }
+
+    /**
+     * Starts an installed app by its desktop-entry id, the way the application menu does ({@code gtk-launch}).
+     *
+     * @throws IllegalArgumentException if {@code desktopId} is null/blank
+     * @throws RuntimeException         if {@code gtk-launch} could not be run
+     */
+    public static void desktop(String desktopId) {
+        String id = require(desktopId, "desktopId");
+        Diag.log("[Game] launchDesktop " + id);
+        if (runFirst(LaunchCommands.desktop(id))) {
+            return;
+        }
+        throw new RuntimeException("Couldn't start " + id + ": gtk-launch isn't installed (it ships with GTK 3).");
+    }
+
+    /**
      * Force-terminates the processes running {@code processName} — the "close the game" half of a restart
      * routine. Never throws when there is simply no such process (that is a success for a kill).
      *

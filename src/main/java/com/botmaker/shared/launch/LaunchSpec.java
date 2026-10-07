@@ -12,6 +12,8 @@ import com.botmaker.shared.emulator.WaydroidPlatform;
  *   epic:&lt;appName&gt;
  *   heroic:&lt;appName&gt;
  *   faugus:&lt;gameId&gt;
+ *   lutris:&lt;id&gt;
+ *   desktop:&lt;desktop-entry id&gt;
  *   cli:&lt;command line&gt;
  *   exe:&lt;path&gt;
  *   emu-app:&lt;package&gt;@&lt;instanceName&gt;
@@ -152,6 +154,9 @@ public record LaunchSpec(LaunchKind kind, String token) {
             // launch wrapper spells it `reaper SteamLaunch AppId=<id> --`, which is unambiguous.
             case STEAM -> "AppId=" + token;
             case EPIC, HEROIC, FAUGUS -> token;
+            // Neither id appears in the live game's process: Lutris names its wrapper after the game's title and
+            // an app runs as its own binary. Both are looked up by Launcher.runningTokens instead.
+            case LUTRIS, DESKTOP -> null;
             case EXE, CLI -> {
                 String name = fileName();
                 yield name.isBlank() ? null : name;

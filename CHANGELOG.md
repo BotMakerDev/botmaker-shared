@@ -14,7 +14,24 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **Lutris and the app menu are launch targets.**
+  - `lutris:<id>` starts a Lutris game the way its own shortcut does (`lutris lutris:rungameid/<id>`, then the
+    Flatpak). `LutrisLibrary` lists the installed games through `lutris -l -o -j`, cached for a minute, and a
+    running one is found by the title its `lutris-wrapper` carries.
+  - `desktop:<id>` starts a menu entry with `gtk-launch`. `DesktopEntries` reads the XDG `applications/` folders
+    the way a menu does. It recognises the shortcuts Steam, Faugus, Lutris, Heroic and Waydroid write for their
+    games, so each game is that launcher's target, not a second entry.
+- **More game libraries:** `LutrisLibraryScanner`, `DesktopEntryScanner` and, on Windows, `GogLibraryScanner`,
+  which reads GOG's registry key and lists each game as an `exe:` target.
+- `FaugusEntries` adds a Windows program to Faugus Launcher's `games.json` with Faugus's own default prefix and
+  runner, and gives the Flathub command that installs Faugus.
+
 ### Changed
+
+- Steam's own tools are no longer listed as games: Proton, the Steam Linux Runtimes and the Steamworks
+  redistributables (`SteamLibraryScanner.isTool`).
 
 - The pom carries a real version, `-SNAPSHOT` on `main` and the release version on a tag, instead of the
   cosmetic `0.0.0-SNAPSHOT` (umbrella `docs/refactor/43-real-versions.md`).

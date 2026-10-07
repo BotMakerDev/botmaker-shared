@@ -46,6 +46,8 @@ public final class Launcher {
             case EPIC -> GameLauncher.epic(spec.token());
             case HEROIC -> GameLauncher.heroic(spec.token());
             case FAUGUS -> GameLauncher.faugus(spec.token());
+            case LUTRIS -> GameLauncher.lutris(spec.token());
+            case DESKTOP -> GameLauncher.desktop(spec.token());
             case EMULATOR_APP -> {
                 // Thrown, not logged: this kind used to be the one that could fail in four different ways and
                 // still report success, because it had no way to say otherwise. Every other kind here already
@@ -192,10 +194,23 @@ public final class Launcher {
      * window is named after its title. None of those is the app name. {@link HeroicLibrary} reads them out of
      * Heroic's own config so all four are tried; when that config can't be read, the list degrades to the bare
      * app name, i.e. exactly the old behaviour.
+     *
+     * <p>{@code lutris:} and {@code desktop:} are looked up the same way, because neither id appears in the live
+     * process: Lutris names its wrapper after the game's title ({@link LutrisLibrary}), and an app runs as the
+     * program its menu entry names ({@link DesktopEntries}).
      */
     private static List<String> runningTokens(LaunchSpec spec) {
-        if (spec.kind() == LaunchKind.HEROIC) {
-            return HeroicLibrary.runningTokens(spec.token());
+        switch (spec.kind()) {
+            case HEROIC -> {
+                return HeroicLibrary.runningTokens(spec.token());
+            }
+            case LUTRIS -> {
+                return LutrisLibrary.runningTokens(spec.token());
+            }
+            case DESKTOP -> {
+                return DesktopEntries.runningTokens(spec.token());
+            }
+            default -> { }
         }
         String token = spec.runningToken();
         return token == null || token.isBlank() ? List.of() : List.of(token);

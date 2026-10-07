@@ -68,7 +68,7 @@ public final class FaugusLibraryScanner implements GameLibraryProvider {
     }
 
     /** The first existing Faugus config root (native, then Flatpak), or null if Faugus isn't installed. */
-    private static Path configRoot() {
+    static Path configRoot() {
         String home = System.getProperty("user.home", "");
         if (home.isBlank()) return null;
         List<Path> candidates = List.of(

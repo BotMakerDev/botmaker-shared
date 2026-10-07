@@ -13,10 +13,14 @@ public final class GameLibraries {
 
     private GameLibraries() {}
 
-    /** One instance of each scanner, in picker order. Scanners are stateless and cheap to construct. */
+    /**
+     * One instance of each scanner. Scanners are stateless and cheap to construct; the desktop's app menu is
+     * last, so a lookup by platform finds a launcher before it.
+     */
     public static List<GameLibraryProvider> all() {
         return List.of(new SteamLibraryScanner(), new EpicLibraryScanner(), new HeroicLibraryScanner(),
-                new FaugusLibraryScanner());
+                new FaugusLibraryScanner(), new LutrisLibraryScanner(), new GogLibraryScanner(),
+                new DesktopEntryScanner());
     }
 
     /** The provider whose {@link GameLibraryProvider#platform()} equals {@code platform}, if any. */

@@ -35,11 +35,12 @@ class LaunchKindLauncherTest {
         assertFalse(HostLauncherProbe.routesThroughDaemon(null), "a null kind routes through nothing");
     }
 
-    /** Exactly the three store launchers; the rest are our own child or run over ADB. */
+    /** Exactly the four store launchers; the rest are our own child, an app menu entry, or run over ADB. */
     @Test
     void onlyTheStoreLaunchersHaveADaemon() {
         for (LaunchKind kind : LaunchKind.values()) {
-            boolean store = kind == LaunchKind.STEAM || kind == LaunchKind.HEROIC || kind == LaunchKind.FAUGUS;
+            boolean store = kind == LaunchKind.STEAM || kind == LaunchKind.HEROIC || kind == LaunchKind.FAUGUS
+                    || kind == LaunchKind.LUTRIS;
             assertEquals(store, kind.routesThroughDaemon(), kind.name());
         }
     }
