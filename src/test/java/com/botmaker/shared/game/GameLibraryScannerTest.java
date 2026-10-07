@@ -171,6 +171,27 @@ class GameLibraryScannerTest {
         assertEquals(List.of(), SteamLibraryScanner.gamesUnder(steamRoot(tmp)));
     }
 
+    @Test
+    void aSteamCoverIsFoundUnderTheNewerClientsHashFolders(@TempDir Path tmp) throws IOException {
+        Path cache = tmp.resolve("appcache/librarycache/1013320");
+        write(cache.resolve("e7c2c166/library_header.jpg"), "landscape");
+        write(cache.resolve("66227e26/library_capsule.jpg"), "portrait");
+        write(cache.resolve("3c7d64ea.jpg"), "a 32 px icon");
+
+        assertEquals(cache.resolve("66227e26/library_capsule.jpg"), SteamLibraryScanner.coverArt(tmp, "1013320"),
+                "the portrait capsule, one folder down, beats the landscape header");
+    }
+
+    @Test
+    void anOlderSteamClientsTopLevelPortraitStillWins(@TempDir Path tmp) throws IOException {
+        Path cache = tmp.resolve("appcache/librarycache/570");
+        write(cache.resolve("library_600x900.jpg"), "portrait");
+        write(cache.resolve("abc/library_header.jpg"), "landscape");
+
+        assertEquals(cache.resolve("library_600x900.jpg"), SteamLibraryScanner.coverArt(tmp, "570"));
+        assertNull(SteamLibraryScanner.coverArt(tmp, "404"), "no cache folder, no cover");
+    }
+
     // =====================================================================
     // Epic — one JSON .item manifest per game
     // =====================================================================
@@ -186,7 +207,57 @@ class GameLibraryScannerTest {
         assertEquals(1, games.size());
         assertEquals("epic", games.getFirst().platform());
         assertEquals("Fortnite", games.getFirst().id());
-        assertNull(games.getFirst().artwork(), "Epic keeps no local art at a stable path");
+        assertNull(games.getFirst().artwork(), "no LaunchExecutable, so no program whose icon could stand in");
+    }
+
+    /** A stand-in for Epic's online-services bootstrapper: some bytes around its UTF-16 assembly name. */
+    private static void bootstrapper(Path file) throws IOException {
+        Files.createDirectories(file.getParent());
+        byte[] mark = "EpicOnlineServices.BootStrapper".getBytes(java.nio.charset.StandardCharsets.UTF_16LE);
+        byte[] bytes = new byte[mark.length + 64];
+        System.arraycopy(mark, 0, bytes, 32, mark.length);
+        Files.write(file, bytes);
+    }
+
+    @Test
+    void aGameLaunchedThroughEpicsBootstrapperTakesItsIconFromItsOwnProgram(@TempDir Path tmp) throws IOException {
+        Path firestone = tmp.resolve("Firestone");
+        bootstrapper(firestone.resolve("FirestoneEos.exe"));
+        write(firestone.resolve("UnityCrashHandler64.exe"), "x".repeat(500));
+        write(firestone.resolve("Firestone.exe"), "x");
+        assertEquals(firestone.resolve("Firestone.exe"),
+                EpicLibraryScanner.iconProgram(firestone.resolve("FirestoneEos.exe")),
+                "the bootstrapper's name without Eos, not the larger crash handler");
+
+        Path luto = tmp.resolve("Luto");
+        bootstrapper(luto.resolve("Luto.exe"));
+        write(luto.resolve("EpicOnlineServicesInstaller.exe"), "x".repeat(500));
+        write(luto.resolve("Luto/Binaries/Win64/Luto-Win64-Shipping.exe"), "x");
+        assertEquals(luto.resolve("Luto/Binaries/Win64/Luto-Win64-Shipping.exe"),
+                EpicLibraryScanner.iconProgram(luto.resolve("Luto.exe")), "Unreal's shipping program");
+
+        Path crash = tmp.resolve("Crash");
+        bootstrapper(crash.resolve("CrashTeamRumbleEos.exe"));
+        write(crash.resolve("CrashTeamRumble.exe"), "x");
+        assertEquals(crash.resolve("CrashTeamRumble.exe"),
+                EpicLibraryScanner.iconProgram(crash.resolve("CrashTeamRumbleEos.exe")),
+                "a game whose name holds a helper's word is still found by its name");
+
+        write(tmp.resolve("Plain/Game.exe"), "x");
+        assertEquals(tmp.resolve("Plain/Game.exe"), EpicLibraryScanner.iconProgram(tmp.resolve("Plain/Game.exe")),
+                "a game launched directly is its own icon");
+        assertNull(EpicLibraryScanner.iconProgram(null));
+    }
+
+    @Test
+    void anEpicGamesProgramIsItsInstallLocationAndLaunchExecutable() throws IOException {
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        assertEquals(Path.of("C:\\Games\\Firestone").resolve("FirestoneEos.exe"),
+                EpicLibraryScanner.executable(json.readTree(
+                        "{\"InstallLocation\":\"C:\\\\Games\\\\Firestone\",\"LaunchExecutable\":\"FirestoneEos.exe\"}")));
+        assertNull(EpicLibraryScanner.executable(json.readTree("{\"InstallLocation\":\"C:\\\\Games\"}")));
+        assertNull(EpicLibraryScanner.executable(json.readTree("{\"LaunchExecutable\":\"Game.exe\"}")));
     }
 
     @Test

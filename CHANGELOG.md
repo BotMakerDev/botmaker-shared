@@ -52,6 +52,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **Game covers: Steam's are found again, and an Epic game has one.** A newer Steam client keeps each library
+  picture one folder down, under a content hash (`librarycache/<appid>/<hash>/library_capsule.jpg`), so
+  `SteamLibraryScanner` found no cover for a game it had cached that way; both levels are looked at now, the
+  portrait capsule first. Epic keeps no cover on disk, so an Epic game's `artwork()` is its program's own icon,
+  read from the program's icon resource at 256 px into the cache's `game-icons/` (Windows only). A game Epic
+  launches through its online-services bootstrapper, whose icon is Epic's logo on every game, gets the icon of
+  its own program beside it.
 - **Windows: an arrow key is an arrow, not number-pad 4.** Windows 11 maps `VK_LEFT` to a bare `0x4B`, with
   no extended prefix. So a background arrow arrived without the extended bit, and a take-over arrow arrived as
   `VK_NUMPAD4`, typing a `4`. Every key with an `E0` scan code is now always sent extended, on both paths:

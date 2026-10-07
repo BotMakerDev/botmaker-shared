@@ -19,7 +19,7 @@ import java.util.stream.Stream;
  *
  * <p>Reads {@code steamapps/libraryfolders.vdf} to find every library folder, then each folder's
  * {@code appmanifest_<appid>.acf} for the game's {@code appid} + {@code name}, and resolves each game's
- * cover art from the local library cache ({@code appcache/librarycache/<appid>/library_600x900.jpg}).
+ * cover art from the local library cache ({@code appcache/librarycache/<appid>/}, see {@link #coverArt}).
  * Every step is best-effort: any missing file / parse failure is skipped and an empty list is the worst
  * case — this never throws.
  */
@@ -165,17 +165,43 @@ public final class SteamLibraryScanner implements GameLibraryProvider {
     }
 
     /**
-     * Local cover image for {@code appId} from Steam's library cache, or {@code null}. Prefers the portrait
-     * {@code library_600x900.jpg}, falling back to the landscape {@code header.jpg}. No network fetch.
+     * Local cover image for {@code appId} from Steam's library cache, or {@code null}. No network fetch.
+     *
+     * <p>An older client keeps the pictures straight in {@code librarycache/<appid>/}; a newer one puts each in a
+     * folder named by its content hash ({@code <appid>/<hash>/library_capsule.jpg}), so both levels are looked
+     * at. Portrait first ({@code library_600x900.jpg}, {@code library_capsule.jpg}), then the landscape headers.
      */
-    private static Path coverArt(Path steamRoot, String appId) {
+    static Path coverArt(Path steamRoot, String appId) {
         Path dir = steamRoot.resolve("appcache").resolve("librarycache").resolve(appId);
-        for (String file : List.of("library_600x900.jpg", "header.jpg", "library_header.jpg")) {
-            Path img = dir.resolve(file);
-            if (Files.isRegularFile(img)) return img;
+        if (!Files.isDirectory(dir)) return null;
+        List<Path> dirs = new ArrayList<>(List.of(dir));
+        try (Stream<Path> hashed = Files.list(dir)) {
+            // Newest first: Steam may keep an old picture's folder beside the one that replaced it.
+            hashed.filter(Files::isDirectory)
+                    .sorted(java.util.Comparator.comparingLong(SteamLibraryScanner::modified).reversed())
+                    .forEach(dirs::add);
+        } catch (IOException | RuntimeException e) {
+            // the top level alone, then
+        }
+        for (String file : COVER_FILES) {
+            for (Path d : dirs) {
+                Path img = d.resolve(file);
+                if (Files.isRegularFile(img)) return img;
+            }
         }
         return null;
     }
+
+    private static long modified(Path p) {
+        try {
+            return Files.getLastModifiedTime(p).toMillis();
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    private static final List<String> COVER_FILES =
+            List.of("library_600x900.jpg", "library_capsule.jpg", "header.jpg", "library_header.jpg");
 
     /** Extracts the appId from an {@code appmanifest_<appid>.acf} file name as a fallback. */
     private static String appIdFromFileName(Path acf) {
