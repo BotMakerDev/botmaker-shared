@@ -78,8 +78,8 @@ public interface NativeController {
      * mode), not for bots: the cursor-safe default cannot drive Wine/Proton games or native Wayland clients,
      * which silently drop the synthetic events it sends.
      *
-     * <p>Default {@code true} — Windows already posts into the target's message queue, which is both reliable
-     * and cursor-safe, so there is nothing to escalate. Only the Linux backend overrides this. After a call
+     * <p>Default {@code true}, nothing to escalate. Both backends override it: Linux swaps its input backend, and
+     * Windows moves from posted messages to {@code SendInput}. After a call
      * that returns true, {@link #supportsBackgroundInput()} may flip to {@code false}: escalating is exactly
      * the trade of "leaves your cursor alone" for "the click lands". The switch is <b>process-wide and
      * sticky</b> — the controller is shared with bot runs.

@@ -1,136 +1,132 @@
 package com.botmaker.shared.capture.windows;
 
 import com.botmaker.shared.Diag;
-import com.sun.jna.platform.win32.WinDef.*;
+import com.botmaker.shared.capture.RobotCapture;
+import com.botmaker.shared.capture.ScreenCapture;
+import com.botmaker.shared.capture.ScreenGeometry;
+import com.sun.jna.platform.win32.WinDef.HBITMAP;
+import com.sun.jna.platform.win32.WinDef.HDC;
+import com.sun.jna.platform.win32.WinDef.HWND;
+import com.sun.jna.platform.win32.WinDef.POINT;
 import com.sun.jna.platform.win32.WinGDI;
 
-import java.awt.*;
+import java.awt.AWTException;
+import java.awt.HeadlessException;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Robot;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.util.List;
 
 /**
- * Per-window pixel capture on Windows. GDI {@code PrintWindow(PW_RENDERFULLCONTENT)} is the primary
- * path (works for most GPU/hardware-composited windows); it falls back to AWT {@link Robot} for
- * fullscreen windows and whenever GDI returns a black/invalid frame. Returns {@code null} if no usable
- * frame can be produced, so callers can apply their own full-desktop fallback.
+ * One window's pixels on Windows: its <b>client area</b>, in physical pixels — the same rectangle
+ * {@link WindowsController} reports as the window's rect, so a pixel found in the frame plus the rect's corner is
+ * the screen pixel a click goes to.
+ *
+ * <p>The ladder, first usable frame wins:
+ * <ol>
+ *   <li>Windows.Graphics.Capture, when the run asks for it ({@link WgcCapture}, opt-in): the compositor's copy,
+ *       right for DirectX games and for covered windows.</li>
+ *   <li>A screen copy, first for a window that fills a screen and is on top: {@code PrintWindow} is often black
+ *       for a fullscreen game, and the screen shows exactly it.</li>
+ *   <li>{@code PrintWindow(PW_CLIENTONLY | PW_RENDERFULLCONTENT)}: works on a covered or background window.</li>
+ *   <li>A screen copy for any window that is on top at its own rect.</li>
+ * </ol>
+ * A screen copy is only ever taken of a window that nothing covers: it reads whatever is visible there, and a
+ * covered window's copy is the covering window's pixels — what the old fallback returned. A window nothing can
+ * read comes back black from {@code PrintWindow} or {@code null}, never as another window.
  */
 public final class WindowCapture {
 
     private WindowCapture() {}
 
     public static BufferedImage capture(HWND hWnd) {
-        RECT windowRect = new RECT();
-        if (!User32.INSTANCE.GetWindowRect(hWnd.getPointer(), windowRect)
-                || windowRect.right - windowRect.left <= 0 || windowRect.bottom - windowRect.top <= 0) {
-            return null;
-        }
-
-        boolean foreground = User32.INSTANCE.GetForegroundWindow().equals(hWnd);
-
-        // A foreground window that fills a whole monitor is (borderless-)fullscreen. GDI PrintWindow
-        // frequently returns black for such D3D/OpenGL game surfaces, so the on-screen framebuffer (Robot)
-        // is the reliable source. (True *exclusive*-fullscreen bypasses the DWM and can't be captured by
-        // either GDI or Robot — the borderless-windowed workaround is required; see ROADMAP.)
-        if (foreground && coversAnyMonitor(windowRect)) {
-            BufferedImage robot = captureWithRobot(windowRect);
-            if (robot != null && !isBlack(robot)) {
-                return robot;
+        try (WindowsDpi.Scope dpi = WindowsDpi.physical()) {
+            Rectangle client = WindowsController.clientRect(hWnd);
+            if (client == null || client.isEmpty()) {
+                return null;
             }
-        }
-
-        // Windowed mode: GDI is fast and captures occluded/background windows without raising them.
-        BufferedImage image = captureWithGDI(hWnd);
-        if (image == null || image.getWidth() == 0 || image.getHeight() == 0 || isBlack(image)) {
-            // PrintWindow came back black/invalid — fall back to the on-screen framebuffer at the window's rect.
-            BufferedImage robot = captureWithRobot(windowRect);
-            if (robot != null && !isBlack(robot)) {
-                return robot;
-            }
-        }
-        return image;
-    }
-
-    /** Whether {@code windowRect} covers (to a small tolerance) the full bounds of any connected monitor. */
-    private static boolean coversAnyMonitor(RECT windowRect) {
-        int w = windowRect.right - windowRect.left;
-        int h = windowRect.bottom - windowRect.top;
-        try {
-            GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
-            for (GraphicsDevice device : devices) {
-                Rectangle b = device.getDefaultConfiguration().getBounds();
-                if (Math.abs(w - b.width) <= 2 && Math.abs(h - b.height) <= 2) {
-                    return true;
+            if (WgcCapture.requested()) {
+                BufferedImage wgc = WgcCapture.capture(hWnd);
+                if (!WindowFrames.isAllBlack(wgc)) {
+                    return wgc;
                 }
             }
-        } catch (HeadlessException ignored) {
-            // No displays (headless) — treat as non-fullscreen.
-        }
-        return false;
-    }
-
-    private static BufferedImage captureWithGDI(HWND hWnd) {
-        HDC hdcWindow = User32.INSTANCE.GetDC(hWnd);
-        HDC hdcMemDC = GDI32.INSTANCE.CreateCompatibleDC(hdcWindow);
-
-        RECT bounds = new RECT();
-        User32.INSTANCE.GetClientRect(hWnd, bounds);
-
-        int width = bounds.right - bounds.left;
-        int height = bounds.bottom - bounds.top;
-
-        if (width <= 0 || height <= 0) {
-            User32.INSTANCE.ReleaseDC(hWnd, hdcWindow);
-            GDI32.INSTANCE.DeleteDC(hdcMemDC);
-            return null;
-        }
-
-        HBITMAP hBitmap = GDI32.INSTANCE.CreateCompatibleBitmap(hdcWindow, width, height);
-        GDI32.INSTANCE.SelectObject(hdcMemDC, hBitmap.getPointer());
-
-        User32.INSTANCE.PrintWindow(hWnd, hdcMemDC, 2); // 2 = PW_RENDERFULLCONTENT
-
-        WinGDI.BITMAPINFO bmi = new WinGDI.BITMAPINFO();
-        bmi.bmiHeader.biWidth = width;
-        bmi.bmiHeader.biHeight = -height; // Top-down image
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = WinGDI.BI_RGB;
-
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        GDI32.INSTANCE.GetDIBits(hdcWindow, hBitmap, 0, height, ((DataBufferInt) image.getRaster().getDataBuffer()).getData(), bmi, WinGDI.DIB_RGB_COLORS);
-
-        GDI32.INSTANCE.DeleteObject(hBitmap);
-        GDI32.INSTANCE.DeleteDC(hdcMemDC);
-        User32.INSTANCE.ReleaseDC(hWnd, hdcWindow);
-
-        return image;
-    }
-
-    private static BufferedImage captureWithRobot(RECT bounds) {
-        int width = bounds.right - bounds.left;
-        int height = bounds.bottom - bounds.top;
-        if (width <= 0 || height <= 0) {
-            return null;
-        }
-        try {
-            return new Robot().createScreenCapture(new Rectangle(bounds.left, bounds.top, width, height));
-        } catch (AWTException e) {
-            Diag.error("[Windows] Robot screen capture failed: " + e.getMessage(), e);
-            return null;
+            boolean onTop = onTop(hWnd, client);
+            if (onTop && WindowFrames.coversAScreen(client, screens())) {
+                BufferedImage screen = screenCopy(client);
+                if (!WindowFrames.isAllBlack(screen)) {
+                    return screen;
+                }
+            }
+            BufferedImage printed = printWindow(hWnd, client.width, client.height);
+            if (!WindowFrames.isAllBlack(printed) || !onTop) {
+                return printed;
+            }
+            BufferedImage screen = screenCopy(client);
+            return WindowFrames.isAllBlack(screen) ? printed : screen;
         }
     }
 
-    private static boolean isBlack(BufferedImage image) {
-        int width = image.getWidth();
-        int height = image.getHeight();
-        // Check a few pixels to see if they are black. A small sample is enough.
-        for (int i = 0; i < 10; i++) {
-            int x = (int) (Math.random() * width);
-            int y = (int) (Math.random() * height);
-            if ((image.getRGB(x, y) & 0x00FFFFFF) != 0) {
-                return false; // Found a non-black pixel
+    /** Whether {@code hWnd} itself is what shows at every probe point of {@code client}. */
+    private static boolean onTop(HWND hWnd, Rectangle client) {
+        HWND root = User32.INSTANCE.GetAncestor(hWnd, User32.GA_ROOT);
+        for (Point p : WindowFrames.probes(client)) {
+            HWND there = User32.INSTANCE.WindowFromPoint(new POINT.ByValue(p.x, p.y));
+            if (there == null || !root.equals(User32.INSTANCE.GetAncestor(there, User32.GA_ROOT))) {
+                return false;
             }
         }
         return true;
+    }
+
+    private static List<Rectangle> screens() {
+        try {
+            return ScreenCapture.screens().stream().map(ScreenGeometry.Screen::device).toList();
+        } catch (HeadlessException e) {
+            return List.of();
+        }
+    }
+
+    private static BufferedImage printWindow(HWND hWnd, int width, int height) {
+        HDC hdcWindow = User32.INSTANCE.GetDC(hWnd);
+        HDC hdcMemDC = GDI32.INSTANCE.CreateCompatibleDC(hdcWindow);
+        HBITMAP hBitmap = GDI32.INSTANCE.CreateCompatibleBitmap(hdcWindow, width, height);
+        try {
+            GDI32.INSTANCE.SelectObject(hdcMemDC, hBitmap.getPointer());
+            // PW_CLIENTONLY: without it the whole window, title bar included, is drawn from the bitmap's corner,
+            // and a client-sized bitmap holds the title bar and loses the client area's bottom edge.
+            User32.INSTANCE.PrintWindow(hWnd, hdcMemDC, PW_CLIENTONLY | PW_RENDERFULLCONTENT);
+
+            WinGDI.BITMAPINFO bmi = new WinGDI.BITMAPINFO();
+            bmi.bmiHeader.biWidth = width;
+            bmi.bmiHeader.biHeight = -height; // top-down
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = WinGDI.BI_RGB;
+
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            GDI32.INSTANCE.GetDIBits(hdcWindow, hBitmap, 0, height,
+                    ((DataBufferInt) image.getRaster().getDataBuffer()).getData(), bmi, WinGDI.DIB_RGB_COLORS);
+            return image;
+        } finally {
+            GDI32.INSTANCE.DeleteObject(hBitmap);
+            GDI32.INSTANCE.DeleteDC(hdcMemDC);
+            User32.INSTANCE.ReleaseDC(hWnd, hdcWindow);
+        }
+    }
+
+    private static final int PW_CLIENTONLY = 1;
+    private static final int PW_RENDERFULLCONTENT = 2;
+
+    /** {@code rect} of the screen, in device pixels whatever AWT's scale. */
+    private static BufferedImage screenCopy(Rectangle rect) {
+        try {
+            return RobotCapture.capture(new Robot(), rect);
+        } catch (AWTException | HeadlessException e) {
+            Diag.error("[Windows] screen copy failed: " + e.getMessage(), e);
+            return null;
+        }
     }
 }

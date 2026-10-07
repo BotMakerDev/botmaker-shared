@@ -30,8 +30,11 @@ Windows); consumers resolve them from their own platform-neutral key enums.
 Package map:
 - `capture/` — the cross-platform surface: `NativeController`, `NativeControllerFactory`, `GenericWindow`,
   plus full-desktop capture (`ScreenCapture`, `CaptureBackend`, `RobotCapture`, `ToolCapture`).
-- `capture/windows/` — JNA Windows backend: `User32`/`GDI32` bindings, `WindowsController`, `WindowFinder`,
-  `WindowInfo`, `WindowCapture`, `Clicker`.
+- `capture/windows/` — JNA Windows backend: `User32`/`GDI32`/`Dwmapi` bindings, `WindowsController`,
+  `WindowFinder`, `WindowInfo`. Input: `PostedInput` (background messages, encoded by `WindowMessages`),
+  `SendInputs` (take-over), `IgnoredClickWatch`. Capture: `WindowCapture` (the ladder), `WindowFrames`, and
+  the opt-in `WgcCapture` over `Com` (vtable calls). `WindowsDpi` keeps every coordinate physical. A
+  window's rect is its client area. See `../../docs/display-pipeline.md` §8.
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.
 - `opencv/` — matching engines: `OpencvManager` (template matching), `ColorMatcher` (CIELAB ΔE clusters),
   `ResolutionScaler`, the raw results `RawMatch`/`RawColorMatch`, and `OpenCvNative` — **the** process-wide

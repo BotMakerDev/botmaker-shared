@@ -5,6 +5,18 @@ also holds `botmaker-session`'s history before 2026-07-30).
 
 ## Open
 
+- **Windows input and capture have never run on Windows** (2026-10-07). Owed: a click-test of the background
+  path (all buttons, drag, wheel, keys) and of take-over at 100%, 125% and 150%, on a windowed and a fullscreen
+  game, and one game that ignores posted input (the `IgnoredClickWatch` warning should appear). Then
+  `-Dbotmaker.windows.capture=wgc` on a covered DirectX game: if it works, make WGC the first rung by default
+  (`WgcCapture.requested`), and keep the session open between captures as it already does.
+- **Windows: the run overlay can end up in a screen copy.** `WindowCapture.onTop` uses `WindowFromPoint`, which
+  skips click-through windows, so a game under the SDK's run overlay counts as on top and its screen copy holds
+  the overlay's boxes. `PrintWindow` and WGC are unaffected; a fix enumerates z-order above the window instead.
+- **Windows: window-less keys are always real.** `keyDown(int)`/`typeText(String)` with no window go to the
+  focused window through `SendInput` even in the background, because there is no target to post to. The SDK's
+  `Keyboard` passes a window when the bot's source is one.
+
 - **Keyboard layouts.** A layout switched mid-run is not followed (re-read on `XkbMapNotify`, or per key with
   a cache); only the first XKB group is read; no backend adds Shift for a character on a shifted level
   (`typeText("1")` on AZERTY types `&` under XTest and uinput alike) — a level lookup fixes both backends.

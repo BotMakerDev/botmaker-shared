@@ -46,7 +46,13 @@ public interface User32 extends StdCallLibrary {
 
     /* ---------  DPI / focus / mouse pos  --------- */
 
-    boolean SetProcessDPIAware();
+    /** Windows 10 1703+; false when the process's awareness is already fixed (a manifest, or AWT got there first). */
+    boolean SetProcessDpiAwarenessContext(Pointer value);
+    /** Windows 10 1607+; returns the thread's previous context, or null when {@code value} is not valid. */
+    Pointer SetThreadDpiAwarenessContext(Pointer value);
+    Pointer GetThreadDpiAwarenessContext();
+    /** 0 unaware, 1 system aware, 2 per-monitor aware (v1 or v2), -1 invalid. */
+    int     GetAwarenessFromDpiAwarenessContext(Pointer value);
     HWND    GetForegroundWindow();
     boolean SetForegroundWindow(HWND hWnd);
     boolean GetCursorPos(POINT pt);
@@ -61,7 +67,13 @@ public interface User32 extends StdCallLibrary {
     HWND WindowFromPoint(POINT pt);
     HWND WindowFromPoint(POINT.ByValue pt);   // ← ByValue !
     int  CWP_ALL = 0x0000;
-    HWND ChildWindowFromPointEx(HWND parent, POINT pt, int flags);
+    int  CWP_SKIPINVISIBLE = 0x0001;
+    int  CWP_SKIPTRANSPARENT = 0x0004;
+    /** Takes the point by value, in {@code parent}'s client coordinates; returns {@code parent} itself on no child. */
+    HWND ChildWindowFromPointEx(HWND parent, POINT.ByValue pt, int flags);
+    boolean IsWindow(HWND hWnd);
+    boolean IsIconic(HWND hWnd);
+    int  GA_ROOT = 2;
 
     /* ---------  messaging  --------- */
 
@@ -91,20 +103,25 @@ public interface User32 extends StdCallLibrary {
     int SWP_NOACTIVATE = 0x0010;
     int SW_RESTORE     = 9;
 
-    /* ---------  input synthesis (keybd_event / mouse_event are simple + struct-free)  --------- */
+    /* ---------  input synthesis (SendInput lives in jna-platform's User32; see SendInputs)  --------- */
 
-    void keybd_event(byte bVk, byte bScan, int dwFlags, Pointer dwExtraInfo);
-    void mouse_event(int dwFlags, int dx, int dy, int dwData, Pointer dwExtraInfo);
     boolean SetCursorPos(int x, int y);
-    short VkKeyScanA(byte ch);
+    /** The virtual key and shift state that type {@code ch} on the current layout, or -1 when none does. */
+    short VkKeyScanW(char ch);
 
-    /** Virtual key → scancode. {@code MAPVK_VK_TO_VSC} (0) is the mapping DirectInput/RawInput games read. */
-    int MapVirtualKeyA(int uCode, int uMapType);
+    /**
+     * Virtual key → scancode. {@code MAPVK_VK_TO_VSC_EX} (4) is the mapping DirectInput/RawInput games read, with
+     * the {@code 0xE0}/{@code 0xE1} prefix of an extended key in the high byte; plain {@code MAPVK_VK_TO_VSC}
+     * drops it, which turns the arrow keys into the numeric keypad's.
+     */
+    int MapVirtualKeyW(int uCode, int uMapType);
 
-    int MAPVK_VK_TO_VSC = 0;
+    int MAPVK_VK_TO_VSC_EX = 4;
 
+    int KEYEVENTF_EXTENDEDKEY = 0x0001;
     int KEYEVENTF_KEYUP      = 0x0002;
-    /** Interpret {@code bScan} as a scancode; without it a game reading raw input sees nothing. */
+    int KEYEVENTF_UNICODE    = 0x0004;
+    /** Interpret {@code wScan} as a scancode; without it a game reading raw input sees nothing. */
     int KEYEVENTF_SCANCODE   = 0x0008;
 
     int MOUSEEVENTF_MOVE      = 0x0001;
@@ -123,15 +140,31 @@ public interface User32 extends StdCallLibrary {
     int XBUTTON2               = 0x0002;
     int MOUSEEVENTF_WHEEL      = 0x0800;
 
-    /* ---------  mouse constants  --------- */
+    /* ---------  mouse messages (posted to a specific HWND; encoded by WindowMessages)  --------- */
 
+    int WM_MOUSEMOVE   = 0x0200;
     int WM_LBUTTONDOWN = 0x0201;
     int WM_LBUTTONUP   = 0x0202;
+    int WM_RBUTTONDOWN = 0x0204;
+    int WM_RBUTTONUP   = 0x0205;
+    int WM_MBUTTONDOWN = 0x0207;
+    int WM_MBUTTONUP   = 0x0208;
+    int WM_MOUSEWHEEL  = 0x020A;
+    int WM_XBUTTONDOWN = 0x020B;
+    int WM_XBUTTONUP   = 0x020C;
+    int WHEEL_DELTA    = 120;
+
     int MK_LBUTTON     = 0x0001;
+    int MK_RBUTTON     = 0x0002;
+    int MK_MBUTTON     = 0x0010;
+    int MK_XBUTTON1    = 0x0020;
+    int MK_XBUTTON2    = 0x0040;
 
     /* ---------  keyboard messages (targeted, posted to a specific HWND)  --------- */
 
     int WM_KEYDOWN = 0x0100;
     int WM_KEYUP   = 0x0101;
     int WM_CHAR    = 0x0102;
+    int WM_SYSKEYDOWN = 0x0104;
+    int WM_SYSKEYUP   = 0x0105;
 }

@@ -2,6 +2,7 @@ package com.botmaker.shared.capture.windows;
 
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
+import com.sun.jna.platform.win32.WinDef.RECT;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.win32.StdCallLibrary;
 import com.sun.jna.win32.W32APIOptions;
@@ -18,7 +19,11 @@ public interface Dwmapi extends StdCallLibrary {
     Dwmapi INSTANCE = Native.load("dwmapi", Dwmapi.class, W32APIOptions.DEFAULT_OPTIONS);
 
     int DWMWA_CLOAKED = 14;
+    /** The window's visible bounds, without the invisible resize border {@code GetWindowRect} includes. */
+    int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 
     /** Returns S_OK (0) on success, writing the attribute into {@code pvAttribute}. */
     int DwmGetWindowAttribute(Pointer hWnd, int dwAttribute, IntByReference pvAttribute, int cbAttribute);
+
+    int DwmGetWindowAttribute(Pointer hWnd, int dwAttribute, RECT pvAttribute, int cbAttribute);
 }

@@ -27,8 +27,32 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   which reads GOG's registry key and lists each game as an `exe:` target.
 - `FaugusEntries` adds a Windows program to Faugus Launcher's `games.json` with Faugus's own default prefix and
   runner, and gives the Flathub command that installs Faugus.
+- **Windows: every gesture runs in the background.** Right and middle clicks, the side buttons, moves, drags,
+  the wheel and keys are now posted to the game window, the way left clicks already were. The cursor and the
+  keyboard stay the user's. Before, all of them moved the real pointer or pressed the real keys. A key carries its
+  scan code, and Alt, F10 and Alt-held keys go as `WM_SYSKEY*`. A click on a window reaches it even when it is
+  covered.
+- **Windows: background clicks that change nothing are reported.** The first three background clicks of a run
+  are checked against the window before and after. If none changed it, the run warns once and names "Take over
+  the mouse and keyboard" (`IgnoredClickWatch`). `Diag.warn` prints such a line whether debug output is on or off.
+- **Windows: Windows.Graphics.Capture, opt-in.** `-Dbotmaker.windows.capture=wgc` reads a window through the
+  compositor, which covers a DirectX game and a covered window. It has not run on Windows yet, so it is off by
+  default.
 
 ### Fixed
+
+- **Windows: clicks on a windowed game no longer land a title bar too high.** A window's rect was its outer
+  rect, while the capture was its client area. `PrintWindow` also drew the title bar into the client-sized frame.
+  The rect is now the client area, `PrintWindow` draws the client area only, and `moveWindow`/`resizeWindow` place
+  and size the client area.
+- **Windows: scaled screens.** Every coordinate call runs per-monitor DPI aware, and the process asks for
+  per-monitor v2 at start-up, so the window rect, the capture and the click agree at 125% and 150%. A screen copy
+  is taken in device pixels.
+- **Windows: a covered window is never captured as the window on top of it.** A screen copy is taken only when
+  the window is on top at its own rect. A black frame is detected on a fixed grid, not 10 random pixels.
+- **Windows: take-over input uses `SendInput` with scan codes**, extended keys included, in place of
+  `mouse_event`/`keybd_event`. Before, the arrow keys arrived as the numeric keypad's. A character with no key on
+  the layout is typed as Unicode, and one behind AltGr (an AZERTY `@`) gets its Ctrl+Alt. Relative motion, for mouselook, is a real relative event.
 
 - **A scaled desktop is read in device pixels.** Under `GDK_SCALE=2` (KDE's 200% on X11), AWT reported a
   1920×1080 screen as 960×540 and Robot grabbed it at that size, while XTEST clicks in 1920×1080, so a match was

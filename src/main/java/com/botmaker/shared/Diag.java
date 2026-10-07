@@ -23,8 +23,8 @@ import java.util.function.Predicate;
  * ({@link #RUN_PROPERTY}, which a host sets from its Debug output toggle). The SDK narrows it at start-up from
  * the bot's settings, where the run property still wins ({@link #runOverride()}).
  *
- * <p><b>The switch governs debug lines only.</b> An error is printed and traced whatever it says (2026-09-30):
- * a quiet run is one with no chatter, never one where a crash leaves no line.
+ * <p><b>The switch governs debug lines only.</b> An error or a {@linkplain #warn warning} is printed and traced
+ * whatever it says (2026-09-30): a quiet run is one with no chatter, never one where a crash leaves no line.
  *
  * <p><b>The trace.</b> Every line printed here also goes to the {@linkplain #setSink sink}, when one is set, as a
  * {@link TelemetryEvent.Log}: the SDK sets one when a host started the run, so the host shows the line in a trace
@@ -133,6 +133,14 @@ public final class Diag {
         public static Origin named(String source) {
             return new Origin(source, "", "");
         }
+    }
+
+    /**
+     * Prints and traces {@code message} as a warning under {@code source}, whether diagnostics are on or off:
+     * not a failure, but something the user has to act on for the bot to work, so a quiet run must still say it.
+     */
+    public static void warn(String source, String message) {
+        emit(TelemetryEvent.Log.WARN, Origin.named(source), message, 1, null, null);
     }
 
     /** Prints {@code message} to stderr, and traces it, whether diagnostics are on or off. */
