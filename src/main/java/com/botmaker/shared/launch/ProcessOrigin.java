@@ -18,8 +18,8 @@ import java.util.regex.Pattern;
  * <p>Two things go wrong without it, both measured live:
  * <ul>
  *   <li>Launch a game into a private session, then run the bot: {@link HostLauncherProbe} found the Heroic
- *       <em>inside our own session</em>, {@link LaunchIsolation} refused with "close Heroic and try again", and
- *       the bot ran on the user's real desktop. The working setup was the one that got refused.</li>
+ *       <em>inside our own session</em>, the session module's {@code LaunchIsolation} refused with "close Heroic
+ *       and try again", and the bot ran on the user's real desktop. The working setup was the one that got refused.</li>
  *   <li>Long after the launcher was closed, {@link RunningProbe} still reported the game running — the process
  *       was a remnant of a session whose owning JVM had gone, so the bot skipped its launch entirely.</li>
  * </ul>

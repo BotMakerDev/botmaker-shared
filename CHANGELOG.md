@@ -30,6 +30,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- `launch.LaunchIsolation` and `capture.GamescopeHost` moved to botmaker-session (`session.launch`,
+  `session.display`): the isolation policy is the session module's, and nothing here used either.
 - Steam's own tools are no longer listed as games: Proton, the Steam Linux Runtimes and the Steamworks
   redistributables (`SteamLibraryScanner.isTool`).
 

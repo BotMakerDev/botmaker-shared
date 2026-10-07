@@ -21,9 +21,10 @@ version-pinning note and the native-staging build passes moved with it: read the
 
 **Private display sessions are no longer here.** `com.botmaker.shared.session` moved to its own module and
 repo, [`botmaker-session`](../botmaker-session/CLAUDE.md), in 2026-07; it depends on this module (and is the
-only BotMaker dependency it has). The **launch stack stayed** — including `LaunchIsolation`,
-`HostLauncherProbe` and `ProcessOrigin`, which read as session code but cannot leave, because `RunningProbe`
-uses `ProcessOrigin` and moving it would invert the dependency. Note that `botmaker-session` excludes this
+only BotMaker dependency it has). The **launch stack stayed** — including `HostLauncherProbe` and
+`ProcessOrigin`, which read as session code but cannot leave, because `RunningProbe` uses `ProcessOrigin` and
+moving it would invert the dependency. `LaunchIsolation` and `capture.GamescopeHost`, which nothing here used,
+moved to the session module on 2026-10-07. Note that `botmaker-session` excludes this
 module's OpenCV when it depends on us, so **do not make `capture/` or `launch/` link an `org.opencv` type**
 — that would break a standalone session consumer at runtime. (`SharedNoOcvLeakTest` is the guard. Its Tess4J
 half went with the OCR move: there is no OCR engine on this module's classpath to leak.)
