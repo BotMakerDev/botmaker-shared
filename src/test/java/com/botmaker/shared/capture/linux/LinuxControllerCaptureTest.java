@@ -176,4 +176,34 @@ class LinuxControllerCaptureTest {
             assumeTrue(captured > 0, "no window on this display produced a frame (compositor unredirected?)");
         }
     }
+
+    // ---- Decoding an XImage. Pure; runs everywhere. ----
+
+    /**
+     * The composite rung reads a pixmap, and a pixmap has no visual: Xlib hands back its XImage with every mask
+     * {@code 0}. That decoded as pure black, every time, so the ladder always skipped the rung that reads
+     * occluded pixels — and inside gamescope the frame a bot saw was black. Measured, 2026-10-07.
+     */
+    @Test
+    void anImageWithNoMasksDecodesAsRgb() {
+        int width = 2;
+        com.sun.jna.Memory data = new com.sun.jna.Memory(width * 4L);
+        data.setInt(0, 0x00FFFFFF);
+        data.setInt(4, 0x00123456);
+        X11.XImage image = new X11.XImage();
+        image.width = width;
+        image.height = 1;
+        image.data = data;
+        image.bits_per_pixel = 32;
+        image.bytes_per_line = width * 4;
+        image.red_mask = new com.sun.jna.NativeLong(0);
+        image.green_mask = new com.sun.jna.NativeLong(0);
+        image.blue_mask = new com.sun.jna.NativeLong(0);
+
+        BufferedImage decoded = LinuxController.decode(image);
+
+        assertNotNull(decoded);
+        assertTrue((decoded.getRGB(0, 0) & 0xFFFFFF) == 0xFFFFFF, "white stays white");
+        assertTrue((decoded.getRGB(1, 0) & 0xFFFFFF) == 0x123456, "channels keep their order");
+    }
 }

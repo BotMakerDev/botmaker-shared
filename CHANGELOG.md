@@ -28,6 +28,21 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - `FaugusEntries` adds a Windows program to Faugus Launcher's `games.json` with Faugus's own default prefix and
   runner, and gives the Flathub command that installs Faugus.
 
+### Fixed
+
+- **A scaled desktop is read in device pixels.** Under `GDK_SCALE=2` (KDE's 200% on X11), AWT reported a
+  1920×1080 screen as 960×540 and Robot grabbed it at that size, while XTEST clicks in 1920×1080, so a match was
+  clicked at half its distance from the corner. `ScreenCapture` (`getVirtualScreenBounds`, `monitorBounds`,
+  `screens`) and `RobotCapture` now answer in device pixels, through the new `ScreenGeometry`, which multiplies
+  each screen's logical rectangle by that screen's own scale. `RobotCapture.capture(robot, rect)` grabs any
+  device rectangle at full resolution.
+- **The window capture's composite rung works.** It reads a pixmap, whose image Xlib returns with every colour
+  mask 0, and decoding masked with 0 gave pure black. So every capture fell through to the rungs that miss covered
+  pixels, and inside gamescope the frame was black.
+- **Clicks inside gamescope land on the pixel.** The focus-relative warp correction now uses the focused window's
+  top-level. Before, it used the input-focus window itself, and AWT keeps focus on a 1×1 child at (-1,-1), so
+  every click on such a game landed 1 px right and down.
+
 ### Changed
 
 - `launch.LaunchIsolation` and `capture.GamescopeHost` moved to botmaker-session (`session.launch`,

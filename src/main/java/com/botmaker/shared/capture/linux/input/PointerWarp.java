@@ -16,6 +16,11 @@ package com.botmaker.shared.capture.linux.input;
  * received. Every click therefore landed 2px off target. Subtracting the focus window's origin before the warp
  * made all four probed points land exactly, so the correction is derived from the live geometry rather than
  * hardcoded as "+2" — if a future gamescope stops insetting, the correction becomes zero on its own.
+ *
+ * <p>The origin is the focused window's <b>top-level</b> (the root's child holding it), measured again on
+ * 2026-10-07: focus may sit on a descendant elsewhere — an AWT frame keeps it on a 1×1 proxy at {@code (-1,-1)}
+ * — and correcting by that put every click 1px right and down. An xmessage, whose top-level has a 1px border,
+ * lands exactly with the top-level's origin and 1px off without the correction.
  */
 public enum PointerWarp {
 

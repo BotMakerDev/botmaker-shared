@@ -189,7 +189,7 @@ public final class XTestBackend implements LinuxInputBackend {
 
     /**
      * The correction to apply to a root-absolute target before injecting it. Zero on a normal X server; on a
-     * {@link PointerWarp#FOCUS_RELATIVE} one (gamescope) it is the focused window's root origin, read live on
+     * {@link PointerWarp#FOCUS_RELATIVE} one (gamescope) it is the focused top-level's root origin, read live on
      * every move — focus can change under us, the read is one round trip, and every click already pays an
      * {@code XSync} plus a settle sleep, so this is not on any hot path worth caching.
      */
@@ -203,7 +203,10 @@ public final class XTestBackend implements LinuxInputBackend {
             if (focused == null) {
                 return noCorrection();
             }
-            Rectangle geometry = X11Utils.getWindowGeometry(display, focused);
+            // The top-level, not the focus window itself: gamescope warps relative to the surface it composites,
+            // and focus can sit on a descendant elsewhere — AWT keeps it on a 1×1 proxy at (-1,-1), which put
+            // every click on an AWT game 1px right and down.
+            Rectangle geometry = X11Utils.getWindowGeometry(display, X11Utils.topLevelOf(display, focused));
             return geometry == null ? noCorrection() : new Point(geometry.x, geometry.y);
         } catch (Throwable t) {
             // A failed read must degrade to the uncorrected warp, never to no motion at all.

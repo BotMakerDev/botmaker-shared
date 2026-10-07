@@ -351,6 +351,30 @@ public class X11Utils {
         return true;
     }
 
+    /** {@code window}'s X border width in pixels, or 0 when it can't be read. */
+    public static int borderWidth(Pointer display, Pointer window) {
+        IntByReference border = new IntByReference();
+        int ok = X11.INSTANCE.XGetGeometry(display, window, new PointerByReference(), new IntByReference(),
+            new IntByReference(), new IntByReference(), new IntByReference(), border, new IntByReference());
+        return ok == 0 ? 0 : border.getValue();
+    }
+
+    /**
+     * The root's child that holds {@code window} — the top-level surface a compositor such as gamescope
+     * draws — or {@code window} itself when it is one, or when the tree can't be read.
+     */
+    public static Pointer topLevelOf(Pointer display, Pointer window) {
+        long root = Pointer.nativeValue(X11.INSTANCE.XDefaultRootWindow(display));
+        Pointer current = window;
+        while (true) {
+            Pointer parent = parentOf(display, current);
+            if (parent == null || Pointer.nativeValue(parent) == 0 || Pointer.nativeValue(parent) == root) {
+                return current;
+            }
+            current = parent;
+        }
+    }
+
     /** {@code window}'s parent, or null when the query fails. */
     private static Pointer parentOf(Pointer display, Pointer window) {
         PointerByReference rootReturn = new PointerByReference();

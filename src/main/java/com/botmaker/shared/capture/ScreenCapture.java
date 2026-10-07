@@ -1,7 +1,13 @@
 package com.botmaker.shared.capture;
 
-import java.awt.*;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
+import java.awt.Rectangle;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -25,35 +31,39 @@ public class ScreenCapture {
     }
 
     /**
-     * Get the virtual screen bounds that encompasses all monitors.
-     * Single source of truth for multi-monitor bounds, shared by the capture backends.
+     * The virtual desktop — every monitor's union — in device pixels. Single source of truth for multi-monitor
+     * bounds, shared by the capture backends.
      */
     public static Rectangle getVirtualScreenBounds() {
-        Rectangle virtualBounds = new Rectangle();
-
-        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        GraphicsDevice[] screens = ge.getScreenDevices();
-
-        for (GraphicsDevice screen : screens) {
-            GraphicsConfiguration config = screen.getDefaultConfiguration();
-            Rectangle bounds = config.getBounds();
-            virtualBounds = virtualBounds.union(bounds);
-        }
-
-        return virtualBounds;
+        return ScreenGeometry.deviceUnion(screens());
     }
 
     /**
      * Bounds of a single monitor by its 0-based index into {@link GraphicsEnvironment#getScreenDevices()},
-     * in absolute virtual-screen coordinates. Falls back to the whole virtual desktop for an out-of-range
+     * in device pixels of the virtual desktop. Falls back to the whole virtual desktop for an out-of-range
      * index, so callers always get a usable rectangle.
      */
     public static Rectangle monitorBounds(int index) {
-        GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
-        if (index >= 0 && index < screens.length) {
-            return screens[index].getDefaultConfiguration().getBounds();
+        List<ScreenGeometry.Screen> screens = screens();
+        if (index >= 0 && index < screens.size()) {
+            return screens.get(index).device();
         }
-        return getVirtualScreenBounds();
+        return ScreenGeometry.deviceUnion(screens);
+    }
+
+    /**
+     * Every monitor as AWT reports it — logical bounds and the scale to device pixels — in
+     * {@link GraphicsEnvironment#getScreenDevices()} order. See {@link ScreenGeometry} for why the scale matters.
+     */
+    public static List<ScreenGeometry.Screen> screens() {
+        List<ScreenGeometry.Screen> screens = new ArrayList<>();
+        for (GraphicsDevice device : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+            GraphicsConfiguration config = device.getDefaultConfiguration();
+            Rectangle b = config.getBounds();
+            AffineTransform scale = config.getDefaultTransform();
+            screens.add(new ScreenGeometry.Screen(b.x, b.y, b.width, b.height, scale.getScaleX(), scale.getScaleY()));
+        }
+        return screens;
     }
 
     /**

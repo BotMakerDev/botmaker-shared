@@ -589,7 +589,10 @@ public class LinuxController implements NativeController, AutoCloseable {
                 return null;
             }
             try {
-                return X11.INSTANCE.XGetImage(display, pixmap, 0, 0, rect.width, rect.height,
+                // The named pixmap includes the window's border; the frame starts inside it, at the same origin
+                // getWindowGeometry reports and every click is placed from.
+                int border = X11Utils.borderWidth(display, x11Window);
+                return X11.INSTANCE.XGetImage(display, pixmap, border, border, rect.width, rect.height,
                         new com.sun.jna.NativeLong(X11.AllPlanes), X11.ZPixmap);
             } finally {
                 X11.INSTANCE.XFreePixmap(display, pixmap);
@@ -618,7 +621,7 @@ public class LinuxController implements NativeController, AutoCloseable {
     }
 
     /** Null/validity-guards an {@link X11.XImage} then decodes it; returns {@code null} for an unusable frame. */
-    private static BufferedImage decode(X11.XImage image) {
+    static BufferedImage decode(X11.XImage image) {
         if (image == null || image.data == null || image.bits_per_pixel < 24) {
             return null;
         }
@@ -659,12 +662,15 @@ public class LinuxController implements NativeController, AutoCloseable {
         int bytesPerPixel = bpp / 8;
         byte[] raw = image.data.getByteArray(0, stride * h);
 
-        int redMask = (int) image.red_mask.longValue();
-        int greenMask = (int) image.green_mask.longValue();
-        int blueMask = (int) image.blue_mask.longValue();
-        int redShift = Integer.numberOfTrailingZeros(redMask == 0 ? 0xFF0000 : redMask);
-        int greenShift = Integer.numberOfTrailingZeros(greenMask == 0 ? 0x00FF00 : greenMask);
-        int blueShift = Integer.numberOfTrailingZeros(blueMask == 0 ? 0x0000FF : blueMask);
+        // A pixmap has no visual, so the XImage of one (the XComposite rung) comes back with all three masks 0.
+        // The default has to replace the mask itself, not only its shift: masking with 0 decoded every
+        // composite frame as pure black, and the ladder fell through to rungs that miss occluded pixels.
+        int redMask = orDefault(image.red_mask.longValue(), 0xFF0000);
+        int greenMask = orDefault(image.green_mask.longValue(), 0x00FF00);
+        int blueMask = orDefault(image.blue_mask.longValue(), 0x0000FF);
+        int redShift = Integer.numberOfTrailingZeros(redMask);
+        int greenShift = Integer.numberOfTrailingZeros(greenMask);
+        int blueShift = Integer.numberOfTrailingZeros(blueMask);
 
         BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         int[] px = ((java.awt.image.DataBufferInt) out.getRaster().getDataBuffer()).getData();
@@ -683,6 +689,11 @@ public class LinuxController implements NativeController, AutoCloseable {
             }
         }
         return out;
+    }
+
+    /** {@code mask} as an int, or {@code fallback} when the image carries none. */
+    static int orDefault(long mask, int fallback) {
+        return mask == 0 ? fallback : (int) mask;
     }
 
     /**
