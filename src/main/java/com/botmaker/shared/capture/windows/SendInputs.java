@@ -63,7 +63,7 @@ final class SendInputs {
 
     /** Press or release the key {@code vk} by its scan code, which is what DirectInput and raw input read. */
     static void key(int vk, boolean press) {
-        ScanCode scan = ScanCode.of(User32.INSTANCE.MapVirtualKeyW(vk, User32.MAPVK_VK_TO_VSC_EX));
+        ScanCode scan = ScanCode.of(vk, User32.INSTANCE.MapVirtualKeyW(vk, User32.MAPVK_VK_TO_VSC_EX));
         send(keyboard(vk, scan, press));
     }
 

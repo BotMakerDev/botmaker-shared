@@ -114,6 +114,26 @@ final class WindowMessages {
             return new ScanCode(vscEx & 0xFF, prefix == 0xE000 || prefix == 0xE100);
         }
 
+        /**
+         * The scan code of {@code vk}, given its {@code VK_TO_VSC_EX} mapping. A key whose make code is
+         * {@code E0}-prefixed is extended whatever the mapping says: Windows 11 maps {@code VK_LEFT} to a bare
+         * {@code 0x4B}, and that code without the bit is number-pad 4.
+         */
+        static ScanCode of(int vk, int vscEx) {
+            ScanCode mapped = of(vscEx);
+            return isE0(vk) && !mapped.isNone() ? new ScanCode(mapped.code, true) : mapped;
+        }
+
+        /**
+         * The keys whose scan code carries {@code E0}: the navigation cluster (Page Up … Down, Insert, Delete),
+         * the Win and menu keys, number-pad /, right Ctrl and AltGr, and the browser, volume and media keys.
+         * Print Screen, Num Lock and Break are left to the mapping: their codes differ from the plain lookup's.
+         */
+        private static boolean isE0(int vk) {
+            return (vk >= 0x21 && vk <= 0x28) || vk == 0x2D || vk == 0x2E || (vk >= 0x5B && vk <= 0x5D)
+                    || vk == 0x6F || vk == 0xA3 || vk == 0xA5 || (vk >= 0xA6 && vk <= 0xB7);
+        }
+
         boolean isNone() {
             return code == 0;
         }

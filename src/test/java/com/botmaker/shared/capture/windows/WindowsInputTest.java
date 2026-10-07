@@ -76,6 +76,15 @@ class WindowsInputTest {
     }
 
     @Test
+    void theNavigationClusterIsExtendedEvenWhenTheMappingDropsThePrefix() {
+        assertEquals(new ScanCode(0x4B, true), ScanCode.of(0x25, 0x004B), "VK_LEFT, as Windows 11 maps it");
+        assertEquals(new ScanCode(0x53, true), ScanCode.of(0x2E, 0x0053), "VK_DELETE");
+        assertEquals(new ScanCode(0x5D, true), ScanCode.of(0x5D, 0x005D), "VK_APPS");
+        assertEquals(new ScanCode(0x4B, false), ScanCode.of(0x64, 0x004B), "VK_NUMPAD4 stays number-pad 4");
+        assertTrue(ScanCode.of(0x25, 0).isNone(), "no code, no bit");
+    }
+
+    @Test
     void aKeystrokeCarriesItsScanCodeAndOnReleaseTheTransitionBits() {
         long down = WindowMessages.keyLParam(new ScanCode(0x1E, false), false, false);
         assertEquals(1, down & 0xFFFF, "repeat count");

@@ -63,8 +63,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * The run order is fixed: background first (the cursor must not move), then Windows.Graphics.Capture (a crash
  * there takes the JVM) and the launcher listing, take-over last.
  *
- * <p>What it cannot stand in for: a DirectX game reading raw input, a fullscreen game, another display scale or a
- * second monitor, an elevated game, and an AltGr layout unless the machine has one. Those stay manual.
+ * <p>What it cannot stand in for: a DirectX game reading raw input, another display scale or a second monitor, an
+ * elevated game, and an AltGr layout unless the machine has one. Those stay manual.
  */
 @EnabledOnOs(OS.WINDOWS)
 @EnabledIfSystemProperty(named = "botmaker.live", matches = "true")
@@ -78,6 +78,9 @@ class WindowsLiveInputTest {
     private static final int VK_LEFT = 0x25;
     private static final int VK_RETURN = 0x0D;
     private static final int VK_MENU = 0x12;
+    private static final int WDA_EXCLUDEFROMCAPTURE = 0x11;
+    private static final int SM_CXSCREEN = 0;
+    private static final int SM_CYSCREEN = 1;
 
     private StandIn game;
     private StandIn deaf;
@@ -224,6 +227,58 @@ class WindowsLiveInputTest {
         int top = frame.getRGB(frame.getWidth() / 2, 1) & 0xFFFFFF;
         assertTrue(near(top, rgb(FILL)) || near(top, rgb(FILL_CLICKED)),
                 String.format("the top row is the client's fill, not a title bar: %06X", top));
+    }
+
+    @Test
+    @Order(9)
+    void aFullscreenGameIsCapturedAndClickedUnderTheRunOverlay() throws InterruptedException {
+        Rectangle screen;
+        try (WindowsDpi.Scope dpi = WindowsDpi.physical()) {
+            screen = new Rectangle(0, 0, User32.INSTANCE.GetSystemMetrics(SM_CXSCREEN),
+                    User32.INSTANCE.GetSystemMetrics(SM_CYSCREEN)); // the primary screen
+        }
+        StandIn full = StandIn.fullscreen("BotMaker fullscreen stand-in " + ProcessHandle.current().pid(), screen);
+        StandIn box = null;
+        try {
+            WindowsController ctl = new WindowsController();
+            GenericWindow window = find(ctl, full);
+            assertEquals(screen, window.getRect(), "a fullscreen window's rect is the whole screen");
+            BufferedImage frame = WindowCapture.capture(full.hwnd);
+            assertNotNull(frame);
+            assertEquals(screen.getSize(), new java.awt.Dimension(frame.getWidth(), frame.getHeight()));
+            int center = frame.getRGB(frame.getWidth() / 2, frame.getHeight() / 2) & 0xFFFFFF;
+            assertTrue(near(center, rgb(FILL)), String.format("the fullscreen game itself: %06X", center));
+
+            // the SDK's run overlay: a click-through topmost window drawing boxes over the game
+            Point mid = new Point(screen.x + screen.width / 2, screen.y + screen.height / 2);
+            box = StandIn.overlayBox(new Rectangle(mid.x - 100, mid.y - 50, 200, 100), COVER);
+            full.clear();
+            ctl.click(mid.x, mid.y, 1);
+            full.awaitAt(User32.WM_LBUTTONDOWN, mid.x - screen.x, mid.y - screen.y);
+            assertTrue(box.received().isEmpty(), "the overlay box let the click through");
+
+            // WindowFromPoint skips a click-through window, so the game counts as on top and is screen-copied with
+            // the box in it (ROADMAP); an overlay excluded from capture is left out of that copy
+            int there = centerUnder(full, mid, screen);
+            System.out.printf("[live] fullscreen under the overlay: %06X (game %06X, overlay box %06X)%n", there,
+                    rgb(FILL), rgb(COVER));
+            assertTrue(near(there, rgb(COVER)), "the box shows in the screen copy: the leak to rule out");
+            assumeTrue(Win.INSTANCE.SetWindowDisplayAffinity(box.hwnd, WDA_EXCLUDEFROMCAPTURE),
+                    "excluding a window from capture needs Windows 10 2004 or later");
+            Thread.sleep(200);
+            int excluded = centerUnder(full, mid, screen);
+            System.out.printf("[live] ... with the overlay excluded from capture: %06X%n", excluded);
+            assertFalse(near(excluded, rgb(COVER)), "an overlay excluded from capture is not in the game's frame");
+        } finally {
+            if (box != null) box.close();
+            full.close();
+        }
+    }
+
+    private static int centerUnder(StandIn full, Point mid, Rectangle screen) {
+        BufferedImage frame = WindowCapture.capture(full.hwnd);
+        assertNotNull(frame);
+        return frame.getRGB(mid.x - screen.x, mid.y - screen.y) & 0xFFFFFF;
     }
 
     @Test
@@ -495,6 +550,10 @@ class WindowsLiveInputTest {
         private static final int WS_EX_TOPMOST = 0x00000008;
         private static final int WS_EX_NOACTIVATE = 0x08000000;
         private static final int WS_EX_TOOLWINDOW = 0x00000080;
+        private static final int WS_EX_LAYERED = 0x00080000;
+        private static final int WS_EX_TRANSPARENT = 0x00000020;
+        private static final int LWA_ALPHA = 0x2;
+        private static final int SW_SHOWNOACTIVATE = 4;
         private static final int WM_DESTROY = 0x0002;
         private static final int WM_CLOSE = 0x0010;
         private static final int WM_ERASEBKGND = 0x0014;
@@ -528,6 +587,27 @@ class WindowsLiveInputTest {
             s.start(WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, WS_POPUP | WS_VISIBLE,
                     area.x, area.y, area.width, area.height);
             Thread.sleep(300); // composed before anything captures or clicks through it
+            return s;
+        }
+
+        /** A borderless window filling {@code screen}, as a fullscreen game's is; it takes no focus from the test. */
+        static StandIn fullscreen(String title, Rectangle screen) throws InterruptedException {
+            StandIn s = new StandIn(title, false, FILL);
+            s.start(WS_EX_TOPMOST | WS_EX_NOACTIVATE, WS_POPUP | WS_VISIBLE,
+                    screen.x, screen.y, screen.width, screen.height);
+            return s;
+        }
+
+        /** An opaque box that clicks pass through, the way the SDK's run overlay draws one. */
+        static StandIn overlayBox(Rectangle area, int color) throws InterruptedException {
+            StandIn s = new StandIn("BotMaker live overlay " + System.nanoTime(), false, color);
+            s.start(WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT,
+                    WS_POPUP, area.x, area.y, area.width, area.height);
+            // a layered window shows only once its alpha is set
+            assertTrue(com.sun.jna.platform.win32.User32.INSTANCE.SetLayeredWindowAttributes(s.hwnd, 0, (byte) 255,
+                    LWA_ALPHA), "the overlay box's alpha");
+            User32.INSTANCE.ShowWindow(s.hwnd, SW_SHOWNOACTIVATE);
+            Thread.sleep(300);
             return s;
         }
 
@@ -683,6 +763,8 @@ class WindowsLiveInputTest {
         boolean GetKeyboardLayoutNameW(char[] name);
 
         int GetWindowTextW(HWND hwnd, char[] text, int max);
+
+        boolean SetWindowDisplayAffinity(HWND hwnd, int affinity);
 
         interface Gdi extends StdCallLibrary {
             HBRUSH CreateSolidBrush(int colorref);

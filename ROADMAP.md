@@ -5,24 +5,22 @@ also holds `botmaker-session`'s history before 2026-07-30).
 
 ## Open
 
-- **Windows: an arrow key is sent as number-pad 4, on both paths** (`WindowsLiveInputTest`, 2026-10-07).
-  `MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX)` gives no `E0` prefix for the navigation cluster (arrows, Insert,
-  Delete, Home, End, Page Up/Down) on Windows 11 26200 (checked on AZERTY): `VK_LEFT` maps to `0x004B`. Only
-  right Ctrl/Alt, numpad `/` and the Win keys come back prefixed. So `PostedInput.key` posts no extended bit,
-  and `SendInputs.key` sends the bare scan code, which Windows turns into `VK_NUMPAD4` and a `WM_CHAR '4'`.
-  The fix: those virtual keys are extended whatever the mapping answers (`ScanCode` for a VK, not only a VSC).
 - **`WindowsControllerTest.childEnumerationOfANonWindowIsEmptyRatherThanThrowing` fails on Windows.**
   `EnumChildWindows` on a null parent enumerates the desktop's windows, so `WindowFinder.getChildWindows(new
   HWND())` is not empty. Decide which is wrong: the test, or the finder's missing null guard.
 - **Windows input and capture: what the live test can't reach** (`-Dbotmaker.live=true`, which covers background
-  and take-over input, the ignored-click warning, a covered window's capture and WGC's resize at one scale).
-  Still owed: 100% and 150%, two monitors at different scales, a fullscreen game, a DirectX game reading raw
-  input (mouselook, the warning), an elevated game ("SendInput was blocked"). Then
+  and take-over input, the ignored-click warning, a covered window's capture, WGC's resize and a fullscreen
+  window, at one scale). Still owed: 100% and 150%, two monitors at different scales, a DirectX game reading raw
+  input (mouselook, the warning, a black `PrintWindow`), an elevated game ("SendInput was blocked"). Then
   `-Dbotmaker.windows.capture=wgc` on a covered DirectX game: if it works, make WGC the first rung by default
   (`WgcCapture.requested`), and keep the session open between captures as it already does.
 - **Windows: the run overlay can end up in a screen copy.** `WindowCapture.onTop` uses `WindowFromPoint`, which
   skips click-through windows, so a game under the SDK's run overlay counts as on top and its screen copy holds
-  the overlay's boxes. `PrintWindow` and WGC are unaffected; a fix enumerates z-order above the window instead.
+  the overlay's boxes. `PrintWindow` and WGC are unaffected. The fix: the overlay window set to
+  `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Windows 10 2004+) is left out of the copy, as the live
+  test's fullscreen check shows. Studio owns that window, so the fix is a `NativeController` call it makes
+  once the overlay is shown, beside `promoteOverlayAboveFullscreen`. Counting it as covering instead would send
+  every run's capture to `PrintWindow`, black for many fullscreen games.
 - **Windows: window-less keys are always real.** `keyDown(int)`/`typeText(String)` with no window go to the
   focused window through `SendInput` even in the background, because there is no target to post to. The SDK's
   `Keyboard` passes a window when the bot's source is one.

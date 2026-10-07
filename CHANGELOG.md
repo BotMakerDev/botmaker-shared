@@ -23,7 +23,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   It checks the click through a covering window, the capture's size, and that no title bar or covering window
   ends up in it. It checks the ignored-click warning (once for a window that never repaints, never for one
   that does), WGC on a covered window and across a resize, and take-over clicks, drags, the wheel, relative
-  moves, AltGr `@` and a character with no key on the layout. It also lists the installed launchers' games.
+  moves, AltGr `@` and a character with no key on the layout. It also lists the installed launchers' games. A
+  fullscreen stand-in checks the screen-sized capture and a click through a click-through overlay box, and
+  that an overlay excluded from capture (`WDA_EXCLUDEFROMCAPTURE`) stays out of the game's frame.
 
 - **Lutris and the app menu are launch targets.**
   - `lutris:<id>` starts a Lutris game the way its own shortcut does (`lutris lutris:rungameid/<id>`, then the
@@ -49,6 +51,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   default.
 
 ### Fixed
+
+- **Windows: an arrow key is an arrow, not number-pad 4.** Windows 11 maps `VK_LEFT` to a bare `0x4B`, with
+  no extended prefix. So a background arrow arrived without the extended bit, and a take-over arrow arrived as
+  `VK_NUMPAD4`, typing a `4`. Every key with an `E0` scan code is now always sent extended, on both paths:
+  arrows, Insert, Delete, Home, End, Page Up/Down, Win, the menu key, and the media keys
+  (`WindowMessages.ScanCode.of(vk, vscEx)`).
 
 - **Windows: clicks on a windowed game no longer land a title bar too high.** A window's rect was its outer
   rect, while the capture was its client area. `PrintWindow` also drew the title bar into the client-sized frame.

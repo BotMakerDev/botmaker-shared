@@ -113,7 +113,7 @@ final class PostedInput {
      * window's menu and Alt+Enter handling never sees them.
      */
     synchronized void key(HWND window, int vk, boolean press) {
-        ScanCode scan = ScanCode.of(User32.INSTANCE.MapVirtualKeyW(vk, User32.MAPVK_VK_TO_VSC_EX));
+        ScanCode scan = ScanCode.of(vk, User32.INSTANCE.MapVirtualKeyW(vk, User32.MAPVK_VK_TO_VSC_EX));
         if (WindowMessages.isAlt(vk)) {
             altHeld = press;
         }
