@@ -23,6 +23,18 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   virtual-key codes a bot passes into the X keysyms VNC sends. Once the server is gone, it degrades rather
   than throws.
 
+- **The parts of a game VM, for VMware Workstation and QEMU** (`vm`). `Hypervisor.detect()` picks VMware
+  when it is installed, else QEMU. `VmwareWorkstation` drives `vmrun` and `vmware-vdiskmanager`. `Qemu`
+  installs from winget and builds a headless command line: the Windows Hypervisor Platform, UEFI, NVMe, a USB
+  tablet, and VNC and QMP on loopback. `QmpClient` speaks QMP. `VmxFile` edits a `.vmx` in place, in its own
+  encoding. `GuestUnattend` writes the `autounattend.xml` that installs Windows 11 with nobody at the keyboard:
+  - it skips the TPM and Secure Boot checks;
+  - it creates a local account that signs in automatically;
+  - at first sign-in it installs the guest tools and creates a launch task.
+
+  `IsoImage` writes the ISO 9660 + Joliet disc that carries that file. `VmCredentials` keeps the guest and
+  VNC passwords encrypted with DPAPI.
+
 - **Installing a game on an emulator, and making a new instance.** `PlayStoreSearch` finds an app on Google
   Play by name from this computer. `EmulatorInstall` starts the instance if needed, then either opens the app's
   Google Play page there and waits for the install, or installs an `.apk`, `.xapk` or `.apks` file (splits
