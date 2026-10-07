@@ -88,6 +88,20 @@ class ApkLabelTest {
         assertNull(ApkLabel.read(shortReads, ApkZip.entries(reader)));
     }
 
+    @Test
+    void theManifestNamesThePackageAndAnApkFileOnThisComputerSaysWhichAppItIs() throws Exception {
+        byte[] manifest = manifestWithPackage(literal());
+        assertEquals("com.example.solitaire", ApkLabel.manifestPackage(manifest));
+        assertNull(ApkLabel.manifestPackage(manifest(literal())), "no package attribute");
+        assertEquals(new ApkLabel.Label("Solitaire", 0), ApkLabel.manifestLabel(manifest),
+                "the manifest's own attributes don't hide the application's");
+
+        byte[] apk = ApkIconTest.zip(new String[]{"AndroidManifest.xml"}, new byte[][]{manifest});
+        assertEquals(new ApkLabel.ApkFacts("com.example.solitaire", "Solitaire"),
+                ApkLabel.facts(new ApkIconTest.ArrayReader(apk)));
+        assertNull(ApkLabel.facts(new ApkIconTest.ArrayReader(new byte[64])));
+    }
+
     // --- builders -----------------------------------------------------------------------------------------
 
     /** A value: {@code -1} is "no entry", {@code n >= 0} a string index, {@link #ref} a reference. */
@@ -100,15 +114,29 @@ class ApkLabelTest {
     }
 
     private static byte[] manifest(byte[] applicationAttribute) {
-        List<String> strings = List.of("manifest", "application", "label", "Solitaire", "android");
+        return manifest(new byte[0][], applicationAttribute);
+    }
+
+    /** {@code <manifest package="com.example.solitaire">}: the package attribute, a plain string. */
+    static byte[] manifestWithPackage(byte[] applicationAttribute) {
+        return manifest(new byte[][]{attribute(5, 6, 0x03, 6)}, applicationAttribute);
+    }
+
+    private static byte[] manifest(byte[][] manifestAttributes, byte[] applicationAttribute) {
+        List<String> strings = List.of("manifest", "application", "label", "Solitaire", "android", "package",
+                "com.example.solitaire");
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         write(body, pool(strings, false));
         ByteBuffer map = le(8 + 12);
         map.putShort((short) 0x0180).putShort((short) 8).putInt(20).putInt(0).putInt(0).putInt(0x01010001);
         write(body, map.array());
-        write(body, element(0, new byte[0][]));
+        write(body, element(0, manifestAttributes));
         write(body, element(1, new byte[][]{applicationAttribute}));
         return chunk(0x0003, 8, body.toByteArray());
+    }
+
+    static byte[] literalLabel() {
+        return literal();
     }
 
     private static byte[] reference(int id) {

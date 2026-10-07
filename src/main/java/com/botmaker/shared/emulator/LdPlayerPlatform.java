@@ -61,6 +61,16 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
         return instances;
     }
 
+    /** {@code ldconsole add} in the first install that has a console: an instance under LDPlayer's default name. */
+    @Override
+    public NewInstance newInstance() {
+        for (Path install : installDirs()) {
+            Path console = consoleOf(install);
+            if (console != null) return new NewInstance(PLATFORM_ID, List.of(console.toString(), "add"), false);
+        }
+        return null;
+    }
+
     /**
      * {@code ldconsole list2}, one instance per line: {@code index,title,topHwnd,bindHwnd,android,pid,vboxPid,
      * width,height,dpi}. {@code android} is 1 once Android is up (2 while it boots, in LDPlayer 14); a positive

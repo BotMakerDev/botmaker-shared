@@ -61,6 +61,20 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
     }
 
     /**
+     * BlueStacks' Multi-Instance Manager, beside the first edition's player: it has no console that creates an
+     * instance, and the manager is where the user picks its Android version.
+     */
+    @Override
+    public NewInstance newInstance() {
+        for (Edition edition : editions()) {
+            if (edition.hdPlayer() == null) continue;
+            Path manager = edition.hdPlayer().resolveSibling("HD-MultiInstanceManager.exe");
+            if (Files.isRegularFile(manager)) return new NewInstance(PLATFORM_ID, List.of(manager.toString()), true);
+        }
+        return null;
+    }
+
+    /**
      * One installed BlueStacks engine. BlueStacks ships several side by side, each under its own key and folders —
      * {@code BlueStacks_nxt} (BlueStacks 5), {@code BlueStacks_msi5} (MSI App Player), {@code BlueStacks_nxt_cn}…
      *

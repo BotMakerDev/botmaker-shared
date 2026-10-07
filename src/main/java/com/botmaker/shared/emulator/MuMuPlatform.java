@@ -75,6 +75,18 @@ public final class MuMuPlatform implements EmulatorPlatform {
         return instances;
     }
 
+    /** {@code MuMuManager create -n 1}: one instance, on the Android version MuMu picks. */
+    @Override
+    public NewInstance newInstance() {
+        for (Path install : installDirs()) {
+            Path console = consoleOf(install);
+            if (console != null) {
+                return new NewInstance(PLATFORM_ID, List.of(console.toString(), "create", "-n", "1"), false);
+            }
+        }
+        return null;
+    }
+
     /**
      * Attaches MuMu's {@code MuMuManager.exe control -v <i> launch/shutdown} host commands to a parsed
      * instance. Package-private + pure so it's unit-testable; returns {@code base} unchanged with no console.

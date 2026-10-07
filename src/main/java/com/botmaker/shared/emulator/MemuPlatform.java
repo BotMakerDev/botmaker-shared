@@ -71,6 +71,18 @@ public final class MemuPlatform implements EmulatorPlatform {
     }
 
     /**
+     * {@code memuc create 96}: an Android 9 (64-bit) instance. Without a version memuc creates its oldest, which
+     * current games no longer run on.
+     */
+    @Override
+    public NewInstance newInstance() {
+        Path install = installDir();
+        Path console = install == null ? null : install.resolve("memuc.exe");
+        return console == null || !Files.isRegularFile(console) ? null
+                : new NewInstance(PLATFORM_ID, List.of(console.toString(), "create", "96"), false);
+    }
+
+    /**
      * {@code memuc listvms}, one VM per line: {@code index,title,hwnd,running,pid}; {@code running} is 1 or 0, and
      * says the VM runs, not that Android has booted in it — so starting, and the port says when it is up.
      */

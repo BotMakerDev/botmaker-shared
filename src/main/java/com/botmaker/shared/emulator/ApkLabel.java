@@ -79,6 +79,35 @@ final class ApkLabel {
 
     /** {@code <application android:label>} in a compiled manifest, or {@code null}. Pure, for the tests. */
     static Label manifestLabel(byte[] xml) {
+        Element application = element(xml, "application");
+        return application == null ? null : attribute(xml, application.ext(), application.strings(), application.ids());
+    }
+
+    /**
+     * {@code <manifest package>} in a compiled manifest — the app's package, which every split of it repeats — or
+     * {@code null}. Pure, for the tests.
+     */
+    static String manifestPackage(byte[] xml) {
+        Element manifest = element(xml, "manifest");
+        if (manifest == null) return null;
+        int ext = manifest.ext();
+        int start = uint16(xml, ext + 8);
+        int width = uint16(xml, ext + 10);
+        int count = uint16(xml, ext + 12);
+        for (int i = 0; i < count; i++) {
+            int a = ext + start + i * width;
+            if (!"package".equals(manifest.strings().get(int32(xml, a + 4)))) continue;
+            String value = manifest.strings().get(int32(xml, a + 8));
+            return value == null || value.isBlank() ? null : value;
+        }
+        return null;
+    }
+
+    /** A start element: where its attribute extension begins, and the document's strings and resource ids. */
+    private record Element(int ext, StringPool strings, int[] ids) {}
+
+    /** The first start element named {@code name} in compiled XML, or {@code null}. */
+    private static Element element(byte[] xml, String name) {
         if (xml == null || xml.length < 8 || uint16(xml, 0) != RES_XML) return null;
         StringPool strings = null;
         int[] ids = new int[0];
@@ -94,14 +123,33 @@ final class ApkLabel {
                 for (int i = 0; i < ids.length; i++) ids[i] = int32(xml, p + uint16(xml, p + 2) + 4 * i);
             } else if (type == RES_XML_START_ELEMENT && strings != null) {
                 int ext = p + uint16(xml, p + 2);
-                if ("application".equals(strings.get(int32(xml, ext + 4)))) {
-                    return attribute(xml, ext, strings, ids);
-                }
+                if (name.equals(strings.get(int32(xml, ext + 4)))) return new Element(ext, strings, ids);
             }
             p += size;
         }
         return null;
     }
+
+    /**
+     * What an APK file on this computer says about itself: its package and its name, or {@code null} when it is
+     * not an APK. The name is {@code null} when it has none of its own.
+     */
+    static ApkFacts facts(ApkZip.Reader reader) {
+        try {
+            var entries = ApkZip.entries(reader);
+            ApkZip.Entry manifestEntry = ApkZip.find(entries, "AndroidManifest.xml");
+            if (manifestEntry == null) return null;
+            String pkg = manifestPackage(ApkZip.bytes(reader, manifestEntry, MANIFEST_MAX));
+            if (pkg == null) return null;
+            String label = read(reader, entries);
+            return new ApkFacts(pkg, label == null || label.isEmpty() ? null : label);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** An APK's package and its name ({@code null} when it declares none). */
+    record ApkFacts(String packageName, String label) {}
 
     private static Label attribute(byte[] xml, int ext, StringPool strings, int[] ids) {
         int start = uint16(xml, ext + 8);

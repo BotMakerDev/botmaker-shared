@@ -56,6 +56,20 @@ public final class Platforms {
         return discoverAll();
     }
 
+    /** How to add an instance to each installed product that can, in {@link #ALL}'s order. Never throws. */
+    public static List<NewInstance> newInstances() {
+        List<NewInstance> ways = new ArrayList<>();
+        for (EmulatorPlatform platform : ALL) {
+            try {
+                NewInstance way = platform.newInstance();
+                if (way != null) ways.add(way);
+            } catch (Exception ignored) {
+                // a product whose install can't be read offers nothing
+            }
+        }
+        return List.copyOf(ways);
+    }
+
     /**
      * Discovery plus a per-product status line, so a UI can tell the user what it actually saw — "MuMu:
      * installed, 2 instances · BlueStacks: not installed · LDPlayer: read failed" — instead of a bare empty

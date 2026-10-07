@@ -16,6 +16,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **Installing a game on an emulator, and making a new instance.** `PlayStoreSearch` finds an app on Google
+  Play by name from this computer. `EmulatorInstall` starts the instance if needed, then either opens the app's
+  Google Play page there and waits for the install, or installs an `.apk`, `.xapk` or `.apks` file (splits
+  and OBB data included, `ApkFile`). `Platforms.newInstances()` lists how each installed product adds an
+  instance: the LDPlayer, MEmu and MuMu consoles create one; BlueStacks and GameLoop open their own manager.
+  `EmulatorReadiness.bringUp` is the start-and-wait step that installing and app launches now share.
+
 - **`WindowsLiveInputTest`: the Windows input and capture paths against a real window.** Opt-in
   (`-Dbotmaker.live=true`, Windows only), since the take-over part moves the real cursor and types. It uses a
   bare Win32 stand-in with a title bar that records what its window procedure receives. It checks every

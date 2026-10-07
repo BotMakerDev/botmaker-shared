@@ -78,6 +78,19 @@ public final class GameloopPlatform implements EmulatorPlatform {
                 : null;
     }
 
+    /**
+     * GameLoop's launcher: discovery reads only its primary instance, and the launcher is where its engine is
+     * downloaded the first time and its instances are managed.
+     */
+    @Override
+    public NewInstance newInstance() {
+        for (Path install : installDirs()) {
+            Path launcher = install.resolve("AppMarket").resolve("AppMarket.exe");
+            if (Files.isRegularFile(launcher)) return new NewInstance(PLATFORM_ID, List.of(launcher.toString()), true);
+        }
+        return null;
+    }
+
     /** The primary Gameloop instance (fixed loopback:5555). Pure + package-private so it's unit-testable. */
     static List<EmulatorInstance> singleInstance() {
         return List.of(new EmulatorInstance(PLATFORM_ID, INSTANCE_NAME, HOST, ADB_PORT));

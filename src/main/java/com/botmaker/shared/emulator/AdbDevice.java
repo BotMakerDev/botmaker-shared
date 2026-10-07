@@ -544,11 +544,29 @@ public final class AdbDevice implements AutoCloseable {
             return false;
         }
         try {
-            dadb.push(file, remotePath, 0755, file.lastModified() / 1000);
+            dadb.push(file, remotePath, 0755, file.lastModified());
             return true;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Installs an app from APK files on this computer: one file, or a base APK and its splits together, replacing
+     * an older version. Throws with the package manager's own reason ("INSTALL_FAILED_NO_MATCHING_ABIS…") when
+     * Android refuses it.
+     */
+    public void install(List<java.io.File> apks) throws IOException {
+        if (apks.size() == 1) dadb.install(apks.getFirst(), "-r");
+        else dadb.installMultiple(apks, "-r");
+    }
+
+    /** Copies a local file to {@code remotePath}, readable, creating its folders; throws when it can't. */
+    public void pushData(java.io.File file, String remotePath) throws IOException {
+        int slash = remotePath.lastIndexOf('/');
+        if (slash > 0) shell("mkdir -p '" + remotePath.substring(0, slash).replace("'", "") + "'");
+        // dadb takes milliseconds and converts them itself.
+        dadb.push(file, remotePath, 0644, file.lastModified());
     }
 
     /** Whether the connection still answers a trivial shell round-trip. */

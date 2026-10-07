@@ -5,6 +5,7 @@ import com.botmaker.shared.Diag;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
@@ -70,6 +71,40 @@ public final class EmulatorReadiness {
             // dadb surfaces some failures as Errors; a readiness probe never propagates either kind.
             return false;
         }
+    }
+
+    /**
+     * The instance once it is ready, starting it (once) first when its product says it is stopped — not when its
+     * port is closed: a stopped instance whose port another emulator answers still needs starting. The returned
+     * instance is the re-discovered one, so a container that came up on a different address is talked to there.
+     * Empty when it isn't ready within its product's {@link PlatformId#bootTimeout()}; {@link #notReady} says why.
+     *
+     * @param progress optional narration, called on the calling thread
+     */
+    public static Optional<EmulatorInstance> bringUp(EmulatorInstance instance, Consumer<String> progress) {
+        if (isReady(instance)) {
+            return Optional.of(instance);
+        }
+        EmulatorLiveness liveness = EmulatorLiveness.check(instance);
+        if (liveness.clash() != null) Diag.log("[Emulator] " + instance.name() + " is stopped; " + liveness.clash());
+        if (liveness.state() == EmulatorState.STOPPED) {
+            Diag.log("[Emulator] starting '" + instance.name() + "'");
+            if (progress != null) progress.accept("Starting " + instance.name() + "…");
+            EmulatorLauncher.launch(instance);
+        }
+        if (progress != null) progress.accept(instance.name() + " is booting — waiting for Android to finish starting…");
+        return awaitReady(instance, instance.platformId().bootTimeout());
+    }
+
+    /** Why {@code instance} didn't become ready in {@link #bringUp}, as a sentence a UI shows. */
+    public static String notReady(EmulatorInstance instance) {
+        String problem = EmulatorLiveness.check(instance).problem(instance);
+        if (problem != null) {
+            return instance.name() + " can't be driven: " + problem + ".";
+        }
+        return instance.name() + " didn't finish booting within " + instance.platformId().bootTimeout().toSeconds()
+                + "s. It may still be starting — try again in a moment — or Android is up but ADB isn't answering, "
+                + "which is usually an \"Allow USB debugging?\" prompt waiting inside the emulator.";
     }
 
     /**

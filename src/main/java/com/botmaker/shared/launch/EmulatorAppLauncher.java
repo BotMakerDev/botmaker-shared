@@ -7,7 +7,6 @@ import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.shared.emulator.EmulatorLauncher;
 import com.botmaker.shared.emulator.EmulatorLiveness;
 import com.botmaker.shared.emulator.EmulatorReadiness;
-import com.botmaker.shared.emulator.EmulatorState;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.emulator.WaydroidApps;
@@ -259,17 +258,10 @@ public final class EmulatorAppLauncher {
             return Outcome.failed("No emulator instance named '" + instance + "' was found. Open the emulator "
                     + "picker to see what this machine has, and re-pick the launch target.");
         }
-        Optional<EmulatorInstance> ready = awaitReady(match.get(), instance, progress);
+        Optional<EmulatorInstance> ready = EmulatorReadiness.bringUp(match.get(), progress);
         if (ready.isEmpty()) {
-            Duration budget = match.get().platformId().bootTimeout();
             Diag.log("[Target] emu-app: instance '" + instance + "' did not become ready");
-            String problem = EmulatorLiveness.check(match.get()).problem(match.get());
-            if (problem != null) {
-                return Outcome.failed(instance + " can't be driven: " + problem + ".");
-            }
-            return Outcome.failed(instance + " didn't finish booting within " + budget.toSeconds() + "s. It may "
-                    + "still be starting — try again in a moment — or Android is up but ADB isn't answering, "
-                    + "which is usually an \"Allow USB debugging?\" prompt waiting inside the emulator.");
+            return Outcome.failed(EmulatorReadiness.notReady(match.get()));
         }
         EmulatorInstance live = ready.get();
         try (AdbDevice device = connect(live)) {
@@ -278,27 +270,6 @@ public final class EmulatorAppLauncher {
             Diag.log("[Target] emu-app: " + instance + " failed: " + e.getMessage());
             return Outcome.failed("Couldn't talk to " + instance + " over ADB: " + e.getMessage());
         }
-    }
-
-    /**
-     * The instance once it is ready, launching it (once) first when it isn't up. The returned instance is the
-     * re-discovered one, so a container that came up on a different address is talked to at that address.
-     */
-    private static Optional<EmulatorInstance> awaitReady(EmulatorInstance instance, String name,
-                                                         Consumer<String> progress) {
-        if (EmulatorReadiness.isReady(instance)) {
-            return Optional.of(instance);
-        }
-        // Stopped, not "port closed": a stopped instance whose port another emulator answers still needs starting.
-        EmulatorLiveness liveness = EmulatorLiveness.check(instance);
-        if (liveness.clash() != null) Diag.log("[Target] emu-app: " + name + " is stopped; " + liveness.clash());
-        if (liveness.state() == EmulatorState.STOPPED) {
-            Diag.log("[Target] emu-app: launching emulator instance '" + name + "'");
-            report(progress, "Starting " + name + "…");
-            EmulatorLauncher.launch(instance);
-        }
-        report(progress, name + " is booting — waiting for Android to finish starting…");
-        return EmulatorReadiness.awaitReady(instance, instance.platformId().bootTimeout());
     }
 
     /**

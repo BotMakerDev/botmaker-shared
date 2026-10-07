@@ -45,4 +45,9 @@ public interface EmulatorPlatform {
     default String statusNote() {
         return null;
     }
+
+    /** How to add an instance of this product, or {@code null} when it isn't installed or can't. Best-effort. */
+    default NewInstance newInstance() {
+        return null;
+    }
 }

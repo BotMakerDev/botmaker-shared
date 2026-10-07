@@ -52,5 +52,16 @@ installed APK without pulling it (`ApkZip` reads the ZIP backwards in a few `dd`
 largest `ic_launcher` raster, `ApkLabel` follows `<application android:label>` in the binary manifest into
 `resources.arsc`, default language first). `EmulatorProbe.refresh` keeps an instance's apps, names and icons in
 `EmulatorAppCache`, which is what the SDK's game dialog lists per instance, running or not. Windows-first, best-effort, never throws.
+A game on no instance yet is found and installed from here too. `PlayStoreSearch` reads Google Play's public
+search page on the host (no emulator, account or key; a pasted Play address or a package is taken as is), keyed on
+the `details?id=` links rather than the page's generated class names. `EmulatorInstall.fromStore` brings the
+instance up (`EmulatorReadiness.bringUp`, the start-and-wait the launcher uses too), opens `market://details` in
+the instance's Google Play and polls `pm list packages` until the user has pressed Install there;
+`fromFile` sends an `.apk`, or an `.xapk`/`.apks`'s splits (`install-multiple`) and `Android/obb` data, which
+`ApkFile` unpacks and names out of the APKs' own manifests (`ApkLabel.manifestPackage`). Both read the instance's
+apps again afterwards, so the game's card has its name and icon. `EmulatorPlatform.newInstance` says how a product
+adds an instance (`NewInstance`): `ldconsole add`, `memuc create 96`, `MuMuManager create -n 1`, or the product's
+own manager for BlueStacks (`HD-MultiInstanceManager`) and GameLoop (its launcher). A create counts as done when
+discovery finds one more instance, since `ldconsole add` exits 1 after creating one.
 dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
 shipping no adb binary.

@@ -220,6 +220,40 @@ class WindowsDiscoveryTest {
         }
     }
 
+    /** How each installed product here adds an instance; runs none of them. */
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @EnabledIfSystemProperty(named = "botmaker.live", matches = "true")
+    void printsHowEachProductMakesANewInstance() {
+        Platforms.newInstances().forEach(way -> System.out.println("  " + way.label() + ": "
+                + String.join(" ", way.command())));
+    }
+
+    /**
+     * Installs {@code -Dbotmaker.apk=<file>} on the first running instance, then opens
+     * {@code -Dbotmaker.store=<package>}'s Google Play page there and stops waiting after a minute.
+     */
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @EnabledIfSystemProperty(named = "botmaker.apk", matches = ".+")
+    void installsAFileAndOpensGooglePlayOnARunningInstance() throws Exception {
+        EmulatorInstance instance = Platforms.discoverAll().stream().filter(EmulatorLiveness::running).findFirst()
+                .orElseThrow();
+        long start = System.nanoTime();
+        EmulatorInstall.Result result = EmulatorInstall.fromFile(instance,
+                java.nio.file.Path.of(System.getProperty("botmaker.apk")), line -> System.out.println("  … " + line));
+        System.out.printf("  %s in %d ms%n", result, (System.nanoTime() - start) / 1_000_000);
+        System.out.println("  cached: " + EmulatorAppCache.shared().packages(instance));
+        String store = System.getProperty("botmaker.store");
+        if (store == null) return;
+        Thread wait = new Thread(() -> System.out.println("  " + EmulatorInstall.fromStore(instance, store, null,
+                line -> System.out.println("  … " + line))));
+        wait.start();
+        wait.join(60_000);
+        wait.interrupt();
+        wait.join();
+    }
+
     @Test
     void anInstalledProductWithNoInstanceSaysWhyWhenItCan() {
         assertEquals("Gameloop: installed · only the launcher is installed",
