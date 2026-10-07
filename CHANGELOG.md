@@ -23,6 +23,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   instance: the LDPlayer, MEmu and MuMu consoles create one; BlueStacks and GameLoop open their own manager.
   `EmulatorReadiness.bringUp` is the start-and-wait step that installing and app launches now share.
 
+- **Phones found on the network, and QR pairing.** `AdbTools.mdnsServices()` reads what a running adb server
+  has heard announced (`host:mdns:services`, over its socket, so it starts nothing), and `unconnected` keeps the
+  phones announcing a debugging port that adb isn't connected to. `AdbTools.pairByQr` pairs the phone that
+  scans a `QrPairing` code: it waits for the phone to announce the code's pairing port, runs `adb pair`, then
+  connects to the port the phone announces next.
+
 - **`WindowsLiveInputTest`: the Windows input and capture paths against a real window.** Opt-in
   (`-Dbotmaker.live=true`, Windows only), since the take-over part moves the real cursor and types. It uses a
   bare Win32 stand-in with a title bar that records what its window procedure receives. It checks every

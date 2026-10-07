@@ -10,13 +10,18 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * <b>The host's adb server</b> — whether one is running, what devices it owns, and whether an {@code adb}
@@ -330,6 +335,221 @@ public final class AdbTools {
         }
         // "already connected to" also contains it, and is a success by any measure the caller cares about.
         return run(List.of("connect", hostPort.trim()), "connected to");
+    }
+
+    // --- phones that announce themselves on the network ---
+
+    /** The kinds of service an Android phone announces over mDNS for adb, by their DNS-SD type. */
+    public enum MdnsKind {
+        /** The short-lived <i>Pair device with QR code / pairing code</i> port. */
+        PAIRING("_adb-tls-pairing._tcp", "ready to pair"),
+        /** Android 11+ wireless debugging's own port, the one {@link #connect} takes. */
+        CONNECT("_adb-tls-connect._tcp", "wireless debugging"),
+        /** A phone in legacy {@code adb tcpip} mode, on builds that announce it. */
+        LEGACY("_adb._tcp", "adb over Wi-Fi"),
+        UNKNOWN("", "unknown");
+
+        private final String id;
+        private final String displayName;
+
+        MdnsKind(String id, String displayName) {
+            this.id = id;
+            this.displayName = displayName;
+        }
+
+        public String id() {
+            return id;
+        }
+
+        public String displayName() {
+            return displayName;
+        }
+
+        /** The kind a listed service type names; older adb builds end it with a dot. Never throws. */
+        public static MdnsKind fromId(String id) {
+            String type = id == null ? "" : id.strip();
+            if (type.endsWith(".")) type = type.substring(0, type.length() - 1);
+            for (MdnsKind kind : values()) {
+                if (kind != UNKNOWN && kind.id.equals(type)) return kind;
+            }
+            return UNKNOWN;
+        }
+    }
+
+    /**
+     * One service the adb server heard announced.
+     *
+     * @param instance the announced name: {@code adb-<serial>-<suffix>} for a phone's own services, or the name
+     *                 a QR code gave it while it pairs
+     * @param address  {@code host:port}
+     */
+    public record MdnsService(String instance, MdnsKind kind, String address) {
+
+        /** The address without its port. */
+        public String host() {
+            int colon = address.lastIndexOf(':');
+            return colon < 0 ? address : address.substring(0, colon);
+        }
+
+        /** The phone's serial out of {@code adb-<serial>-<suffix>}, else the announced name as is. */
+        public String displayName() {
+            if (!instance.startsWith("adb-")) return instance;
+            String rest = instance.substring(4);
+            int dash = rest.lastIndexOf('-');
+            return dash > 0 ? rest.substring(0, dash) : rest;
+        }
+
+        /**
+         * Whether {@code device} is this service's phone, already connected: by its address, by the name adb's
+         * own mDNS connect gave it, or by its serial when it is on a cable.
+         */
+        public boolean is(ServerDevice device) {
+            return device.serial().equals(address) || device.serial().startsWith(instance + ".")
+                    || device.serial().equals(displayName());
+        }
+    }
+
+    /**
+     * What a running adb server has heard announced on the local network, or nothing when no server runs.
+     * Asked over the server's socket like {@link #devices()}, so it stays a read: it never starts a server.
+     */
+    public static List<MdnsService> mdnsServices() {
+        try {
+            return parseMdns(query(DEFAULT_PORT, "host:mdns:services"));
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Parses {@code host:mdns:services}, one service per line as {@code adb mdns services} prints it:
+     *
+     * <pre>
+     * adb-R5CT30ABCDE-vWgJpq	_adb-tls-connect._tcp	192.168.1.5:41235
+     * botmaker-k3x9q2ma	_adb-tls-pairing._tcp.	192.168.1.5:37123
+     * </pre>
+     */
+    static List<MdnsService> parseMdns(String output) {
+        List<MdnsService> services = new ArrayList<>();
+        if (output == null) return services;
+        for (String line : output.split("\\R")) {
+            // Tab-separated: an announced name may hold spaces ("Pixel 7").
+            String[] fields = line.strip().split(line.contains("\t") ? "\t+" : "\\s+");
+            if (fields.length < 3 || line.startsWith("List of")) continue;
+            String address = fields[fields.length - 1];
+            if (address.lastIndexOf(':') <= 0) continue;
+            services.add(new MdnsService(fields[0], MdnsKind.fromId(fields[1]), address));
+        }
+        return List.copyOf(services);
+    }
+
+    /**
+     * The phones announcing a debugging port the server isn't connected to: each one a Connect away, no address
+     * typed. One row per address, in the order heard. Pure.
+     */
+    public static List<MdnsService> unconnected(List<MdnsService> services, List<ServerDevice> devices) {
+        List<MdnsService> found = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (MdnsService service : services) {
+            if (service.kind() != MdnsKind.CONNECT && service.kind() != MdnsKind.LEGACY) continue;
+            if (devices.stream().anyMatch(service::is) || !seen.add(service.address())) continue;
+            found.add(service);
+        }
+        return List.copyOf(found);
+    }
+
+    /**
+     * The pairing a QR code carries: Android 11+'s <i>Pair device with QR code</i> reads it, then announces a
+     * pairing port under {@code name}, and {@code password} is the code {@link #pair} sends. Both are drawn from
+     * letters and digits, so nothing in them needs escaping in the payload.
+     */
+    public record QrPairing(String name, String password) {
+
+        private static final String ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
+
+        /** A fresh name and password; one code per dialog. */
+        public static QrPairing random() {
+            SecureRandom random = new SecureRandom();
+            return new QrPairing("botmaker-" + draw(random, 8), draw(random, 10));
+        }
+
+        private static String draw(SecureRandom random, int length) {
+            StringBuilder text = new StringBuilder(length);
+            for (int i = 0; i < length; i++) text.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
+            return text.toString();
+        }
+
+        /** The text the QR code holds, in the Wi-Fi QR format Android's scanner takes for adb. */
+        public String payload() {
+            return "WIFI:T:ADB;S:" + name + ";P:" + password + ";;";
+        }
+    }
+
+    /** How long a phone is waited for, once it has paired, to announce the port it is debugged on. */
+    private static final Duration CONNECT_WAIT = Duration.ofSeconds(20);
+
+    /**
+     * Pairs the phone that scans {@code qr}, then connects to it: starts the adb server if it isn't running,
+     * waits up to {@code wait} for the phone to announce the code's pairing port, runs {@link #pair}, then
+     * connects to the debugging port the phone announces next (or finds adb already connected to it — adb
+     * connects to a paired phone it hears by itself). Blocking; stops with "Stopped." when the thread is
+     * interrupted. {@code progress} gets one sentence per step.
+     */
+    public static Outcome pairByQr(QrPairing qr, Duration wait, Consumer<String> progress) {
+        if (!startServer()) {
+            return new Outcome(false, binary().isEmpty() ? installHint() : "The adb server didn't start.");
+        }
+        progress.accept("On the phone: Developer options ▸ Wireless debugging ▸ Pair device with QR code, "
+                + "then scan this code. The phone must be on this computer's Wi-Fi.");
+        try {
+            MdnsService pairing = await(wait, () -> mdnsServices().stream()
+                    .filter(s -> s.kind() == MdnsKind.PAIRING && s.instance().equals(qr.name())).findFirst());
+            if (pairing == null) {
+                String within = wait.toSeconds() < 120 ? wait.toSeconds() + " seconds" : wait.toMinutes() + " minutes";
+                return new Outcome(false, "No phone scanned the code within " + within + ". "
+                        + "Check that it's on the same Wi-Fi as this computer, then try again.");
+            }
+            progress.accept("Pairing with " + pairing.host() + "…");
+            Outcome paired = pair(pairing.address(), qr.password());
+            if (!paired.ok()) return paired;
+            progress.accept("Paired. Connecting…");
+            String host = pairing.host();
+            Outcome connected = await(CONNECT_WAIT, () -> {
+                List<MdnsService> announced = mdnsServices().stream()
+                        .filter(s -> s.kind() == MdnsKind.CONNECT && s.host().equals(host)).toList();
+                List<ServerDevice> devices = devices();
+                for (MdnsService service : announced) {
+                    if (devices.stream().anyMatch(service::is)) {
+                        return Optional.of(new Outcome(true, "Connected to " + service.displayName() + "."));
+                    }
+                }
+                // Every announced port is tried, since the server's list can still hold an old one; a port can
+                // also be announced a moment before it answers, so a refusal is asked again next second.
+                for (MdnsService service : announced) {
+                    Outcome outcome = connect(service.address());
+                    if (outcome.ok()) return Optional.of(outcome);
+                }
+                return Optional.empty();
+            });
+            return connected != null ? connected : new Outcome(false, "Paired, but no connection to the phone "
+                    + "within " + CONNECT_WAIT.toSeconds() + " seconds. Connect with the address on its Wireless "
+                    + "debugging screen.");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Outcome(false, "Stopped.");
+        }
+    }
+
+    /** Asks {@code poll} every second until it answers or {@code wait} has passed; {@code null} then. */
+    private static <T> T await(Duration wait, Supplier<Optional<T>> poll) throws InterruptedException {
+        long deadline = System.nanoTime() + wait.toNanos();
+        while (true) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            Optional<T> answer = poll.get();
+            if (answer.isPresent()) return answer.get();
+            if (System.nanoTime() > deadline) return null;
+            Thread.sleep(1_000);
+        }
     }
 
     /** Runs one adb subcommand and decides success by what it said, since adb's exit status does not say. */

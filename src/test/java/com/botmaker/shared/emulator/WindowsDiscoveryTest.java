@@ -220,6 +220,16 @@ class WindowsDiscoveryTest {
         }
     }
 
+    /** What a running adb server has heard announced on this network, and which phones it isn't connected to. */
+    @Test
+    @EnabledIfSystemProperty(named = "botmaker.live", matches = "true")
+    void printsThePhonesTheAdbServerHearsOnTheNetwork() {
+        System.out.println("adb server running: " + AdbTools.serverRunning());
+        AdbTools.mdnsServices().forEach(s -> System.out.println("  " + s.kind() + " " + s.displayName() + " "
+                + s.address()));
+        System.out.println("  not connected: " + AdbTools.unconnected(AdbTools.mdnsServices(), AdbTools.devices()));
+    }
+
     /** How each installed product here adds an instance; runs none of them. */
     @Test
     @EnabledOnOs(OS.WINDOWS)

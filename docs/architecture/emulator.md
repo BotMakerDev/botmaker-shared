@@ -63,5 +63,11 @@ apps again afterwards, so the game's card has its name and icon. `EmulatorPlatfo
 adds an instance (`NewInstance`): `ldconsole add`, `memuc create 96`, `MuMuManager create -n 1`, or the product's
 own manager for BlueStacks (`HD-MultiInstanceManager`) and GameLoop (its launcher). A create counts as done when
 discovery finds one more instance, since `ldconsole add` exits 1 after creating one.
+A phone on Wi-Fi is found through the adb server's mDNS list (`AdbTools.mdnsServices`, `host:mdns:services` over
+the server socket; never a reason to start a server). Android 11+ announces `_adb-tls-pairing._tcp` while its
+pairing screen is open and `_adb-tls-connect._tcp` while Wireless debugging is on; a connected phone's serial is
+its address or `<instance>._adb-tls-connect._tcp`, which is how `unconnected` tells the two apart. QR pairing
+(`pairByQr`) shows `WIFI:T:ADB;S:<name>;P:<password>;;`; the phone announces its pairing port under `<name>`,
+and `adb pair` takes the password as the code.
 dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
 shipping no adb binary.

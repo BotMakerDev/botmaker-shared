@@ -163,4 +163,65 @@ class AdbToolsTest {
         assertTrue(hint.contains("download"), "a dead-end sentence is what this phase removed");
         assertTrue(hint.contains("tcpip"), "the route that needs no binary at all");
     }
+
+    /** {@code adb mdns services} as adb 37 prints it, and as older builds did, with a dot after the type. */
+    @Test
+    void announcedServicesAreReadWithTheirKindAndAddress() {
+        List<AdbTools.MdnsService> services = AdbTools.parseMdns("""
+                List of discovered mdns services
+                adb-R5CT30ABCDE-vWgJpq\t_adb-tls-connect._tcp\t192.168.1.5:41235
+                botmaker-k3x9q2ma\t_adb-tls-pairing._tcp.\t192.168.1.5:37123
+                adb-0A1B2C\t_adb._tcp\t192.168.1.9:5555
+                printer\t_ipp._tcp\t192.168.1.2:631
+                adb-broken\t_adb-tls-connect._tcp\tno-port
+                Pixel 7\t_adb._tcp\t192.168.1.4:5555
+                """);
+
+        assertEquals(List.of(
+                new AdbTools.MdnsService("adb-R5CT30ABCDE-vWgJpq", AdbTools.MdnsKind.CONNECT, "192.168.1.5:41235"),
+                new AdbTools.MdnsService("botmaker-k3x9q2ma", AdbTools.MdnsKind.PAIRING, "192.168.1.5:37123"),
+                new AdbTools.MdnsService("adb-0A1B2C", AdbTools.MdnsKind.LEGACY, "192.168.1.9:5555"),
+                new AdbTools.MdnsService("printer", AdbTools.MdnsKind.UNKNOWN, "192.168.1.2:631"),
+                new AdbTools.MdnsService("Pixel 7", AdbTools.MdnsKind.LEGACY, "192.168.1.4:5555")), services);
+        assertEquals("R5CT30ABCDE", services.get(0).displayName());
+        assertEquals("192.168.1.5", services.get(0).host());
+        assertEquals("botmaker-k3x9q2ma", services.get(1).displayName());
+        assertEquals(List.of(), AdbTools.parseMdns(""));
+    }
+
+    /** A phone adb already drives, by address or by the name adb's own mDNS connect gave it, is not offered. */
+    @Test
+    void onlyPhonesTheServerIsntConnectedToAreOfferedOnceEach() {
+        var pixel = new AdbTools.MdnsService("adb-PIXEL-aaaaaa", AdbTools.MdnsKind.CONNECT, "192.168.1.5:41235");
+        var galaxy = new AdbTools.MdnsService("adb-GALAXY-bbbbbb", AdbTools.MdnsKind.CONNECT, "192.168.1.6:40001");
+        var tablet = new AdbTools.MdnsService("adb-TAB-cccccc", AdbTools.MdnsKind.LEGACY, "192.168.1.7:5555");
+        var pairing = new AdbTools.MdnsService("botmaker-x", AdbTools.MdnsKind.PAIRING, "192.168.1.8:37000");
+        var cabled = new AdbTools.MdnsService("adb-R5CT30-dddddd", AdbTools.MdnsKind.CONNECT, "192.168.1.9:40002");
+        var devices = List.of(
+                new AdbTools.ServerDevice("adb-PIXEL-aaaaaa._adb-tls-connect._tcp", "device", "Pixel_7", false),
+                new AdbTools.ServerDevice("192.168.1.7:5555", "device", "", false),
+                new AdbTools.ServerDevice("R5CT30", "device", "SM_G981B", true));
+
+        assertEquals(List.of(galaxy),
+                AdbTools.unconnected(List.of(pixel, galaxy, galaxy, tablet, pairing, cabled), devices),
+                "a phone on the cable is the same phone as its announced serial");
+    }
+
+    /** The payload Android's QR scanner takes for adb, and a fresh, unescaped name and password each time. */
+    @Test
+    void aQrCodeCarriesTheAdbWifiPayloadWithFreshLettersAndDigits() {
+        assertEquals("WIFI:T:ADB;S:botmaker-ab;P:123;;", new AdbTools.QrPairing("botmaker-ab", "123").payload());
+        AdbTools.QrPairing one = AdbTools.QrPairing.random();
+        AdbTools.QrPairing two = AdbTools.QrPairing.random();
+        assertTrue(one.name().matches("botmaker-[a-z0-9]{8}"), one.name());
+        assertTrue(one.password().matches("[a-z0-9]{10}"), one.password());
+        assertFalse(one.equals(two));
+    }
+
+    @Test
+    void anUnknownServiceTypeIsUnknownNeverAThrow() {
+        assertEquals(AdbTools.MdnsKind.UNKNOWN, AdbTools.MdnsKind.fromId(null));
+        assertEquals(AdbTools.MdnsKind.UNKNOWN, AdbTools.MdnsKind.fromId(""));
+        assertEquals(AdbTools.MdnsKind.CONNECT, AdbTools.MdnsKind.fromId("_adb-tls-connect._tcp."));
+    }
 }
