@@ -119,10 +119,12 @@ class WindowsDiscoveryTest {
 
     @Test
     void aBlueStacksEditionHasStartedOnlyWhenItsOneInstanceIsTheOnePlayerRunningAndOtherwiseThePortSays() {
-        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(2, 0), "a player we can't see may still run");
-        assertEquals(EmulatorState.STARTING, BlueStacksPlatform.state(1, 1));
-        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(2, 1), "which of the two is up, its port says");
-        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(1, -1), "no player found to count");
+        assertEquals(EmulatorState.STOPPED, BlueStacksPlatform.state(1, 0, false),
+                "no player anywhere: MuMu answering on 5555 doesn't make BlueStacks run");
+        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(1, 0, true), "a player under another path");
+        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(1, 0, null), "a process table we can't read");
+        assertEquals(EmulatorState.STARTING, BlueStacksPlatform.state(1, 1, true));
+        assertEquals(EmulatorState.UNKNOWN, BlueStacksPlatform.state(2, 1, true), "which of the two is up, its port says");
     }
 
     @Test
@@ -197,6 +199,25 @@ class WindowsDiscoveryTest {
                     + (problem == null ? "" : " · " + problem)
                     + (i.canLaunch() ? "  start: " + String.join(" ", i.launchCommand()) : ""));
         });
+    }
+
+    /** The names read out of real APKs on whichever instance runs: system apps too, so there is always some. */
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @EnabledIfSystemProperty(named = "botmaker.live", matches = "true")
+    void printsTheAppNamesOfARunningInstance() throws Exception {
+        for (EmulatorInstance instance : Platforms.discoverAll()) {
+            if (!EmulatorLiveness.running(instance)) continue;
+            System.out.println("  " + instance.caption());
+            try (AdbDevice device = AdbDevice.connect(instance.adb())) {
+                List<String> packages = AdbDevice.parsePackageList(device.shell("pm list packages"));
+                for (String pkg : packages.stream().sorted().limit(40).toList()) {
+                    long start = System.nanoTime();
+                    String label = device.appLabel(pkg);
+                    System.out.printf("    %-45s %-30s %d ms%n", pkg, label, (System.nanoTime() - start) / 1_000_000);
+                }
+            }
+        }
     }
 
     @Test

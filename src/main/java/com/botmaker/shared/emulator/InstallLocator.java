@@ -234,6 +234,49 @@ final class InstallLocator {
         return (int) images.stream().filter(image -> image.equalsIgnoreCase(wanted)).count();
     }
 
+    /**
+     * Whether any process runs a program whose file is called {@code fileName} ({@code HD-Player.exe}), wherever
+     * it is; {@code null} when that can't be told (off Windows, or the snapshot failed). A product whose engine
+     * runs under no such name is stopped, however its install folder is spelled.
+     *
+     * <p>The names come from a Toolhelp snapshot, which lists every process's file name without opening it — so
+     * an engine running elevated, whose path an unelevated Studio may not read, is still seen.
+     */
+    static Boolean anyProcessNamed(String fileName) {
+        Set<String> names = processNames();
+        return names == null ? null : names.contains(fileName.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private record Names(long at, Set<String> names) {}
+
+    private static volatile Names lastNames;
+
+    /** Every running process's file name, lower-cased, read once a second at most; {@code null} off Windows. */
+    private static Set<String> processNames() {
+        Names cached = lastNames;
+        if (cached != null && System.currentTimeMillis() - cached.at() < 1_000) return cached.names();
+        if (!com.sun.jna.Platform.isWindows()) return null;
+        var kernel = com.sun.jna.platform.win32.Kernel32.INSTANCE;
+        var snapshot = kernel.CreateToolhelp32Snapshot(com.sun.jna.platform.win32.Tlhelp32.TH32CS_SNAPPROCESS,
+                new com.sun.jna.platform.win32.WinDef.DWORD(0));
+        if (snapshot == null || com.sun.jna.platform.win32.WinBase.INVALID_HANDLE_VALUE.equals(snapshot)) return null;
+        try {
+            Set<String> names = new java.util.HashSet<>();
+            var entry = new com.sun.jna.platform.win32.Tlhelp32.PROCESSENTRY32.ByReference();
+            if (kernel.Process32First(snapshot, entry)) {
+                do {
+                    names.add(com.sun.jna.Native.toString(entry.szExeFile).toLowerCase(java.util.Locale.ROOT));
+                } while (kernel.Process32Next(snapshot, entry));
+            }
+            lastNames = new Names(System.currentTimeMillis(), names);
+            return names;
+        } catch (RuntimeException | Error e) {
+            return null;
+        } finally {
+            kernel.CloseHandle(snapshot);
+        }
+    }
+
     private record Images(long at, List<String> paths) {}
 
     private static volatile Images lastImages;

@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -88,5 +89,37 @@ class EmulatorAppCacheTest {
         cache.putIcon(WAYDROID, "com.example.app", null);
 
         assertEquals(List.of(app("com.example.app", "Example")), cache.packages(WAYDROID));
+    }
+
+    @Test
+    void anApkReadWithNoIconIsRememberedAsSettledAndAnIconSupersedesIt(@TempDir Path dir) {
+        EmulatorAppCache cache = new EmulatorAppCache(dir);
+        assertFalse(cache.iconKnown(WAYDROID, "com.adaptive.only"));
+        cache.putNoIcon(WAYDROID, "com.adaptive.only");
+        assertTrue(cache.iconKnown(WAYDROID, "com.adaptive.only"));
+        assertNull(cache.iconPath(WAYDROID, "com.adaptive.only"));
+        cache.putIcon(WAYDROID, "com.adaptive.only", new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB));
+        assertNotNull(cache.iconPath(WAYDROID, "com.adaptive.only"));
+    }
+
+    @Test
+    void anAppsNameIsSettledByWhatItsApkSaysAndAFailedReadIsTriedAgain(@TempDir Path dir) {
+        EmulatorAppCache cache = new EmulatorAppCache(dir);
+        EmulatorProbe.InstalledApp unnamed = app("com.supercell.clashofclans", null);
+
+        EmulatorProbe.InstalledApp failed = EmulatorProbe.settle(WAYDROID, unnamed,
+                new AdbDevice.AppInfo(null, null, false), cache);
+        assertNull(failed.label(), "a read that failed names nothing, so it is read again");
+        assertTrue(EmulatorProbe.unsettled(WAYDROID, failed, cache));
+        assertFalse(cache.iconKnown(WAYDROID, "com.supercell.clashofclans"), "nor is the icon settled");
+
+        EmulatorProbe.InstalledApp named = EmulatorProbe.settle(WAYDROID, unnamed,
+                new AdbDevice.AppInfo("Clash of Clans", null, true), cache);
+        assertEquals("Clash of Clans", named.label());
+        assertFalse(EmulatorProbe.unsettled(WAYDROID, named, cache), "read: named, and no icon to look for");
+
+        EmulatorProbe.InstalledApp none = EmulatorProbe.settle(WAYDROID, app("com.android.shim", null),
+                new AdbDevice.AppInfo("", null, true), cache);
+        assertEquals("com.android.shim", none.label(), "an APK that declares no name shows its package, once");
     }
 }

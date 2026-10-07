@@ -35,7 +35,8 @@ products ask for 5555; `Platforms.dedupe` keeps them all and only drops a phone 
 So the port can't say whether an instance is up: each one carries the `EmulatorState` its product reported in the
 same console call that named it (LDPlayer's `list2` Android flag, `memuc listvms`, MuMu's `is_android_started`),
 or that its engine process gives (`STARTING` — the process, not Android — for a BlueStacks edition with one
-instance and GameLoop; a process not found is `UNKNOWN`, never `STOPPED`), else `UNKNOWN`.
+instance and GameLoop; `STOPPED` when no process by the engine's name runs anywhere, since MuMu also answers on
+5555; `UNKNOWN` when one runs under another path), else `UNKNOWN`.
 `EmulatorLiveness.check` puts that beside a port probe, over a discovery at most 2 s old (`Platforms.recent`;
 `EmulatorLiveness.running`, which bots and launches poll, skips the discovery for a closed port and accepts one
 10 s old): a stopped instance whose port answers names who holds it ("port 5555 is in use by BlueStacks: Pie64"),
@@ -46,6 +47,10 @@ Beyond discovery, each
 `EmulatorInstance` also carries the host `launchCommand`/`stopCommand` its platform resolved (LDPlayer
 `ldconsole`, MuMu `MuMuManager`, MEmu `memuc`, BlueStacks `HD-Player --instance`, Gameloop engine exe), which
 `EmulatorLauncher` spawns to start/stop an instance the ADB transport can't reach until it's up. `AdbDevice`
-also does app queries (`installedApps`/`isInstalled`/`currentApp`). Windows-first, best-effort, never throws.
+also does app queries (`installedApps`/`isInstalled`/`currentApp`), and reads an app's icon and name out of its
+installed APK without pulling it (`ApkZip` reads the ZIP backwards in a few `dd` ranges; `ApkIcon` takes the
+largest `ic_launcher` raster, `ApkLabel` follows `<application android:label>` in the binary manifest into
+`resources.arsc`, default language first). `EmulatorProbe.refresh` keeps an instance's apps, names and icons in
+`EmulatorAppCache`, which is what the SDK's game dialog lists per instance, running or not. Windows-first, best-effort, never throws.
 dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
 shipping no adb binary.

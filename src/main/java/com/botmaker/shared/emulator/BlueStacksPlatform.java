@@ -50,7 +50,8 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
             if (edition.conf() == null || !Files.isReadable(edition.conf())) continue;
             try {
                 List<EmulatorInstance> found = parseConf(Files.readString(edition.conf()), edition.hdPlayer());
-                EmulatorState state = state(found.size(), InstallLocator.processes(edition.hdPlayer()));
+                EmulatorState state = state(found.size(), InstallLocator.processes(edition.hdPlayer()),
+                        InstallLocator.anyProcessNamed("HD-Player.exe"));
                 found.forEach(instance -> instances.add(instance.withState(state)));
             } catch (Exception e) {
                 // this edition's instances are lost, the others' are not
@@ -71,13 +72,16 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
     /**
      * An edition's instances' state from how many of its {@code HD-Player.exe} processes run: each instance runs
      * one, given its token on the command line, which another process cannot read. A player running says its
-     * instance has started (not that Android is up) only when the edition has a single instance. None found says
-     * nothing firm — a player elevated, or under a path spelled otherwise than the registry's, is not seen — so
-     * the port decides, as it does for an edition with several instances.
+     * instance has started (not that Android is up) only when the edition has a single instance. No
+     * {@code HD-Player.exe} running anywhere says every instance is stopped — which matters, because MuMu also
+     * answers on 5555 and would otherwise pass for BlueStacks. A player under another path than the registry's
+     * (a junction, a short name) says nothing firm, and the port decides, as it does for several instances.
      *
-     * @param processes the count, or {@code -1} when the edition's player is unknown
+     * @param processes the count of the edition's own player, or {@code -1} when its path is unknown
+     * @param anyPlayer whether any {@code HD-Player.exe} runs, or {@code null} when the process table can't be read
      */
-    static EmulatorState state(int instances, int processes) {
+    static EmulatorState state(int instances, int processes, Boolean anyPlayer) {
+        if (Boolean.FALSE.equals(anyPlayer)) return EmulatorState.STOPPED;
         return processes > 0 && instances == 1 ? EmulatorState.STARTING : EmulatorState.UNKNOWN;
     }
 

@@ -23,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  */
 class ApkIconTest {
 
-    /** A {@link ApkIcon.Reader} over a byte array that records how much of it was actually read. */
-    private static final class ArrayReader implements ApkIcon.Reader {
+    /** A {@link ApkZip.Reader} over a byte array that records how much of it was actually read. */
+    static final class ArrayReader implements ApkZip.Reader {
         private final byte[] bytes;
         private long bytesRead;
 
@@ -57,7 +57,7 @@ class ApkIconTest {
         return out.toByteArray();
     }
 
-    private static byte[] zip(String[] names, byte[][] contents) throws Exception {
+    static byte[] zip(String[] names, byte[][] contents) throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(out)) {
             for (int i = 0; i < names.length; i++) {

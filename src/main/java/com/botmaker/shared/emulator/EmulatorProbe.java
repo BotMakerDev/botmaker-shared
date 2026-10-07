@@ -1,7 +1,10 @@
 package com.botmaker.shared.emulator;
 
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Editor-side liveness and one-shot queries against a discovered emulator instance, for the pickers that
@@ -85,8 +88,77 @@ public final class EmulatorProbe {
             // Fall through to ADB: the CLI can be unavailable (no session and no container service), and an
             // ADB answer is better than none.
         }
+        return adbApps(instance, EmulatorAppCache.shared());
+    }
+
+    /**
+     * {@link #installedAppsDetailed(EmulatorInstance)} over ADB with the names {@code cache} remembers: one
+     * package listing and nothing more, so a list shows at once. An app not named yet has a {@code null} label;
+     * {@link #appInfo} reads it, out of its APK.
+     */
+    public static List<InstalledApp> installedAppsDetailed(EmulatorInstance instance, EmulatorAppCache cache) {
+        if (instance != null && instance.platformId() == PlatformId.WAYDROID) return installedAppsDetailed(instance);
+        return adbApps(instance, cache);
+    }
+
+    private static List<InstalledApp> adbApps(EmulatorInstance instance, EmulatorAppCache cache) {
+        Map<String, String> known = new HashMap<>();
+        for (InstalledApp app : cache.packages(instance)) known.put(app.packageName(), app.label());
         List<String> packages = withDevice(instance, AdbDevice::installedApps, null);
-        return packages == null ? null : packages.stream().map(pkg -> new InstalledApp(pkg, null)).toList();
+        if (packages == null) return null;
+        List<InstalledApp> apps = new ArrayList<>();
+        for (String pkg : packages) apps.add(new InstalledApp(pkg, known.get(pkg)));
+        return apps;
+    }
+
+    /** One app's name and, with {@code icon}, its icon, out of its APK over one connection; see {@link AdbDevice#appInfo}. */
+    public static AdbDevice.AppInfo appInfo(EmulatorInstance instance, String packageName, boolean icon) {
+        return withDevice(instance, device -> device.appInfo(packageName, icon), new AdbDevice.AppInfo(null, null, false));
+    }
+
+    /**
+     * {@code app} named by what {@code info} read, and its icon settled in {@code cache}: a name the APK doesn't
+     * declare is remembered as the package (it shows the same and isn't read again), one that couldn't be read
+     * stays unknown, to be read next time; an icon is stored, or remembered as missing once the APK was read.
+     */
+    public static InstalledApp settle(EmulatorInstance instance, InstalledApp app, AdbDevice.AppInfo info,
+                                      EmulatorAppCache cache) {
+        if (info.icon() != null) cache.putIcon(instance, app.packageName(), info.icon());
+        else if (info.read() && !cache.iconKnown(instance, app.packageName())) cache.putNoIcon(instance, app.packageName());
+        if (app.label() != null && !app.label().isBlank()) return app;
+        String label = info.label() == null ? null : info.label().isEmpty() ? app.packageName() : info.label();
+        return new InstalledApp(app.packageName(), label);
+    }
+
+    /** Whether {@code app}'s name or icon is still to be read out of its APK. */
+    public static boolean unsettled(EmulatorInstance instance, InstalledApp app, EmulatorAppCache cache) {
+        return app.label() == null || app.label().isBlank() || !cache.iconKnown(instance, app.packageName());
+    }
+
+    /**
+     * Asks a running instance for its apps, and reads the name and icon of each it hasn't seen yet (one APK read
+     * for both), keeping all of it in {@code cache}: what a list of an instance's apps reads afterwards without
+     * asking it, stopped or not. Whether the cache changed — an app, a name or an icon. {@code false} when the
+     * instance didn't answer (the cache is then left as it was). Blocks for one ADB listing plus, the first time
+     * an app is seen, its name and icon.
+     */
+    public static boolean refresh(EmulatorInstance instance, EmulatorAppCache cache) {
+        List<InstalledApp> listed = installedAppsDetailed(instance, cache);
+        if (listed == null || listed.isEmpty()) return false;
+        boolean changed = !listed.equals(cache.packages(instance));
+        List<InstalledApp> apps = new ArrayList<>();
+        for (InstalledApp app : listed) {
+            if (unsettled(instance, app, cache)) {
+                boolean hadIcon = cache.iconPath(instance, app.packageName()) != null;
+                InstalledApp named = settle(instance, app,
+                        appInfo(instance, app.packageName(), !cache.iconKnown(instance, app.packageName())), cache);
+                changed |= !named.equals(app) || (!hadIcon && cache.iconPath(instance, app.packageName()) != null);
+                app = named;
+            }
+            apps.add(app);
+        }
+        cache.putPackages(instance, apps);
+        return changed;
     }
 
     /** One app's launcher icon, read out of its APK over ADB; {@code null} when it has none we can decode. */

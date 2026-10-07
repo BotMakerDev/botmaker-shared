@@ -277,11 +277,49 @@ public final class AdbDevice implements AutoCloseable {
      * everything else here: an unreadable archive is a missing thumbnail, never an exception.
      */
     public BufferedImage appIcon(String packageName) {
+        ApkZip.Reader apk = apkReader(packageName);
+        return apk == null ? null : ApkIcon.read(apk, ApkZip.entries(apk));
+    }
+
+    /**
+     * {@code packageName}'s name as the launcher shows it ("Clash of Clans"), or {@code null}. See {@link #appInfo}.
+     */
+    public String appLabel(String packageName) {
+        AppInfo info = appInfo(packageName, false);
+        return info.label() == null || info.label().isEmpty() ? null : info.label();
+    }
+
+    /**
+     * What one installed app's APK says about it.
+     *
+     * @param label the name as the launcher shows it ("Clash of Clans"); {@code ""} when the APK was read and
+     *              declares none of its own (a library, a shim); {@code null} when the APK couldn't be read,
+     *              which is worth asking again
+     * @param icon  its launcher icon, or {@code null}
+     * @param read  whether the APK's directory was read, so a {@code null} icon means it has none we can decode
+     */
+    public record AppInfo(String label, BufferedImage icon, boolean read) {}
+
+    /**
+     * {@code packageName}'s name and, with {@code icon}, its launcher icon, out of the installed APK: its
+     * directory read once for both, then the manifest and {@code resources.arsc} ({@link ApkLabel}; the table is
+     * read whole, a few megabytes for a game, so ask once per app and keep the answer). Never throws.
+     */
+    public AppInfo appInfo(String packageName, boolean icon) {
+        ApkZip.Reader apk = apkReader(packageName);
+        if (apk == null) return new AppInfo(null, null, false);
+        var entries = ApkZip.entries(apk);
+        if (entries.isEmpty()) return new AppInfo(null, null, false);
+        return new AppInfo(ApkLabel.read(apk, entries), icon ? ApkIcon.read(apk, entries) : null, true);
+    }
+
+    /** Ranged reads of {@code packageName}'s base APK, or {@code null} when it has none. */
+    private ApkZip.Reader apkReader(String packageName) {
         String path = apkPath(packageName);
         if (path == null) {
             return null;
         }
-        return ApkIcon.read(new ApkIcon.Reader() {
+        return new ApkZip.Reader() {
             @Override
             public long size() {
                 return fileSize(path);
@@ -291,7 +329,7 @@ public final class AdbDevice implements AutoCloseable {
             public byte[] read(long offset, int length) {
                 return readBytes(path, offset, length);
             }
-        });
+        };
     }
 
     /** The on-device path of {@code packageName}'s base APK ({@code pm path}), or {@code null}. */

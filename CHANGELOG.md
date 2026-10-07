@@ -52,6 +52,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **An emulator app has its name, not its package.** `AdbDevice.appLabel` reads `<application android:label>` out
+  of the installed APK's binary manifest and follows it into `resources.arsc` (default language, then English),
+  over the same ranged reads as the icon (`ApkZip`), so "Clash of Clans" instead of `com.supercell.clashofclans`.
+  `EmulatorProbe` lists apps with their names, reading each once and remembering it, and `EmulatorProbe.refresh`
+  keeps an instance's apps, names and icons in `EmulatorAppCache` (`iconPath` gives the picture as a file).
+  A BlueStacks or GameLoop with no engine process running anywhere is stopped, so MuMu, which also answers on
+  5555, no longer passes for it.
+
 - **Emulator discovery finds current LDPlayer, MEmu, MuMu, MSI App Player and GameLoop installs.** Each was
   looked for under a registry key its current version no longer writes; a product is now also found by its
   *Apps & features* entry and default folder, and every BlueStacks edition is read. Instances carry the names

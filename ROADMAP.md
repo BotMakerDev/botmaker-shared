@@ -49,7 +49,6 @@ also holds `botmaker-session`'s history before 2026-07-30).
 - **The natives in shared's jar** cost a session-only consumer 9.4 MB; split a `botmaker-shared-natives`
   artifact if somebody consumes session standalone and complains. Only `linux-x86_64` is bundled; ARM would
   take a second `artifactItem`.
-- **App labels over ADB** need the `resources.arsc` string pool; icon plus package name is enough today.
 - **Adopted sessions have no `DEGRADED` state**: they see the display, not the game's process. A bot that must
   notice the game dying wants a probe on the attached window.
 - **The session watchdog is Studio-side only**; a bot JVM outliving its session's display relies on someone

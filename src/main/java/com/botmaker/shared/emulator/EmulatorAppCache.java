@@ -4,10 +4,12 @@ import com.botmaker.shared.config.CacheDirs;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 /**
@@ -74,8 +76,6 @@ public final class EmulatorAppCache {
             return;
         }
         try {
-            Path file = packageFile(instance);
-            Files.createDirectories(file.getParent());
             StringBuilder out = new StringBuilder();
             for (EmulatorProbe.InstalledApp app : apps) {
                 out.append(app.packageName());
@@ -84,9 +84,24 @@ public final class EmulatorAppCache {
                 }
                 out.append('\n');
             }
-            Files.writeString(file, out.toString(), StandardCharsets.UTF_8);
+            replace(packageFile(instance), out.toString().getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             // A cache that can't be written is a cache that isn't there — never a reason to fail a picker.
+        }
+    }
+
+    /**
+     * Writes {@code file} whole or not at all — a temporary file moved over it — so a list read while another
+     * thread writes it (a picker's refresh and a game dialog's) is the old one or the new one, never half.
+     */
+    private static void replace(Path file, byte[] bytes) throws IOException {
+        Files.createDirectories(file.getParent());
+        Path part = Files.createTempFile(file.getParent(), file.getFileName().toString(), ".part");
+        try {
+            Files.write(part, bytes);
+            Files.move(part, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(part);
         }
     }
 
@@ -100,18 +115,46 @@ public final class EmulatorAppCache {
         }
     }
 
+    /** The file holding one app's cached icon, for a view that loads pictures from files; {@code null} if none. */
+    public Path iconPath(EmulatorInstance instance, String packageName) {
+        Path file = iconFile(instance, packageName);
+        return Files.isRegularFile(file) ? file : null;
+    }
+
     /** Stores one app's launcher icon. A null image is a no-op — an absent icon is re-derived, not remembered. */
     public void putIcon(EmulatorInstance instance, String packageName, BufferedImage icon) {
         if (icon == null) {
             return;
         }
         try {
-            Path file = iconFile(instance, packageName);
-            Files.createDirectories(file.getParent());
-            ImageIO.write(icon, "png", file.toFile());
+            ByteArrayOutputStream png = new ByteArrayOutputStream();
+            ImageIO.write(icon, "png", png);
+            replace(iconFile(instance, packageName), png.toByteArray());
         } catch (Exception e) {
             // As above: best-effort.
         }
+    }
+
+    /**
+     * Remembers that one app's APK was read and has no icon we can decode (an adaptive icon with no raster
+     * behind it), so it isn't read again on every listing; {@link #putIcon} with a real one supersedes it.
+     */
+    public void putNoIcon(EmulatorInstance instance, String packageName) {
+        try {
+            replace(noIconFile(instance, packageName), new byte[0]);
+        } catch (Exception e) {
+            // best-effort: it is read again next time
+        }
+    }
+
+    /** Whether one app's icon is settled: stored, or known to be missing. */
+    public boolean iconKnown(EmulatorInstance instance, String packageName) {
+        return Files.isRegularFile(iconFile(instance, packageName))
+                || Files.isRegularFile(noIconFile(instance, packageName));
+    }
+
+    private Path noIconFile(EmulatorInstance instance, String packageName) {
+        return root.resolve("icons").resolve(safe(instance.identity())).resolve(safe(packageName) + ".none");
     }
 
     private Path packageFile(EmulatorInstance instance) {

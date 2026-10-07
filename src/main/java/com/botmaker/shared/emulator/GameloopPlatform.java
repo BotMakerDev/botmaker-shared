@@ -24,8 +24,12 @@ public final class GameloopPlatform implements EmulatorPlatform {
     private static final String HOST = "127.0.0.1";
     private static final int ADB_PORT = 5555;
     private static final String INSTANCE_NAME = "Gameloop";
-    /** The engine binary, in the order to try it: the English build ships the {@code En} name instead. */
-    private static final String[] ENGINE_EXECUTABLES = {"AndroidEmulator.exe", "AndroidEmulatorEn.exe"};
+    /**
+     * The engine binary, in the order to try it: the English build ships the {@code En} name instead, and some
+     * builds an {@code Ex} one beside it.
+     */
+    private static final String[] ENGINE_EXECUTABLES = {"AndroidEmulator.exe", "AndroidEmulatorEn.exe",
+            "AndroidEmulatorEx.exe"};
 
     @Override
     public PlatformId id() {
@@ -48,9 +52,21 @@ public final class GameloopPlatform implements EmulatorPlatform {
         if (engine == null) {
             return List.of();
         }
-        // No console tool: launch is just the engine exe; there's no clean CLI stop (close the window). The engine's
-        // process running says the one instance has started; not finding it says nothing firm (see BlueStacks).
-        EmulatorState state = InstallLocator.processes(engine) > 0 ? EmulatorState.STARTING : EmulatorState.UNKNOWN;
+        // No console tool: launch is just the engine exe; there's no clean CLI stop (close the window). Any of the
+        // engine's builds running says the one instance has started, none running that it is stopped.
+        EmulatorState state = EmulatorState.UNKNOWN;
+        for (String exe : ENGINE_EXECUTABLES) {
+            Boolean running = InstallLocator.anyProcessNamed(exe);
+            if (running == null) {
+                state = EmulatorState.UNKNOWN;
+                break;
+            }
+            if (running) {
+                state = EmulatorState.STARTING;
+                break;
+            }
+            state = EmulatorState.STOPPED;
+        }
         return List.of(singleInstance().get(0).withCommands(List.of(engine.toString()), List.of()).withState(state));
     }
 
