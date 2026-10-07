@@ -16,6 +16,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`WindowsLiveInputTest`: the Windows input and capture paths against a real window.** Opt-in
+  (`-Dbotmaker.live=true`, Windows only), since the take-over part moves the real cursor and types. It uses a
+  bare Win32 stand-in with a title bar that records what its window procedure receives. It checks every
+  button, a drag, the wheel, keys, Alt+Enter and text in the background, and that the cursor never moves there.
+  It checks the click through a covering window, the capture's size, and that no title bar or covering window
+  ends up in it. It checks the ignored-click warning (once for a window that never repaints, never for one
+  that does), WGC on a covered window and across a resize, and take-over clicks, drags, the wheel, relative
+  moves, AltGr `@` and a character with no key on the layout. It also lists the installed launchers' games.
+
 - **Lutris and the app menu are launch targets.**
   - `lutris:<id>` starts a Lutris game the way its own shortcut does (`lutris lutris:rungameid/<id>`, then the
     Flatpak). `LutrisLibrary` lists the installed games through `lutris -l -o -j`, cached for a minute, and a

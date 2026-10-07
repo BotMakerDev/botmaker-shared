@@ -5,9 +5,19 @@ also holds `botmaker-session`'s history before 2026-07-30).
 
 ## Open
 
-- **Windows input and capture have never run on Windows** (2026-10-07). Owed: a click-test of the background
-  path (all buttons, drag, wheel, keys) and of take-over at 100%, 125% and 150%, on a windowed and a fullscreen
-  game, and one game that ignores posted input (the `IgnoredClickWatch` warning should appear). Then
+- **Windows: an arrow key is sent as number-pad 4, on both paths** (`WindowsLiveInputTest`, 2026-10-07).
+  `MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX)` gives no `E0` prefix for the navigation cluster (arrows, Insert,
+  Delete, Home, End, Page Up/Down) on Windows 11 26200 (checked on AZERTY): `VK_LEFT` maps to `0x004B`. Only
+  right Ctrl/Alt, numpad `/` and the Win keys come back prefixed. So `PostedInput.key` posts no extended bit,
+  and `SendInputs.key` sends the bare scan code, which Windows turns into `VK_NUMPAD4` and a `WM_CHAR '4'`.
+  The fix: those virtual keys are extended whatever the mapping answers (`ScanCode` for a VK, not only a VSC).
+- **`WindowsControllerTest.childEnumerationOfANonWindowIsEmptyRatherThanThrowing` fails on Windows.**
+  `EnumChildWindows` on a null parent enumerates the desktop's windows, so `WindowFinder.getChildWindows(new
+  HWND())` is not empty. Decide which is wrong: the test, or the finder's missing null guard.
+- **Windows input and capture: what the live test can't reach** (`-Dbotmaker.live=true`, which covers background
+  and take-over input, the ignored-click warning, a covered window's capture and WGC's resize at one scale).
+  Still owed: 100% and 150%, two monitors at different scales, a fullscreen game, a DirectX game reading raw
+  input (mouselook, the warning), an elevated game ("SendInput was blocked"). Then
   `-Dbotmaker.windows.capture=wgc` on a covered DirectX game: if it works, make WGC the first rung by default
   (`WgcCapture.requested`), and keep the session open between captures as it already does.
 - **Windows: the run overlay can end up in a screen copy.** `WindowCapture.onTop` uses `WindowFromPoint`, which
