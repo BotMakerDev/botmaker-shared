@@ -3,6 +3,7 @@ package com.botmaker.shared;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -79,6 +80,15 @@ public final class Spawn {
      *         case it has been killed — a probe that hangs must not become a caller that hangs)
      */
     public static Completed run(Duration timeout, List<String> command) throws IOException, InterruptedException {
+        return run(timeout, StandardCharsets.UTF_8, command);
+    }
+
+    /**
+     * As {@link #run(Duration, List)}, decoding what the child wrote as {@code charset} — for a Windows console
+     * tool, which writes to a pipe in the system code page rather than UTF-8.
+     */
+    public static Completed run(Duration timeout, Charset charset, List<String> command)
+            throws IOException, InterruptedException {
         Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
         // The drain has to run off this thread. Reading to EOF here would be correct for a child that exits and
         // useless for one that doesn't: EOF arrives only when the pipe closes, so the read outlasts the timeout
@@ -93,7 +103,7 @@ public final class Spawn {
             } catch (IOException closedUnderUs) {
                 // destroyForcibly() below closes the pipe mid-read; whatever was read is what we report.
             } finally {
-                sink.set(buffer.toString(StandardCharsets.UTF_8));
+                sink.set(buffer.toString(charset));
             }
         }, "spawn-drain");
         drain.setDaemon(true);

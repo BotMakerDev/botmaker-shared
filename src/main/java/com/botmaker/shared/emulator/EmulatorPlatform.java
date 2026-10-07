@@ -37,4 +37,12 @@ public interface EmulatorPlatform {
 
     /** All locally-configured instances of this product, each with its ADB port. Never throws; empty if none. */
     List<EmulatorInstance> discover();
+
+    /**
+     * Why an installed product shows no instance, when the product itself can say — "only the launcher is
+     * installed" — or {@code null}, and the picker says it has none configured. Best-effort.
+     */
+    default String statusNote() {
+        return null;
+    }
 }

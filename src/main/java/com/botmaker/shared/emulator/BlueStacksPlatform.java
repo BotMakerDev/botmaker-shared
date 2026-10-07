@@ -10,10 +10,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Discovers <b>BlueStacks 5</b> (BlueStacks_nxt) instances. The install/data directory comes from the
- * registry; the per-instance ADB ports come from {@code bluestacks.conf} in the user-data directory, whose
- * lines look like {@code bst.instance.Rvc64.status.adb_port="5565"} (and an optional
- * {@code bst.instance.Rvc64.display_name="..."}).
+ * Discovers <b>BlueStacks 5</b> instances, in every edition installed side by side (BlueStacks_nxt, the MSI App
+ * Player's BlueStacks_msi5, …). Each edition's install/data directory comes from its registry key; the
+ * per-instance ADB ports come from {@code bluestacks.conf} in its data directory, whose lines look like
+ * {@code bst.instance.Rvc64.status.adb_port="5565"} (else the requested {@code bst.instance.Rvc64.adb_port}),
+ * with an optional {@code bst.instance.Rvc64.display_name="..."}.
  *
  * <p>Best-effort and Windows-first: no registry key / no conf file → empty list.
  */
@@ -22,9 +23,12 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
     public static final PlatformId PLATFORM_ID = PlatformId.BLUESTACKS;
     private static final String CONF_FILE = "bluestacks.conf";
 
-    // bst.instance.<name>.status.adb_port="<port>"
+    // bst.instance.<name>.status.adb_port="<port>" — the port the engine actually took
     private static final Pattern ADB_PORT =
             Pattern.compile("^bst\\.instance\\.([^.]+)\\.status\\.adb_port=\"(\\d+)\"", Pattern.MULTILINE);
+    // bst.instance.<name>.adb_port="<port>" — the one it asks for, and all an instance never started has
+    private static final Pattern REQUESTED_ADB_PORT =
+            Pattern.compile("^bst\\.instance\\.([^.]+)\\.adb_port=\"(\\d+)\"", Pattern.MULTILINE);
     // bst.instance.<name>.display_name="<name>"
     private static final Pattern DISPLAY_NAME =
             Pattern.compile("^bst\\.instance\\.([^.]+)\\.display_name=\"([^\"]*)\"", Pattern.MULTILINE);
@@ -36,45 +40,50 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
 
     @Override
     public boolean isInstalled() {
-        return confPath() != null || hdPlayerPath() != null;
+        return !editions().isEmpty();
     }
 
     @Override
     public List<EmulatorInstance> discover() {
-        Path conf = confPath();
-        if (conf == null || !Files.isReadable(conf)) {
-            return List.of();
+        List<EmulatorInstance> instances = new ArrayList<>();
+        for (Edition edition : editions()) {
+            if (edition.conf() == null || !Files.isReadable(edition.conf())) continue;
+            try {
+                instances.addAll(parseConf(Files.readString(edition.conf()), edition.hdPlayer()));
+            } catch (Exception e) {
+                // this edition's instances are lost, the others' are not
+            }
         }
-        try {
-            return parseConf(Files.readString(conf), hdPlayerPath());
-        } catch (Exception e) {
-            return List.of();
-        }
+        return instances;
     }
 
-    /** {@code <InstallDir>\HD-Player.exe} (the program dir, not the data dir), or {@code null} if unknown. */
-    private static Path hdPlayerPath() {
-        String installDir = WindowsRegistry.firstNonBlank(
-                WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_nxt", "InstallDir"),
-                WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_msi", "InstallDir"));
-        if (installDir == null || installDir.isBlank()) {
-            return null;
+    /**
+     * One installed BlueStacks engine. BlueStacks ships several side by side, each under its own key and folders —
+     * {@code BlueStacks_nxt} (BlueStacks 5), {@code BlueStacks_msi5} (MSI App Player), {@code BlueStacks_nxt_cn}…
+     *
+     * @param conf     {@code bluestacks.conf} in its data folder, or {@code null}
+     * @param hdPlayer {@code HD-Player.exe} in its program folder, or {@code null}
+     */
+    private record Edition(Path conf, Path hdPlayer) {}
+
+    /** Every engine key under {@code HKLM\SOFTWARE} that names a program or a data folder. */
+    private static List<Edition> editions() {
+        List<Edition> editions = new ArrayList<>();
+        for (String key : WindowsRegistry.subkeys("HKLM\\SOFTWARE")) {
+            if (!ENGINE_KEY.matcher(key).matches()) continue;
+            String path = "HKLM\\SOFTWARE\\" + key;
+            Path install = InstallLocator.path(WindowsRegistry.read(path, "InstallDir"));
+            Path data = InstallLocator.path(WindowsRegistry.firstNonBlank(
+                    WindowsRegistry.read(path, "UserDefinedDir"), WindowsRegistry.read(path, "DataDir")));
+            if (install == null && data == null) continue;
+            editions.add(new Edition(data == null ? null : data.resolve(CONF_FILE),
+                    install == null ? null : install.resolve("HD-Player.exe")));
         }
-        return Path.of(installDir.trim(), "HD-Player.exe");
+        return editions;
     }
 
-    /** Locates {@code bluestacks.conf}, or {@code null} if BlueStacks isn't installed / can't be found. */
-    private static Path confPath() {
-        String userDefinedDir = WindowsRegistry.firstNonBlank(
-                WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_nxt", "UserDefinedDir"),
-                WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_msi", "UserDefinedDir"),
-                WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_nxt", "DataDir"),
-                WindowsRegistry.read("HKLM\\SOFTWARE\\BlueStacks_msi", "DataDir"));
-        if (userDefinedDir == null || userDefinedDir.isBlank()) {
-            return null;
-        }
-        return Path.of(userDefinedDir.trim(), CONF_FILE);
-    }
+    /** {@code BlueStacks_nxt}, {@code BlueStacks_msi5}, …; not {@code BlueStacksServices} or {@code BlueStacks X}. */
+    private static final Pattern ENGINE_KEY = Pattern.compile("(?i)BlueStacks_\\w+");
 
     /**
      * Parses a {@code bluestacks.conf} body into instances. Package-private + pure so it's unit-testable
@@ -99,11 +108,20 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
             names.put(nameMatcher.group(1), (display == null || display.isBlank()) ? nameMatcher.group(1) : display);
         }
 
+        Map<String, Integer> ports = new LinkedHashMap<>();
+        Matcher requested = REQUESTED_ADB_PORT.matcher(conf);
+        while (requested.find()) {
+            ports.put(requested.group(1), Integer.parseInt(requested.group(2)));
+        }
+        Matcher taken = ADB_PORT.matcher(conf);
+        while (taken.find()) {
+            ports.put(taken.group(1), Integer.parseInt(taken.group(2)));
+        }
+
         List<EmulatorInstance> instances = new ArrayList<>();
-        Matcher portMatcher = ADB_PORT.matcher(conf);
-        while (portMatcher.find()) {
-            String token = portMatcher.group(1);
-            int port = Integer.parseInt(portMatcher.group(2));
+        for (Map.Entry<String, Integer> entry : ports.entrySet()) {
+            String token = entry.getKey();
+            int port = entry.getValue();
             String name = names.getOrDefault(token, token);
             EmulatorInstance instance = new EmulatorInstance(PLATFORM_ID, name, "127.0.0.1", port);
             if (hdPlayer != null) {

@@ -52,6 +52,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **Emulator discovery finds current LDPlayer, MEmu, MuMu, MSI App Player and GameLoop installs.** Each was
+  looked for under a registry key its current version no longer writes; a product is now also found by its
+  *Apps & features* entry and default folder, and every BlueStacks edition is read. Instances carry the names
+  the product's own console shows (`ldconsole list2`, `memuc listvms`, `MuMuManager info`), MuMu's port is the
+  one its config forwards, and two products asking for the same port are both listed instead of one hiding the
+  other. A GameLoop with no Android engine yet says so. Registry reads no longer spawn `reg.exe`.
+
 - **Game covers: Steam's are found again, and an Epic game has one.** A newer Steam client keeps each library
   picture one folder down, under a content hash (`librarycache/<appid>/<hash>/library_capsule.jpg`), so
   `SteamLibraryScanner` found no cover for a game it had cached that way; both levels are looked at now, the

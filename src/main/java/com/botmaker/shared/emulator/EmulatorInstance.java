@@ -88,6 +88,11 @@ public record EmulatorInstance(PlatformId platformId, String name, AdbEndpoint a
         return new EmulatorInstance(platformId, name, adb, launch, stop);
     }
 
+    /** A copy of this instance under the name its product's console tool reports for it. */
+    public EmulatorInstance withName(String newName) {
+        return new EmulatorInstance(platformId, newName, adb, launchCommand, stopCommand);
+    }
+
     /** Whether {@link EmulatorLauncher#launch} can start this instance (a launch command is known). */
     public boolean canLaunch() {
         return !launchCommand.isEmpty();

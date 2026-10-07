@@ -21,6 +21,9 @@ also holds `botmaker-session`'s history before 2026-07-30).
   test's fullscreen check shows. Studio owns that window, so the fix is a `NativeController` call it makes
   once the overlay is shown, beside `promoteOverlayAboveFullscreen`. Counting it as covering instead would send
   every run's capture to `PrintWindow`, black for many fullscreen games.
+- **Emulator discovery runs each product's console tool in turn** (`ldconsole list2`, `memuc listvms`,
+  `MuMuManager info`), up to 10 s each when a product's service is cold, and `EmulatorInstances.byName` scans
+  at bot runtime. About 1 s here; run them in parallel, or only when a picker needs the names, if it grows.
 - **Windows: window-less keys are always real.** `keyDown(int)`/`typeText(String)` with no window go to the
   focused window through `SendInput` even in the background, because there is no target to post to. The SDK's
   `Keyboard` passes a window when the bot's source is one.

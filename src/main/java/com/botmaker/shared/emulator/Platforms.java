@@ -57,32 +57,38 @@ public final class Platforms {
             try {
                 List<EmulatorInstance> found = platform.discover();
                 all.addAll(found);
-                statuses.add(new PlatformStatus(platform.id(), installed, found.size(), null));
+                String note = installed && found.isEmpty() ? platform.statusNote() : null;
+                statuses.add(new PlatformStatus(platform.id(), installed, found.size(), null, note));
             } catch (Exception e) {
-                statuses.add(new PlatformStatus(platform.id(), installed, 0, e.getClass().getSimpleName()));
+                statuses.add(new PlatformStatus(platform.id(), installed, 0, e.getClass().getSimpleName(), null));
             }
         }
         return new DiscoveryReport(dedupe(all), List.copyOf(statuses));
     }
 
     /**
-     * Drops a later instance whose address a earlier one already claimed, keeping the first.
+     * Drops a {@link PlatformId#PHYSICAL} instance whose address a product already reported, keeping the product's.
      *
      * <p><b>The case this exists for is one phone reported twice.</b> A Waydroid container or a networked
      * emulator that the user has also run {@code adb connect} against appears both in its own product's
      * discovery and in the adb server's device list, under the identical {@code ip:port} name — two rows, one
      * device, and two different {@link EmulatorInstance#identity()} values so nothing downstream could tell.
-     * Order in {@link #ALL} decides the winner, and the specific product is ahead of {@link DevicePlatform}
-     * because it knows things the generic path cannot: the product, and how to launch and stop it.
+     * The product wins because it knows things the generic path cannot: the product, and how to launch and stop it.
      *
-     * <p>Keyed on the address rather than {@code identity()} precisely because the identities differ — the
-     * platform id is part of identity, and disagreeing about the platform is the whole symptom.
+     * <p><b>Two products on one address both stay.</b> They are two instances that cannot run at once — BlueStacks,
+     * LDPlayer's first instance and GameLoop all ask for {@code 127.0.0.1:5555} — and dropping the later one hid
+     * every emulator but the first from a machine that has several.
      */
     static List<EmulatorInstance> dedupe(List<EmulatorInstance> instances) {
-        List<EmulatorInstance> unique = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
+        Set<String> products = new HashSet<>();
         for (EmulatorInstance instance : instances) {
-            if (seen.add(instance.endpoint())) {
+            if (instance.platformId() != PlatformId.PHYSICAL) products.add(instance.endpoint());
+        }
+        List<EmulatorInstance> unique = new ArrayList<>();
+        Set<String> phones = new HashSet<>();
+        for (EmulatorInstance instance : instances) {
+            boolean phone = instance.platformId() == PlatformId.PHYSICAL;
+            if (!phone || (!products.contains(instance.endpoint()) && phones.add(instance.endpoint()))) {
                 unique.add(instance);
             }
         }
@@ -107,8 +113,15 @@ public final class Platforms {
      * @param installed     whether the product appears installed at all
      * @param instanceCount how many instances discovery found
      * @param error         the failure kind if discovery threw for this product, else {@code null}
+     * @param note          why an installed product has no instance, when it can say ({@link
+     *                      EmulatorPlatform#statusNote()}), else {@code null}
      */
-    public record PlatformStatus(PlatformId platformId, boolean installed, int instanceCount, String error) {
+    public record PlatformStatus(PlatformId platformId, boolean installed, int instanceCount, String error,
+                                 String note) {
+
+        public PlatformStatus(PlatformId platformId, boolean installed, int instanceCount, String error) {
+            this(platformId, installed, instanceCount, error, null);
+        }
 
         /** Whether discovery completed without throwing for this product. */
         public boolean ok() {
@@ -128,7 +141,9 @@ public final class Platforms {
         public String statusLine() {
             if (!ok()) return displayName() + ": scan error (" + error + ")";
             if (!installed) return displayName() + ": not installed";
-            if (instanceCount == 0) return displayName() + ": installed · no instances configured";
+            if (instanceCount == 0) {
+                return displayName() + ": installed · " + (note == null ? "no instances configured" : note);
+            }
             return displayName() + ": installed · " + instanceCount
                     + (instanceCount == 1 ? " instance" : " instances") + " configured";
         }

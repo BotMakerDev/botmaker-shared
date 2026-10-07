@@ -65,11 +65,16 @@ public final class EmulatorInstanceScanner {
         return new ArrayList<>(names);
     }
 
-    /** De-duplicates by {@link EmulatorInstance#identity()} (unique per instance), preserving discovery order. */
+    /**
+     * De-duplicates by {@link EmulatorInstance#identity()} and the command that starts it, preserving discovery
+     * order. The command is part of the key because two installs of one product (LDPlayer 9 beside LDPlayer 14,
+     * BlueStacks beside MSI App Player) each have a first instance on the same port: same identity, two instances,
+     * each started by its own install's tool.
+     */
     private static List<EmulatorInstance> dedupByIdentity(List<EmulatorInstance> all) {
         Map<String, EmulatorInstance> byIdentity = new LinkedHashMap<>();
         for (EmulatorInstance instance : all) {
-            byIdentity.putIfAbsent(instance.identity(), instance);
+            byIdentity.putIfAbsent(instance.identity() + "|" + instance.launchCommand(), instance);
         }
         return new ArrayList<>(byIdentity.values());
     }

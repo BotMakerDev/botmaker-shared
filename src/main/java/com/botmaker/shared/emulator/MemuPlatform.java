@@ -2,7 +2,9 @@ package com.botmaker.shared.emulator;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -17,13 +19,9 @@ import java.util.regex.Pattern;
  * <Forwarding name="ADB" proto="1" hostip="127.0.0.1" hostport="21563" guestip="" guestport="5555"/>
  * }</pre>
  *
- * <p>Best-effort and Windows-first: no registry key / no VMs dir → empty list. The instance name is the
- * VM's VirtualBox {@code <Machine name="...">} (which MEmu keeps in sync with the multi-instance manager's
- * title), falling back to the folder name.
- *
- * <p>Note: the {@code .memu} forwarding-rule format is the established VirtualBox layout, but this hasn't been
- * verified against a live MEmu install here — treat it like the BlueStacks/LDPlayer parsers (smoke-test on a
- * real machine).
+ * <p>Best-effort and Windows-first: no install found / no VMs dir → empty list. The instance name is the title
+ * {@code memuc listvms} reports, else the VM's VirtualBox {@code <Machine name="...">}, else the folder name.
+ * Checked against MEmu 9.5 ({@code hostport="21503"}).
  */
 public final class MemuPlatform implements EmulatorPlatform {
 
@@ -53,6 +51,8 @@ public final class MemuPlatform implements EmulatorPlatform {
             return List.of();
         }
         Path console = install.resolve("memuc.exe");
+        Map<Integer, String> titles = InstallLocator.names(console, InstallLocator.SYSTEM_CODE_PAGE,
+                InstallLocator::titlesByIndex, "listvms");
         return PlatformScan.directory(install.resolve(VMS_DIRNAME), dir -> {
             if (!Files.isDirectory(dir)) {
                 return Optional.empty();
@@ -62,20 +62,44 @@ public final class MemuPlatform implements EmulatorPlatform {
             if (!Files.isReadable(memu)) {
                 return Optional.empty();
             }
+            Integer index = vmIndex(vmName);
             return parseVm(vmName, Files.readString(memu))
+                    .map(base -> index != null && titles.containsKey(index) ? base.withName(titles.get(index)) : base)
                     .map(base -> withLaunch(base, vmName, console));
         });
     }
 
-    /** {@code <InstallDir>}, or {@code null} if MEmu isn't installed / can't be found. */
+    /**
+     * The index {@code memuc} numbers a VM folder by: {@code MEmu} is 0, {@code MEmu_3} is 3; {@code null} for a
+     * folder named otherwise. {@code memuc listvms} prints {@code index,title,hwnd,running,pid}, so this is how its
+     * title finds its folder.
+     */
+    static Integer vmIndex(String vmName) {
+        Matcher m = VM_FOLDER.matcher(vmName);
+        if (!m.matches()) return null;
+        return m.group(1) == null ? 0 : Integer.parseInt(m.group(1));
+    }
+
+    private static final Pattern VM_FOLDER = Pattern.compile("MEmu(?:_(\\d+))?");
+
+    /**
+     * {@code <InstallDir>}, or {@code null} if MEmu isn't installed / can't be found: the {@code Microvirt} keys
+     * older versions wrote, then the uninstall entry (MEmu 9 writes only that one, naming the {@code Microvirt}
+     * folder that holds {@code MEmu\}), then the default folder. The install is the folder holding the VMs.
+     */
     private static Path installDir() {
-        String installDir = WindowsRegistry.firstNonBlank(
-                WindowsRegistry.read("HKLM\\SOFTWARE\\Microvirt\\MEmu", "InstallDir"),
-                WindowsRegistry.read("HKLM\\SOFTWARE\\WOW6432Node\\Microvirt\\MEmu", "InstallDir"));
-        if (installDir == null || installDir.isBlank()) {
-            return null;
+        List<Path> candidates = new ArrayList<>();
+        for (String key : List.of("HKLM\\SOFTWARE\\Microvirt\\MEmu", "HKLM\\SOFTWARE\\WOW6432Node\\Microvirt\\MEmu")) {
+            candidates.add(InstallLocator.path(WindowsRegistry.read(key, "InstallDir")));
         }
-        return Path.of(installDir.trim());
+        for (Path folder : InstallLocator.uninstallFolders(
+                name -> name.equalsIgnoreCase("MEmu") || name.equalsIgnoreCase("Microvirt"))) {
+            candidates.add(folder);
+            candidates.add(folder.resolve("MEmu"));
+        }
+        candidates.add(InstallLocator.programFiles("Microvirt", "MEmu"));
+        List<Path> found = InstallLocator.existing(candidates, dir -> Files.isDirectory(dir.resolve(VMS_DIRNAME)));
+        return found.isEmpty() ? null : found.get(0);
     }
 
     /**

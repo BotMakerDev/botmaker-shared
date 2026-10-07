@@ -22,10 +22,17 @@ and a loss over a cable or a radio. Both are lossless, so it is a latency choice
 one `sh` held open across calls (`AdbShellSession`, marker-framed) rather than forking one per command. Note the
 Kotlin package is `dadb.*`, not the `dev.mobile` groupId, and dadb self-manages the RSA key (`~/.android/adbkey`).
 Discovery (`Platforms.discoverAll()`) reads each product's local config/registry → `EmulatorInstance`s (name +
-ADB port): `BlueStacksPlatform` (`bluestacks.conf`), `LdPlayerPlatform` (`leidian<i>.config`, port 5555+2·i,
-name via regex — no Jackson), `MemuPlatform` (VirtualBox `.memu` NAT forwarding rule → host port of guest 5555)
-and `MuMuPlatform` (`vms\MuMuPlayer-12.0-<i>`, port 16384+32·i) all discover for real; `GameloopPlatform`
-detects the install and returns its single primary instance on the fixed port 5555. Beyond discovery, each
+ADB port). A product's folder comes from `InstallLocator`: its own registry key, then its *Apps & features*
+uninstall entry (current LDPlayer, MEmu and MuMu write no other key), then its default folder; registry reads go
+through JNA, not `reg.exe`. `BlueStacksPlatform` reads every `HKLM\SOFTWARE\BlueStacks_*` edition's
+`bluestacks.conf`, `LdPlayerPlatform` every version's `leidian<i>.config` (port 5555+2·i), `MemuPlatform` the
+VirtualBox `.memu` NAT forwarding rule (host port of guest 5555) and `MuMuPlatform` `vms\MuMuPlayer*-<v>-<i>`
+(the port `configs\vm_config.json` forwards, else 16384+32·i). Names come from each product's console
+(`ldconsole list2`, `memuc listvms`, `MuMuManager info -v all`) when it answers, and from its last answer
+(`UserDirs.cache()/emulator-names`) when it doesn't, so a saved name doesn't flip with a slow tool. `GameloopPlatform` returns its
+single primary instance on port 5555 once its engine is downloaded, and a status note until then. Several
+products ask for 5555; `Platforms.dedupe` keeps them all and only drops a phone a product already reported.
+Beyond discovery, each
 `EmulatorInstance` also carries the host `launchCommand`/`stopCommand` its platform resolved (LDPlayer
 `ldconsole`, MuMu `MuMuManager`, MEmu `memuc`, BlueStacks `HD-Player --instance`, Gameloop engine exe), which
 `EmulatorLauncher` spawns to start/stop an instance the ADB transport can't reach until it's up. `AdbDevice`
