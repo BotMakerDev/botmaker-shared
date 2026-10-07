@@ -10,7 +10,7 @@ also holds `botmaker-session`'s history before 2026-07-30).
   HWND())` is not empty. Decide which is wrong: the test, or the finder's missing null guard.
 - **Windows input and capture: what the live test can't reach** (`-Dbotmaker.live=true`, which covers background
   and take-over input, the ignored-click warning, a covered window's capture, WGC's resize and a fullscreen
-  window, at one scale). Still owed: 100% and 150%, two monitors at different scales, a DirectX game reading raw
+  window, at 100%, 125% and 150%). Still owed: two monitors at different scales, a DirectX game reading raw
   input (mouselook, the warning, a black `PrintWindow`), an elevated game ("SendInput was blocked"). Then
   `-Dbotmaker.windows.capture=wgc` on a covered DirectX game: if it works, make WGC the first rung by default
   (`WgcCapture.requested`), and keep the session open between captures as it already does.

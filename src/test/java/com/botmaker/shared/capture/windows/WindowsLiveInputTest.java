@@ -63,8 +63,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * The run order is fixed: background first (the cursor must not move), then Windows.Graphics.Capture (a crash
  * there takes the JVM) and the launcher listing, take-over last.
  *
- * <p>What it cannot stand in for: a DirectX game reading raw input, another display scale or a second monitor, an
- * elevated game, and an AltGr layout unless the machine has one. Those stay manual.
+ * <p>It runs at whatever scale the display has; to try another, switch it and let it settle for a few seconds
+ * first (clicks miss while Windows rescales). What it cannot stand in for: a DirectX game reading raw input, a
+ * second monitor, an elevated game, and an AltGr layout unless the machine has one. Those stay manual.
  */
 @EnabledOnOs(OS.WINDOWS)
 @EnabledIfSystemProperty(named = "botmaker.live", matches = "true")
