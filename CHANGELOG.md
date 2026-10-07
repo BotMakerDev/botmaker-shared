@@ -16,6 +16,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **A VM's screen as a `NativeController`.** `vnc.VncController` connects to the VNC server a hypervisor
+  serves for a virtual machine on this computer. It captures the screen and sends clicks, drags, the wheel,
+  keys and text as VNC messages, so this computer's cursor and keyboard are never touched. The protocol is
+  Vernacular's (`com.shinyhut:vernacular` 1.14, MIT, no dependencies of its own). `Keysyms` turns the Windows
+  virtual-key codes a bot passes into the X keysyms VNC sends. Once the server is gone, it degrades rather
+  than throws.
+
 - **Installing a game on an emulator, and making a new instance.** `PlayStoreSearch` finds an app on Google
   Play by name from this computer. `EmulatorInstall` starts the instance if needed, then either opens the app's
   Google Play page there and waits for the install, or installs an `.apk`, `.xapk` or `.apks` file (splits
