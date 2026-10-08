@@ -92,7 +92,12 @@ public record Qemu(Path folder) {
     /**
      * The command that runs {@code spec} from {@code disk}:
      * <ul>
-     *   <li>the Hypervisor Platform, else QEMU's own emulator (slow, but it starts);</li>
+     *   <li>the Hypervisor Platform, else QEMU's own emulator (slow, but it starts). The Platform keeps its own
+     *       interrupt controller: with {@code kernel-irqchip=off}, Windows 11's loader hangs on its first dot
+     *       (seen with QEMU 11.1, 2026-10-08). Its "failed to get xsave state" lines are harmless;</li>
+     *   <li>{@code -no-reboot}: QEMU ends when the guest restarts, and whoever runs the VM starts it again. With the
+     *       Hypervisor Platform, a restart inside one QEMU hangs the firmware before it draws anything, or stops
+     *       the processor ("WHPX: Unexpected VP exit code 4"); a fresh QEMU boots every time (2026-10-08);</li>
      *   <li>q35 with UEFI, every CPU feature the host offers (Windows 11 needs SSE4.2 and POPCNT);</li>
      *   <li>the disk on NVMe and an e1000e network card, which Windows Setup has drivers for;</li>
      *   <li>a USB tablet, so a VNC pointer lands where it is sent rather than drifting;</li>
@@ -110,7 +115,8 @@ public record Qemu(Path folder) {
         List<String> c = new ArrayList<>(List.of(
                 system().toString(),
                 "-name", "botmaker-" + spec.name(),
-                "-accel", "whpx,kernel-irqchip=off", "-accel", "tcg",
+                "-accel", "whpx", "-accel", "tcg",
+                "-no-reboot",
                 "-machine", "q35",
                 "-cpu", "max",
                 "-smp", Integer.toString(spec.size().cpus()),
@@ -132,7 +138,7 @@ public record Qemu(Path folder) {
         for (int i = 0; i < discs.size(); i++) {
             String id = "cd" + i;
             c.addAll(List.of("-drive", "if=none,id=" + id + ",media=cdrom,readonly=on,file=" + drivePath(discs.get(i)),
-                    "-device", "ide-cd,drive=" + id + ",bus=ide." + i));
+                    "-device", "ide-cd,id=" + cdDrive(i) + ",drive=" + id + ",bus=ide." + i));
         }
         c.addAll(List.of(
                 "-vnc", String.format(Locale.ROOT, "127.0.0.1:%d,password=on", vnc - 5900),
@@ -142,6 +148,16 @@ public record Qemu(Path folder) {
                 "-device", "virtserialport,chardev=agent0,name=org.qemu.guest_agent.0",
                 "-display", "none"));
         return List.copyOf(c);
+    }
+
+    /** The QEMU device id of the {@code index}th CD drive, as QMP's {@code eject} names it. */
+    public static String cdDrive(int index) {
+        return "cdrom" + index;
+    }
+
+    /** How many CD drives a command line from {@code spec} has. */
+    public static int cdDrives(VmSpec spec) {
+        return (spec.windowsIso() != null ? 1 : 0) + spec.discs().size();
     }
 
     /** A path inside a {@code -drive} option, where a comma would end the value unless doubled. */

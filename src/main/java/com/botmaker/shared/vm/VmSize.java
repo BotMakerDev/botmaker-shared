@@ -7,9 +7,10 @@ public record VmSize(int cpus, int memoryMb, int diskGb) {
 
     /** Windows 11's own minimum is 4 GB; the guest is unusable below it. */
     public static final int MIN_MEMORY_MB = 4096;
+    /** Windows 11's own minimum; Setup refuses a smaller disk. Also the default: a game needs more only when big. */
     public static final int MIN_DISK_GB = 64;
     public static final int MAX_DEFAULT_MEMORY_MB = 8192;
-    public static final int DEFAULT_DISK_GB = 80;
+    public static final int DEFAULT_DISK_GB = MIN_DISK_GB;
     public static final int MAX_DEFAULT_CPUS = 4;
 
     public VmSize {
@@ -20,7 +21,7 @@ public record VmSize(int cpus, int memoryMb, int diskGb) {
 
     /**
      * The size a host gives by default: half its memory up to 8 GB (4 GB at least), half its cores up to 4, and
-     * an 80 GB disk.
+     * a 64 GB disk.
      */
     public static VmSize forHost(long hostMemoryMb, int hostCpus) {
         int memory = (int) Math.clamp(hostMemoryMb / 2 / 1024 * 1024, MIN_MEMORY_MB, MAX_DEFAULT_MEMORY_MB);

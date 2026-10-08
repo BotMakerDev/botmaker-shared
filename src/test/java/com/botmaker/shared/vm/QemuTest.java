@@ -23,15 +23,17 @@ class QemuTest {
         String line = String.join(" ", c);
 
         assertEquals(qemu.system().toString(), c.getFirst());
-        assertEquals("whpx,kernel-irqchip=off", c.get(c.indexOf("-accel") + 1), "the Hypervisor Platform first");
+        assertEquals("whpx", c.get(c.indexOf("-accel") + 1), "the Hypervisor Platform first, with its own interrupt controller");
         assertEquals("tcg", c.get(c.lastIndexOf("-accel") + 1), "then QEMU's own emulator");
+        assertTrue(c.contains("-no-reboot"), "a guest restart ends QEMU, which is started again");
         assertEquals("4", c.get(c.indexOf("-smp") + 1));
         assertEquals("8192M", c.get(c.indexOf("-m") + 1));
         assertTrue(line.contains("if=pflash,format=raw,readonly=on,file=" + Path.of("qemu", "share", "edk2-x86_64-code.fd")));
         assertTrue(line.contains("-device nvme,drive=disk0"));
         assertTrue(line.contains("-device usb-tablet"), "a VNC pointer lands where it is sent");
-        assertTrue(line.contains("file=win.iso -device ide-cd,drive=cd0,bus=ide.0"));
-        assertTrue(line.contains("file=answer.iso -device ide-cd,drive=cd1,bus=ide.1"));
+        assertTrue(line.contains("file=win.iso -device ide-cd,id=cdrom0,drive=cd0,bus=ide.0"));
+        assertTrue(line.contains("file=answer.iso -device ide-cd,id=cdrom1,drive=cd1,bus=ide.1"));
+        assertEquals(3, Qemu.cdDrives(SPEC), "the drives a ready VM's discs are ejected from");
         assertTrue(line.contains("file=virtio,,win.iso"), "a comma in a path is doubled");
         assertEquals("127.0.0.1:2,password=on", c.get(c.indexOf("-vnc") + 1));
         assertEquals("tcp:127.0.0.1:4444,server=on,wait=off", c.get(c.indexOf("-qmp") + 1));
@@ -73,7 +75,7 @@ class QemuTest {
         VmSize big = VmSize.forHost(32_768, 16);
         assertEquals(8192, big.memoryMb());
         assertEquals(4, big.cpus());
-        assertEquals(80, big.diskGb());
+        assertEquals(64, big.diskGb(), "Windows 11's minimum: the disk grows as it fills");
         VmSize small = VmSize.forHost(14_000, 2);
         assertEquals(6144, small.memoryMb(), "half of 14 GB, in whole gigabytes");
         assertEquals(1, small.cpus());

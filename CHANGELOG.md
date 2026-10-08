@@ -43,7 +43,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   - its disk and configuration.
 
   `install()` starts the VM, presses the key the Windows disc waits for, and follows Setup over VNC until the
-  guest says the first sign-in is done. It resumes after a restart and deletes the answer disc at the end.
+  guest says the first sign-in is done. It resumes after a restart of the host, and ejects and deletes the
+  answer disc at the end. QEMU runs with `-no-reboot` on the Hypervisor Platform's own interrupt controller:
+  a restart inside it hangs the firmware or stops the processor, so `install()` starts QEMU again each time
+  Windows restarts, and when QEMU pauses the VM (umbrella doc 44 §4b.2.1). A VM's disk is 64 GB by default,
+  Windows 11's minimum, and takes only what Windows writes.
   `start()` starts a VM and connects to its screen, choosing new ports for any that were taken since.
   `VmRecord` keeps each VM's record and `VmInventory` lists them. `GuestAgent` reads, writes and runs inside
   a QEMU guest.

@@ -13,11 +13,13 @@ import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -67,6 +69,9 @@ public final class VmSetup {
     private static final Duration QEMU_START = Duration.ofSeconds(30);
     private static final int AGENT_TIMEOUT_MS = 3_000;
     private static final int SPACE = 0x20;
+    static final String QEMU_LOG = "qemu.log";
+    /** Setup restarts Windows three or four times; the rest is room for faults. */
+    static final int MAX_STARTS = 12;
 
     private VmSetup() {}
 
@@ -105,8 +110,9 @@ public final class VmSetup {
     /** Whether the Windows Hypervisor Platform feature, which QEMU runs on, is turned on. */
     public static boolean hypervisorPlatformOn() {
         try {
+            // Single quotes only: Java passes a double quote inside an argument through unescaped, and Windows drops it.
             Spawn.Completed state = Commands.run(Duration.ofSeconds(30), "powershell.exe", "-NoProfile", "-Command",
-                    "(Get-CimInstance Win32_OptionalFeature -Filter \"Name='HypervisorPlatform'\").InstallState");
+                    "(Get-CimInstance Win32_OptionalFeature -Filter 'Name=''HypervisorPlatform''').InstallState");
             return state.ok() && state.output().strip().equals("1");
         } catch (IOException e) {
             return false;
@@ -167,7 +173,7 @@ public final class VmSetup {
         }
         IsoImage.write(vm.answerIso(), "BOTMAKER", answer);
 
-        listener.step("Creating a " + size.diskGb() + " GB disk that grows as it fills.");
+        listener.step("Creating a disk of up to " + size.diskGb() + " GB; it takes only what Windows writes.");
         switch (hypervisor) {
             case QEMU -> {
                 Qemu qemu = Qemu.find().orElseThrow(() -> new IOException("QEMU isn't installed."));
@@ -190,22 +196,65 @@ public final class VmSetup {
     /**
      * Installs Windows in {@code vm}, or goes on waiting for it: starts the VM if it isn't running, presses the
      * key the Windows disc waits for on its first start, then follows Setup until the guest says it is done.
-     * Records {@link VmRecord.Stage#READY} and returns the record. Throws when the VM stops, or {@code timeout}
-     * passes.
+     * Records {@link VmRecord.Stage#READY} and returns the record.
+     * <p>
+     * A QEMU VM is started again each time Windows restarts it ({@link Qemu#command} ends QEMU then, which exits
+     * with 0), and when its processor stopped on a fault; Setup goes on as after any restart. At most
+     * {@link #MAX_STARTS} starts. Throws when QEMU ends otherwise (a crash, or someone ended it), when a VMware VM
+     * stops, or when {@code timeout} passes.
      */
     public static VmRecord install(VmRecord vm, Listener listener, Duration timeout)
             throws IOException, InterruptedException {
         if (vm.stage() == VmRecord.Stage.READY) return vm;
-        boolean firstStart = vm.stage() == VmRecord.Stage.PREPARED;
         VmCredentials credentials = VmCredentials.load(vm.folder())
                 .orElseThrow(() -> new IOException("The VM's passwords are missing; set it up again."));
-        listener.step(firstStart ? "Starting the VM on the Windows disc." : "Starting the VM again.");
+        long deadline = System.nanoTime() + timeout.toNanos();
+        listener.step(vm.stage() == VmRecord.Stage.PREPARED ? "Starting the VM on the Windows disc." : "Starting the VM again.");
+        for (int starts = 1; ; starts++) {
+            if (System.nanoTime() >= deadline) throw new IOException(tooLong(timeout));
+            Attempt attempt = installOnce(vm, credentials, starts == 1, listener, deadline, timeout);
+            vm = attempt.vm();
+            switch (attempt.ended()) {
+                case READY -> {
+                    return vm;
+                }
+                case RESTARTED -> listener.step("Windows restarted the VM: starting it again.");
+                case FAULTED -> listener.step("The VM's processor stopped on a fault: starting it again.");
+                case SCREEN_LOST -> listener.step("Connecting to the VM's screen again.");
+            }
+            if (starts >= MAX_STARTS) {
+                throw new IOException("The VM was started " + starts + " times and Windows still isn't installed."
+                        + logTail(vm));
+            }
+        }
+    }
+
+    private static String tooLong(Duration timeout) {
+        return "Windows didn't finish installing within " + timeout.toMinutes()
+                + " minutes. The VM is still running: look at its screen.";
+    }
+
+    /** How one start of an install ended. */
+    private enum Ended { READY, RESTARTED, FAULTED, SCREEN_LOST }
+
+    /** How one start of an install ended, and {@code vm} as it now stands. */
+    private record Attempt(VmRecord vm, Ended ended) {
+    }
+
+    /**
+     * Follows one start of the VM until the guest is ready, QEMU ends because the guest restarted, QEMU stopped
+     * its processor (ended here too), or the screen's connection dropped with the VM still running. The key the
+     * Windows disc waits for is pressed while the disk is still empty: once Setup has written to it, the disc
+     * would start Setup over.
+     */
+    private static Attempt installOnce(VmRecord vm, VmCredentials credentials, boolean first, Listener listener,
+                                       long deadline, Duration timeout) throws IOException, InterruptedException {
+        boolean pressKey = !diskWritten(vm);
         try (Running running = start(vm.withStage(VmRecord.Stage.INSTALLING), credentials)) {
             VmRecord installing = running.vm();
             VncController screen = running.screen();
             installing.save();
-            long deadline = System.nanoTime() + timeout.toNanos();
-            if (firstStart) {
+            if (pressKey) {
                 listener.step("Pressing the key the Windows disc waits for.");
                 long keysUntil = System.nanoTime() + BOOT_KEYS.toNanos();
                 while (System.nanoTime() < keysUntil) {
@@ -214,37 +263,141 @@ public final class VmSetup {
                     Thread.sleep(500);
                 }
             }
-            listener.step("Windows is installing: this takes 20 to 40 minutes, and the VM restarts a few times.");
+            if (first) {
+                listener.step("Windows is installing: this takes 20 to 40 minutes, and the VM restarts a few times.");
+            }
             long nextCheck = 0;
             while (System.nanoTime() < deadline) {
                 BufferedImage frame = screen.captureScreen();
                 if (frame != null) listener.frame(frame);
-                if (System.nanoTime() >= nextCheck) {
+                boolean screenLost = !screen.alive();
+                // A screen gone is most often QEMU gone: look now rather than at the next check.
+                if (System.nanoTime() >= nextCheck || screenLost) {
                     nextCheck = System.nanoTime() + READY_POLL.toNanos();
                     if (!VmInventory.running(installing)) {
-                        throw new IOException("The VM stopped while Windows was installing." + logTail(installing));
+                        if (installing.hypervisor() != Hypervisor.QEMU) {
+                            throw new IOException("The VM stopped while Windows was installing." + logTail(installing));
+                        }
+                        awaitExit(installing, running.qemu());
+                        // Unknown when an earlier run started it: a restart is the likely end.
+                        int exit = running.qemu().map(Process::exitValue).orElse(0);
+                        if (exit != 0) {
+                            throw new IOException("QEMU ended (exit code " + exit + ") while Windows was installing."
+                                    + logTail(installing));
+                        }
+                        return new Attempt(installing, Ended.RESTARTED);
                     }
+                    if (faulted(installing)) {
+                        stopQemu(installing, running.qemu());
+                        return new Attempt(installing, Ended.FAULTED);
+                    }
+                    if (screenLost) return new Attempt(installing, Ended.SCREEN_LOST);
                     if (guestReady(installing, credentials)) {
                         VmRecord ready = installing.withStage(VmRecord.Stage.READY);
                         ready.save();
-                        // It holds the guest's password in plain text, and no later start attaches it.
-                        Files.deleteIfExists(ready.answerIso());
+                        removeAnswerDisc(ready);
                         listener.step("Windows is installed and signed in.");
-                        return ready;
+                        return new Attempt(ready, Ended.READY);
                     }
                 }
                 Thread.sleep(FRAME_EVERY.toMillis());
             }
-            throw new IOException("Windows didn't finish installing within " + timeout.toMinutes()
-                    + " minutes. The VM is still running: look at its screen.");
+            throw new IOException(tooLong(timeout));
+        }
+    }
+
+    /** Whether Setup has written to {@code vm}'s disk: a new one, of either kind, holds well under this. */
+    static boolean diskWritten(VmRecord vm) throws IOException {
+        return Files.exists(vm.disk()) && Files.size(vm.disk()) > 64L * 1024 * 1024;
+    }
+
+    /**
+     * Ejects and deletes the answer disc of a VM whose Windows is installed: it holds the guest's password in plain
+     * text, and no later start attaches it. Never throws: Windows is installed whatever happens here, and
+     * {@link #start} tries again when the VM is next started.
+     */
+    private static void removeAnswerDisc(VmRecord ready) {
+        try {
+            ejectDiscs(ready);
+        } catch (IOException e) {
+            // QEMU holds the file until it ends; start() deletes it then.
+        }
+        try {
+            Files.deleteIfExists(ready.answerIso());
+        } catch (IOException e) {
+            // as above
+        }
+    }
+
+    /**
+     * Whether QEMU stopped {@code vm}'s processor: with the Hypervisor Platform, a fault it can't hand the guest
+     * pauses the VM ("WHPX: Unexpected VP exit code 4" in its log), seen on a restart inside QEMU. Nothing else
+     * pauses a VM BotMaker installs. Only QEMU's; VMware reports none.
+     */
+    static boolean faulted(VmRecord vm) {
+        if (vm.hypervisor() != Hypervisor.QEMU) return false;
+        try (QmpClient qmp = QmpClient.connect(vm.qmpPort())) {
+            return switch (qmp.status()) {
+                case PAUSED, INTERNAL_ERROR, GUEST_PANICKED -> true;
+                case RUNNING, SHUTDOWN, UNKNOWN -> false;
+            };
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Takes the discs out of a running QEMU VM's drives, so their files can be deleted or moved; a stopped VMware
+     * VM leaves its own at its next start ({@link #start}).
+     */
+    private static void ejectDiscs(VmRecord vm) throws IOException {
+        if (vm.hypervisor() != Hypervisor.QEMU) return;
+        // The drives QEMU was started with: the record is READY now, and its spec would list none.
+        int drives = Qemu.cdDrives(vm.withStage(VmRecord.Stage.INSTALLING).spec(List.of()));
+        try (QmpClient qmp = QmpClient.connect(vm.qmpPort())) {
+            for (int i = 0; i < drives; i++) {
+                // force: Windows locks the tray of a drive it has mounted.
+                qmp.execute("eject", Map.of("id", Qemu.cdDrive(i), "force", true));
+            }
+        }
+    }
+
+    /** Ends {@code vm}'s QEMU, if it still runs, and waits until it has gone. */
+    private static void stopQemu(VmRecord vm, Optional<Process> qemu) throws IOException, InterruptedException {
+        if (QmpClient.listening(vm.qmpPort())) {
+            try (QmpClient qmp = QmpClient.connect(vm.qmpPort())) {
+                qmp.quit();
+            } catch (IOException e) {
+                // gone between the two looks
+            }
+        }
+        awaitExit(vm, qemu);
+    }
+
+    /**
+     * Waits until {@code vm}'s QEMU has exited: its process when this run started it, else its QMP port. The port
+     * closes before the process has let go of the disk, which the next QEMU must open.
+     */
+    private static void awaitExit(VmRecord vm, Optional<Process> qemu) throws IOException, InterruptedException {
+        if (qemu.isPresent()) {
+            if (!qemu.get().waitFor(QEMU_START.toSeconds(), java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new IOException("QEMU didn't stop." + logTail(vm));
+            }
+            return;
+        }
+        long until = System.nanoTime() + QEMU_START.toNanos();
+        while (QmpClient.listening(vm.qmpPort())) {
+            if (System.nanoTime() > until) throw new IOException("QEMU didn't stop." + logTail(vm));
+            Thread.sleep(500);
         }
     }
 
     /**
      * A started VM and its screen. {@link #vm()} is the record as it now stands: a start may have moved its
-     * ports, and saved that.
+     * ports, and saved that. {@link #qemu()} is the QEMU process this start launched; empty for VMware, and for a
+     * VM that was already running.
      */
-    public record Running(VmRecord vm, VncController screen) implements AutoCloseable {
+    public record Running(VmRecord vm, VncController screen, Optional<Process> qemu) implements AutoCloseable {
 
         /** Disconnects from the screen; the VM goes on running. */
         @Override
@@ -264,16 +417,28 @@ public final class VmSetup {
      * </ul>
      */
     public static Running start(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
+        Optional<Process> started = Optional.empty();
         switch (vm.hypervisor()) {
             case QEMU -> {
                 Qemu qemu = Qemu.find().orElseThrow(() -> new IOException("QEMU isn't installed."));
                 if (!QmpClient.listening(vm.qmpPort())) {
                     vm = withFreePorts(vm);
-                    Spawn.logged(qemu.command(vm.spec(List.of()), vm.disk(), vm.folder().resolve("efivars.fd"),
-                            vm.qemuPorts()), vm.folder().resolve("qemu.log").toFile());
+                    if (vm.stage() == VmRecord.Stage.READY) Files.deleteIfExists(vm.answerIso()); // left by install()
+                    Path log = vm.folder().resolve(QEMU_LOG);
+                    // Appended, one header per start: an install starts QEMU several times, and why the earlier
+                    // ones ended is the evidence.
+                    Files.writeString(log, "--- " + java.time.LocalDateTime.now().withNano(0) + " start\n",
+                            StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    started = Optional.of(new ProcessBuilder(qemu.command(vm.spec(List.of()), vm.disk(),
+                            vm.folder().resolve("efivars.fd"), vm.qemuPorts()))
+                            .redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()))
+                            .redirectErrorStream(true)
+                            .start());
                     long until = System.nanoTime() + QEMU_START.toNanos();
                     while (!QmpClient.listening(vm.qmpPort())) {
-                        if (System.nanoTime() > until) throw new IOException("QEMU didn't start." + logTail(vm));
+                        if (System.nanoTime() > until || !started.get().isAlive()) {
+                            throw new IOException("QEMU didn't start." + logTail(vm));
+                        }
                         Thread.sleep(500);
                     }
                 }
@@ -299,7 +464,7 @@ public final class VmSetup {
         }
         VncController screen = VncController.connect("127.0.0.1", vm.vncPort(), credentials.vnc(),
                 Keysyms.NativeKeys.VIRTUAL_KEY, vm.name(), 30_000);
-        return new Running(vm, screen);
+        return new Running(vm, screen, started);
     }
 
     /** {@code vm} with any of its QEMU ports that can't be bound now chosen again, and saved when one moved. */
@@ -343,8 +508,8 @@ public final class VmSetup {
         String path = iso.toAbsolutePath().toString().replace("'", "''");
         Spawn.Completed read = Commands.run(Duration.ofMinutes(2), "powershell.exe", "-NoProfile", "-Command",
                 "$i = Mount-DiskImage -ImagePath '" + path + "' -PassThru; try { $d = ($i | Get-Volume).DriveLetter;"
-                        + " if (-not (Test-Path \"${d}:\\sources\\setup.exe\")) { 'NOT-WINDOWS' }"
-                        + " else { Get-Content \"${d}:\\sources\\lang.ini\" } }"
+                        + " if (-not (Test-Path ($d + ':\\sources\\setup.exe'))) { 'NOT-WINDOWS' }"
+                        + " else { Get-Content ($d + ':\\sources\\lang.ini') } }"
                         + " finally { Dismount-DiskImage -ImagePath '" + path + "' | Out-Null }");
         if (read.output().contains("NOT-WINDOWS")) throw new IOException(iso.getFileName() + " isn't a Windows installer disc.");
         return read.ok() ? languageOf(read.output()) : "en-US";
@@ -400,11 +565,11 @@ public final class VmSetup {
 
     /** The end of QEMU's log, which says why it stopped; empty for VMware. */
     private static String logTail(VmRecord vm) {
-        Path log = vm.folder().resolve("qemu.log");
+        Path log = vm.folder().resolve(QEMU_LOG);
         try {
             if (!Files.isRegularFile(log)) return "";
             List<String> lines = Files.readAllLines(log, StandardCharsets.UTF_8);
-            List<String> tail = lines.subList(Math.max(0, lines.size() - 5), lines.size());
+            List<String> tail = lines.subList(Math.max(0, lines.size() - 8), lines.size());
             return tail.isEmpty() ? "" : " QEMU said: " + String.join(" ", tail).strip();
         } catch (IOException | RuntimeException e) {
             return "";

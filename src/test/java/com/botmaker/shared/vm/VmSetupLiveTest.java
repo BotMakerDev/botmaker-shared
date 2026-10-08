@@ -65,23 +65,33 @@ class VmSetupLiveTest {
             Thread.sleep(10_000);
             say(results, String.format("idle updates: %.1f/s at %s", (screen.frames() - seen) / 10.0, screen.screenSize()));
 
+            // Windows opens Start at the first sign-in: close it, so the Windows key opens it.
+            press(screen, 0x1B);
+            Thread.sleep(1_000);
             BufferedImage before = screen.captureScreen();
-            screen.keyDown(0x5B); // the Windows key opens Start
-            screen.keyUp(0x5B);
-            Thread.sleep(2_000);
-            double keyChange = changed(before, screen.captureScreen());
-            screen.keyDown(0x1B);
-            screen.keyUp(0x1B);
+            seen = screen.frames();
+            long sent = System.nanoTime();
+            press(screen, 0x5B); // the Windows key opens Start
+            double keyChange = awaitChange(screen, before, 0.005);
+            long keyMs = (System.nanoTime() - sent) / 1_000_000;
+            say(results, String.format("Windows key changed %.1f%% of the screen, seen after %d ms, %d updates",
+                    keyChange * 100, keyMs, screen.frames() - seen));
+            press(screen, 0x1B);
             Thread.sleep(1_500);
-            say(results, String.format("Windows key changed %.1f%% of the screen", keyChange * 100));
 
+            // A left click gives the desktop focus back from Start; a right-click straight after Escape is lost.
+            // Just after the first sign-in, the desktop's menu can take seconds: Windows is still settling in.
+            int x = before.getWidth() / 2, y = before.getHeight() / 2;
+            screen.click(x, y, 1);
+            Thread.sleep(1_000);
             BufferedImage desktop = screen.captureScreen();
-            screen.click(desktop.getWidth() / 2, desktop.getHeight() / 2, 3); // the desktop's context menu
-            Thread.sleep(2_000);
-            double clickChange = changed(desktop, screen.captureScreen());
-            screen.keyDown(0x1B);
-            screen.keyUp(0x1B);
-            say(results, String.format("right-click changed %.1f%% of the screen", clickChange * 100));
+            sent = System.nanoTime();
+            screen.click(x, y, 3); // the desktop's context menu
+            double clickChange = awaitChange(screen, desktop, 0.001);
+            long clickMs = (System.nanoTime() - sent) / 1_000_000;
+            press(screen, 0x1B);
+            say(results, String.format("right-click changed %.1f%% of the screen, seen after %d ms",
+                    clickChange * 100, clickMs));
 
             Files.write(vm.folder().resolve("live-results.txt"), results);
             assertTrue(keyChange > 0.005, "the Windows key opened nothing");
@@ -93,6 +103,24 @@ class VmSetupLiveTest {
         String stamped = LocalTime.now().truncatedTo(ChronoUnit.SECONDS) + " " + line;
         results.add(stamped);
         System.out.println(stamped);
+    }
+
+    private static void press(VncController screen, int key) {
+        screen.keyDown(key);
+        screen.keyUp(key);
+    }
+
+    /** The share of the screen changed from {@code before}, once it passes {@code share} or after 10 s. */
+    private static double awaitChange(VncController screen, BufferedImage before, double share)
+            throws InterruptedException {
+        long until = System.nanoTime() + 10_000_000_000L;
+        double change = 0;
+        while (System.nanoTime() < until) {
+            Thread.sleep(250);
+            change = changed(before, screen.captureScreen());
+            if (change > share) break;
+        }
+        return change;
     }
 
     /** The share of pixels that differ between two screens of the same size. */

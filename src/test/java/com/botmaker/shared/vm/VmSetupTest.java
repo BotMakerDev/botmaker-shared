@@ -54,6 +54,19 @@ class VmSetupTest {
     }
 
     @Test
+    void theDiscsKeyIsPressedOnlyWhileTheDiskIsEmpty(@TempDir Path folder) throws Exception {
+        VmRecord vm = new VmRecord(folder, "g", Hypervisor.QEMU, VmRecord.Stage.INSTALLING, new VmSize(2, 4096, 64),
+                Path.of("win.iso"), "en-US", 5900, 40001, 40002);
+        assertTrue(!VmSetup.diskWritten(vm), "no disk yet");
+        Files.write(vm.disk(), new byte[200 * 1024]);
+        assertTrue(!VmSetup.diskWritten(vm), "a new qcow2 is a few hundred kilobytes");
+        try (var file = new java.io.RandomAccessFile(vm.disk().toFile(), "rw")) {
+            file.setLength(65L * 1024 * 1024);
+        }
+        assertTrue(VmSetup.diskWritten(vm), "Setup has partitioned it: the disc would start over");
+    }
+
+    @Test
     void theDiscsLanguageIsTheFirstItOffers() {
         assertEquals("fr-FR", VmSetup.languageOf("""
                 [Available UI Languages]
