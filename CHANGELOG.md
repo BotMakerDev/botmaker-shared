@@ -34,8 +34,22 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   - Two displays at once worked live: each listed its own window and game, and a click or a stop on one
     reached that one alone.
   - The scripts are written at each `open`, so a VM set up before them gets them.
+  - Each display's game has a Wine prefix of its own (`~/.wine-display-N`): one prefix's `wineserver` would
+    be the first game's, and stopping it would end the others'. A stop kills what is left after 15 s, as
+    Wine's services ignore SIGTERM.
 - **A Linux guest's store launchers are found where its setup put them** (`GuestLauncher.linuxExecutable`,
   `VmSetup.guestHas`).
+- **`GameCopy` copies into a Linux game VM on QEMU** (`LinuxGameCopy`). The guest fetches the game with `curl`
+  from the same loopback `FolderServer`, skipping files already there whole.
+  - A Steam game goes into `~/.steam/steam/steamapps/common` with this PC's `.acf`.
+  - An Epic game goes into `~/Games`, then `legendary import` once Legendary is signed in.
+  - `copy` returns an `Outcome`, whose `said(game)` tells the user what to do next.
+  - Firestone, 754 MB, was copied live in 70 s. On a bot's display it ran under Wine, in software, up to its
+    sign-in.
+- **`Legendary` signs a Linux VM's Legendary in to Epic.** `SIGN_IN_PAGE` opens in this PC's browser, and
+  `code(pasted)` reads the one-time code the page shows. `signIn(vm, code)` hands that code to the guest as a
+  file, never a command line, and `signedIn(vm)` answers only yes or no.
+- **A Linux game VM installs Wine at its setup**; a VM set up before that gets it at its first Epic copy.
 - **A Linux game VM, set up unattended (QEMU).** `VmSetup.prepare` takes a `vm.GuestOs`, `WINDOWS` or
   `LINUX`. `VmSpec` and `VmRecord` carry it, and a record without it reads as Windows. For Linux:
   - Studio downloads Ubuntu Server 24.04.5 itself, checked against Canonical's SHA-256

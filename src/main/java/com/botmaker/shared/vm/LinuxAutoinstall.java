@@ -111,7 +111,8 @@ public final class LinuxAutoinstall {
     }
 
     /**
-     * What the first start runs as root: Steam and Legendary, then {@link #finishScript()} in a unit of its own.
+     * What the first start runs as root: Steam, Wine (Legendary's Windows games, and a Windows program) and
+     * Legendary, then {@link #finishScript()} in a unit of its own.
      * Steam's package asks to accept its licence, answered beforehand for both names its question has had.
      */
     static String setupScript() {
@@ -126,6 +127,7 @@ public final class LinuxAutoinstall {
                 + "  echo \"$owner steam/license note \" | debconf-set-selections\n"
                 + "done\n"
                 + "apt-get install -y steam-installer || echo \"BotMaker: Steam didn't install\"\n"
+                + LinuxGameCopy.WINE + " || echo \"BotMaker: Wine didn't install\"\n"
                 + "if curl -fsSL -o /tmp/legendary '" + LEGENDARY.url() + "'"
                 + " && echo '" + LEGENDARY.hex() + "  /tmp/legendary' | sha256sum -c -; then\n"
                 + "  install -m 0755 /tmp/legendary /usr/local/bin/legendary\n"

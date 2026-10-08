@@ -46,7 +46,9 @@ class LinuxDisplayTest {
     void aLaunchEndsTheLastOneAndAStopSaysWhatOutlivedIt() {
         String launch = LinuxDisplay.launchCommand(3);
         assertTrue(launch.startsWith("systemctl stop botmaker-game-3 2>/dev/null; "), launch);
-        assertTrue(launch.contains("--unit=botmaker-game-3 -p RemainAfterExit=yes --setenv=DISPLAY=:3"), launch);
+        assertTrue(launch.contains("--unit=botmaker-game-3 -p RemainAfterExit=yes -p TimeoutStopSec=15 "
+                + "--setenv=DISPLAY=:3"), "Wine's services ignore SIGTERM: " + launch);
+        assertTrue(launch.contains("--setenv=WINEPREFIX=/home/botmaker/.wine-display-3 "), "a wineserver per display");
         assertTrue(launch.endsWith("/bin/sh /run/botmaker/display-3/launch.sh"), launch);
         String stop = LinuxDisplay.stopCommand(3);
         assertTrue(stop.contains("systemctl stop botmaker-game-3; "), stop);

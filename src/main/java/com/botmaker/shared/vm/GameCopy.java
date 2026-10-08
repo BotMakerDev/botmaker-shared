@@ -47,14 +47,14 @@ public final class GameCopy {
     static final String EPIC_INSTALLED = "C:\\ProgramData\\Epic\\UnrealEngineLauncher\\LauncherInstalled.dat";
 
     /** How long the guest may take over a copy: 20 GB at QEMU's user-network speed, with room. */
-    private static final Duration COPY = Duration.ofHours(4);
+    static final Duration COPY = Duration.ofHours(4);
     private static final Duration REPORT_EVERY = Duration.ofSeconds(2);
-    private static final int AGENT_TIMEOUT_MS = 30_000;
+    static final int AGENT_TIMEOUT_MS = 30_000;
     /**
      * How long the agent may take over one answer while the copy runs: a guest busy with its launcher's first
      * start answered a status call in over 30 s, live, and the copy is hours long.
      */
-    private static final int COPY_REPLY_MS = 120_000;
+    static final int COPY_REPLY_MS = 120_000;
     /** The copy script's exit code when the guest's disk lacks the room. */
     static final int NO_ROOM = 3;
     private static final String POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -133,16 +133,43 @@ public final class GameCopy {
         }
     }
 
+    /** How a copy ended, and what the user does next: {@link #said}. */
+    public enum Outcome {
+        /** A Windows VM's launcher has the game's record: opened again, it checks the files. */
+        RECORDED("✓ %s is in the VM. Open %s on this screen: it checks the game's files, then lists it installed."),
+        /** A Linux VM's Steam has it: a Windows game there needs Steam Play. */
+        STEAM_PLAY("✓ %s is in the VM. Start %s here (or quit and start it again, when it runs): it checks the "
+                + "game's files, then lists it installed. A Windows "
+                + "game runs there through Steam Play: turn it on in Steam's Settings ▸ Compatibility if it asks."),
+        /** A Linux VM's Legendary has it: a bot starts it. */
+        IMPORTED("✓ %s is in the VM, and Legendary has it: a bot starts it there."),
+        /** The files are in a Linux VM, whose Legendary isn't signed in to record them. */
+        SIGN_IN_FIRST("%s's files are in the VM. Sign in to Epic here, then copy it again: the files there are "
+                + "kept, and Legendary records it.");
+
+        private final String sentence;
+
+        Outcome(String sentence) {
+            this.sentence = sentence;
+        }
+
+        /** The sentence for the user, about {@code game}. */
+        public String said(Source game) {
+            return sentence.formatted(game.name(), game.launcher().displayName());
+        }
+    }
+
     /**
      * Copies {@code game} into the running {@code vm} and records it in the VM's launcher, telling
      * {@code progress} one sentence every few seconds (the bytes copied, counted per file under VMware: a resumed copy skips the files already
-     * there whole, and finishes short of the total). The VM's launcher is closed for the record to be written:
-     * the user opens it again, and it checks the files.
+     * there whole, and finishes short of the total). A Windows VM's launcher is closed for the record to be
+     * written: the user opens it again, and it checks the files. A Linux VM: {@link LinuxGameCopy}.
      *
      * @throws IOException with a sentence: no launcher in the VM, not enough room, or the copy failing
      */
-    public static void copy(VmRecord vm, VmCredentials credentials, Source game, Consumer<String> progress)
+    public static Outcome copy(VmRecord vm, VmCredentials credentials, Source game, Consumer<String> progress)
             throws IOException, InterruptedException {
+        if (vm.guestOs() == GuestOs.LINUX) return LinuxGameCopy.copy(vm, game, progress);
         VmSetup.requireWindows(vm);
         Guest guest = switch (vm.hypervisor()) {
             case QEMU -> new QemuGuest(vm.agentPort());
@@ -164,6 +191,7 @@ public final class GameCopy {
         for (Map.Entry<String, byte[]> file : record(game, into, installed).entrySet()) {
             guest.write(file.getKey(), file.getValue());
         }
+        return Outcome.RECORDED;
     }
 
     /** Where the guest's {@code launcher} installs games, from where its program is there; empty when it isn't. */
@@ -335,7 +363,7 @@ public final class GameCopy {
      * Tells {@code progress}, every few seconds, the bytes {@code copied} of {@code total}, until stopped; a
      * count of -1, unknown, and one read as the copy ended, say nothing.
      */
-    private static Thread reporter(Source game, long total, LongSupplier copied, Consumer<String> progress) {
+    static Thread reporter(Source game, long total, LongSupplier copied, Consumer<String> progress) {
         String of = " MB copied, of " + megabytes(total) + " MB.";
         return Thread.ofPlatform().daemon().name("game-copy-progress").start(() -> {
             try {
@@ -351,7 +379,7 @@ public final class GameCopy {
         });
     }
 
-    private static void stop(Thread reporter) throws InterruptedException {
+    static void stop(Thread reporter) throws InterruptedException {
         reporter.interrupt();
         reporter.join(); // its last sentence before the next one
     }

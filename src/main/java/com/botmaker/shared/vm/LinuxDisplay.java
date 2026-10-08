@@ -285,7 +285,9 @@ public final class LinuxDisplay implements AutoCloseable {
     /**
      * Starts {@code launch.sh} as display N's game, as the VM's user, after ending the last one there. The unit
      * stays once its first program exits (a launcher that hands the game off), so its control group keeps every
-     * process the launch started.
+     * process the launch started. A stop kills what is left 15 s after asking: Wine's services ignore the ask, and
+     * systemd would otherwise wait 90 s; a Steam started here gets the 15 s to write its records. Each display has a Wine prefix of its own: one prefix has one
+     * {@code wineserver}, which would be the first game's, and stopping that game would end the others'.
      */
     static String launchCommand(int number) {
         String d = folder(number);
@@ -293,7 +295,9 @@ public final class LinuxDisplay implements AutoCloseable {
                 + "systemctl reset-failed botmaker-game-" + number + " 2>/dev/null; "
                 + "chown botmaker:botmaker " + d + "/launch.sh && "
                 + "systemd-run --quiet --uid=botmaker --unit=botmaker-game-" + number + " -p RemainAfterExit=yes "
-                + "--setenv=DISPLAY=:" + number + " --setenv=HOME=/home/botmaker --working-directory=/home/botmaker "
+                + "-p TimeoutStopSec=15 "
+                + "--setenv=DISPLAY=:" + number + " --setenv=HOME=/home/botmaker "
+                + "--setenv=WINEPREFIX=/home/botmaker/.wine-display-" + number + " --working-directory=/home/botmaker "
                 + "/bin/sh " + d + "/launch.sh";
     }
 
