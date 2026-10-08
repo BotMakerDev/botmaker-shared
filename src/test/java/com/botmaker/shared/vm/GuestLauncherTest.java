@@ -3,9 +3,6 @@ package com.botmaker.shared.vm;
 import com.botmaker.shared.launch.LaunchSpec;
 import org.junit.jupiter.api.Test;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -22,10 +19,8 @@ class GuestLauncherTest {
     }
 
     @Test
-    void theInstallScriptDownloadsAndRunsTheInstallerSilentlyAsEncoded() {
-        String epic = new String(Base64.getDecoder().decode(GuestLauncher.EPIC.encodedInstallScript()),
-                StandardCharsets.UTF_16LE);
-        assertEquals(GuestLauncher.EPIC.installScript(), epic);
+    void theInstallScriptDownloadsAndRunsTheInstallerSilently() {
+        String epic = GuestLauncher.EPIC.installScript();
         assertTrue(epic.contains("EpicGamesLauncherInstaller.msi' -OutFile $f"), epic);
         assertTrue(epic.contains("msiexec.exe -ArgumentList '/i',('\"' + $f + '\"'),'/qn','/norestart' -Wait"), epic);
         assertTrue(epic.endsWith("exit $p.ExitCode\n"), epic);

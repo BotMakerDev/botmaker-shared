@@ -1,6 +1,8 @@
 package com.botmaker.shared.vm;
 
 import com.botmaker.shared.Spawn;
+import com.botmaker.shared.launch.LaunchSpec;
+import com.botmaker.shared.launch.RunState;
 import com.botmaker.shared.tools.Downloads;
 import com.botmaker.shared.tools.UserDirs;
 import com.botmaker.shared.vnc.Keysyms;
@@ -16,6 +18,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -673,6 +676,71 @@ public final class VmSetup {
                 GuestUnattend.LAUNCH_PENDING));
     }
 
+    /**
+     * Whether {@code spec} runs in the running {@code vm}'s guest ({@link GuestGame}), and with {@code stop}, ends
+     * its processes first: the result then names what was ended, and is {@link RunState#RUNNING} when there
+     * was something to end. {@link GuestGame.Found#UNKNOWN} for a target the guest can't tell apart.
+     *
+     * @throws IOException when the guest couldn't run the check
+     */
+    public static GuestGame.Found game(VmRecord vm, VmCredentials credentials, LaunchSpec spec, boolean stop)
+            throws IOException, InterruptedException {
+        Optional<String> script = GuestGame.script(spec, stop);
+        if (script.isEmpty()) return GuestGame.Found.UNKNOWN;
+        GuestAgent.Ran ran = runPowerShell(vm, credentials, script.get(), GAME_CHECK);
+        String doing = (stop ? "stop " : "look for ") + spec.describe();
+        if (ran.exitCode() == Commands.TIMED_OUT) {
+            throw new IOException("The VM took over " + GAME_CHECK.toSeconds() + " s to " + doing + ".");
+        }
+        if (ran.exitCode() != 0) {
+            throw new IOException("The VM couldn't " + doing + " (exit code " + ran.exitCode() + ")"
+                    + (ran.output().isBlank() ? "." : ": " + lastLines(ran.output(), 2)));
+        }
+        GuestGame.Found found = GuestGame.parse(ran.output());
+        if (!found.survived().isEmpty()) {
+            throw new IOException("The VM couldn't end " + String.join(", ", found.survived()) + ".");
+        }
+        return found;
+    }
+
+    /**
+     * Runs PowerShell {@code script} in the running {@code vm}'s guest, without a desktop, and waits up to
+     * {@code timeout}: through the guest agent as SYSTEM, or through vmrun elevated. A vmrun that timed out ends
+     * with {@link Commands#TIMED_OUT}.
+     *
+     * @throws IOException when the agent's run outlasted {@code timeout}, or the guest couldn't be reached
+     */
+    private static GuestAgent.Ran runPowerShell(VmRecord vm, VmCredentials credentials, String script,
+                                                Duration timeout) throws IOException, InterruptedException {
+        return switch (vm.hypervisor()) {
+            case QEMU -> {
+                try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
+                    yield agent.run("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                            List.of("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand",
+                                    encoded(script)), timeout);
+                }
+            }
+            case VMWARE -> {
+                Spawn.Completed done = VmwareWorkstation.find()
+                        .orElseThrow(() -> new IOException("VMware Workstation isn't installed."))
+                        .runPowerShell(vm.vmx(), GUEST_USER, credentials.guest(), script, timeout);
+                yield new GuestAgent.Ran(done.exitCode(), done.output());
+            }
+            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+        };
+    }
+
+    /**
+     * {@code script} as {@code powershell.exe -EncodedCommand} takes it (UTF-16LE, Base64), which needs no quoting
+     * on the agent's command line.
+     */
+    static String encoded(String script) {
+        return Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
+    }
+
+    /** How long finding or stopping a game's processes in the guest may take. */
+    private static final Duration GAME_CHECK = Duration.ofMinutes(1);
+
     /** How long starting the launch task through vmrun may take: a script copied in, run, and its log fetched. */
     private static final Duration LAUNCH_TASK_RUN = Duration.ofMinutes(1);
     /** How long a launcher's download and silent install may take in the guest. */
@@ -717,27 +785,11 @@ public final class VmSetup {
     public static void installInGuest(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
             throws IOException, InterruptedException {
         if (launcher == GuestLauncher.UNKNOWN) return;
-        GuestAgent.Ran ran = switch (vm.hypervisor()) {
-            case QEMU -> {
-                try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
-                    yield agent.run("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-                            List.of("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand",
-                                    launcher.encodedInstallScript()), LAUNCHER_INSTALL);
-                }
-            }
-            case VMWARE -> {
-                Spawn.Completed done = VmwareWorkstation.find()
-                        .orElseThrow(() -> new IOException("VMware Workstation isn't installed."))
-                        .runPowerShell(vm.vmx(), GUEST_USER, credentials.guest(), launcher.installScript(),
-                                LAUNCHER_INSTALL);
-                if (done.exitCode() == Commands.TIMED_OUT) {
-                    throw new IOException(launcher.displayName() + "'s installer was still running in the VM after "
-                            + LAUNCHER_INSTALL.toMinutes() + " minutes.");
-                }
-                yield new GuestAgent.Ran(done.exitCode(), done.output());
-            }
-            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
-        };
+        GuestAgent.Ran ran = runPowerShell(vm, credentials, launcher.installScript(), LAUNCHER_INSTALL);
+        if (ran.exitCode() == Commands.TIMED_OUT) {
+            throw new IOException(launcher.displayName() + "'s installer was still running in the VM after "
+                    + LAUNCHER_INSTALL.toMinutes() + " minutes.");
+        }
         if (ran.exitCode() != 0 && ran.exitCode() != MSI_RESTART_REQUIRED) {
             String said = ran.output().strip();
             throw new IOException(launcher.displayName() + "'s installer failed in the VM (exit code " + ran.exitCode()

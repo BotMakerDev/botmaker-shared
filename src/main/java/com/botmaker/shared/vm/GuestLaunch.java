@@ -14,8 +14,9 @@ import java.util.regex.Pattern;
  */
 public final class GuestLaunch {
 
-    private static final Pattern STEAM_ID = Pattern.compile("\\d+");
-    private static final Pattern EPIC_ID = Pattern.compile("[A-Za-z0-9._-]+");
+    /** A Steam app id, and an Epic app name, as a guest command can carry them; {@link GuestGame} finds the same. */
+    static final Pattern STEAM_ID = Pattern.compile("\\d+");
+    static final Pattern EPIC_ID = Pattern.compile("[A-Za-z0-9._-]+");
 
     private GuestLaunch() {}
 

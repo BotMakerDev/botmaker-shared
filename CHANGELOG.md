@@ -16,6 +16,19 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **A game's processes inside a game VM.** `VmSetup.game(vm, credentials, spec, stop)` runs a PowerShell
+  check in a Windows guest, through the guest agent or vmrun. It returns the target's processes (`vm.GuestGame`)
+  and, with `stop`, ends each one's process tree first (`taskkill /F /T`).
+  - A Steam or Epic game is every process whose program lies in its install folder, as the guest's launcher
+    records it (`appmanifest_<id>.acf` in each Steam library, Epic's `.item` by `AppName`).
+  - An `exe:` target is every process in its program's folder, so a stub that starts the game beside it
+    counts. A folder of Windows', a folder right under a drive, and a bare name use the program's file name
+    instead, as a packaged app (Notepad) runs from elsewhere.
+  - A command line, or a game its launcher has no record of, is `RunState.UNKNOWN`.
+  - A process that outlives the stop is reported: the call fails rather than say it stopped.
+  - `VmSetup.installInGuest` and `game` share one guest PowerShell runner, which also reads vmrun's timeout.
+  - A check takes 2–4 s through QEMU's agent and about 5 s through vmrun.
+- **`launch.RunState`** (`RUNNING`, `STOPPED`, `UNKNOWN`): whether a target runs where it was launched.
 - **The windows inside a game VM.** `vm.GuestWindows` writes a hidden PowerShell loop into a Windows guest and
   starts it on the signed-in desktop. Each second it lists the guest's visible top-level windows (handle,
   process, visible frame, title, which one has the focus) into `C:\BotMaker\windows.tsv`. The host reads that

@@ -3,8 +3,6 @@ package com.botmaker.shared.vm;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 
 /**
@@ -94,8 +92,8 @@ public enum GuestLauncher {
 
     /**
      * The PowerShell that downloads the installer and runs it silently, waiting for it; it exits with the
-     * installer's code. VMware runs it as a file ({@link VmwareWorkstation#runPowerShell}); the guest agent, as
-     * {@link #encodedInstallScript()}.
+     * installer's code. VMware runs it as a file ({@link VmwareWorkstation#runPowerShell}); the guest agent, encoded
+     * on its command line.
      */
     String installScript() {
         String run = this == EPIC
@@ -107,13 +105,5 @@ public enum GuestLauncher {
                 + "$p = " + run + "\n"
                 + "Remove-Item $f -ErrorAction SilentlyContinue\n"
                 + "exit $p.ExitCode\n";
-    }
-
-    /**
-     * {@link #installScript()} as {@code powershell.exe -EncodedCommand} takes it (UTF-16LE, Base64), which needs
-     * no quoting on the agent's command line.
-     */
-    String encodedInstallScript() {
-        return Base64.getEncoder().encodeToString(installScript().getBytes(StandardCharsets.UTF_16LE));
     }
 }
