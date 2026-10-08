@@ -49,8 +49,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   Windows restarts, and when QEMU pauses the VM (umbrella doc 44 §4b.2.1). A VM's disk is 64 GB by default,
   Windows 11's minimum, and takes only what Windows writes.
   `start()` starts a VM and connects to its screen, choosing new ports for any that were taken since.
-  `VmRecord` keeps each VM's record and `VmInventory` lists them. `GuestAgent` reads, writes and runs inside
-  a QEMU guest.
+  `VmRecord` keeps each VM's record and `VmInventory` lists them (`find(name)` reads one). `GuestAgent` reads,
+  writes and runs inside a QEMU guest. `guestReady()` says whether a guest has signed in and its tools
+  answer, and `runOnDesktop()` runs a command on the guest's desktop: through the guest agent and the launch
+  task under QEMU, through `vmrun -interactive` under VMware. `GuestLaunch` turns a launch target into that
+  command: a path, a command line, Steam or Epic, each handed off with `start ""`.
 
 - **Installing a game on an emulator, and making a new instance.** `PlayStoreSearch` finds an app on Google
   Play by name from this computer. `EmulatorInstall` starts the instance if needed, then either opens the app's

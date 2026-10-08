@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /** BotMaker's game VMs on this computer: one folder each under {@link #root()}. Never throws. */
@@ -22,6 +23,17 @@ public final class VmInventory {
     /** The folder a VM named {@code name} has, or would have. */
     public static Path folder(String name) {
         return root().resolve(name);
+    }
+
+    /** The VM named {@code name}, or empty when there is none or its record doesn't read. */
+    public static Optional<VmRecord> find(String name) {
+        Path folder = folder(name);
+        if (!Files.isRegularFile(folder.resolve(VmRecord.FILE))) return Optional.empty();
+        try {
+            return Optional.of(VmRecord.load(folder));
+        } catch (IOException e) {
+            return Optional.empty();
+        }
     }
 
     /** Every VM whose record reads, by name. */

@@ -68,6 +68,11 @@ public final class VmSetup {
     private static final Duration FRAME_EVERY = Duration.ofSeconds(5);
     private static final Duration QEMU_START = Duration.ofSeconds(30);
     private static final int AGENT_TIMEOUT_MS = 3_000;
+    /**
+     * A launch's agent calls: a first {@code guest-exec} just after a boot took over 3 s (measured), while the
+     * same call later answers in about 100 ms.
+     */
+    private static final int LAUNCH_TIMEOUT_MS = 30_000;
     private static final int SPACE = 0x20;
     static final String QEMU_LOG = "qemu.log";
     /** Setup restarts Windows three or four times; the rest is room for faults. */
@@ -479,8 +484,32 @@ public final class VmSetup {
         return moved;
     }
 
+    /**
+     * Runs {@code command}, a Windows command line ({@link GuestLaunch#command}), on the guest's signed-in desktop
+     * and returns without waiting for it. QEMU: the guest agent writes it into the launch script and starts the
+     * launch task. VMware: {@code vmrun runProgramInGuest -interactive}.
+     */
+    public static void runOnDesktop(VmRecord vm, VmCredentials credentials, String command)
+            throws IOException, InterruptedException {
+        switch (vm.hypervisor()) {
+            case QEMU -> {
+                try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
+                    agent.writeFile(GuestUnattend.LAUNCH_SCRIPT, GuestLaunch.script(command));
+                    agent.runLaunchTask();
+                }
+            }
+            case VMWARE -> {
+                VmwareWorkstation ws = VmwareWorkstation.find()
+                        .orElseThrow(() -> new IOException("VMware Workstation isn't installed."));
+                Commands.require(ws.runInGuest(vm.vmx(), GUEST_USER, credentials.guest(), "C:\\Windows\\System32\\cmd.exe",
+                        "/c " + command), "VMware couldn't start the game in the VM");
+            }
+            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+        }
+    }
+
     /** Whether the guest tools answer and the answer file's last command has run. */
-    static boolean guestReady(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
+    public static boolean guestReady(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
         return switch (vm.hypervisor()) {
             case QEMU -> {
                 try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), AGENT_TIMEOUT_MS)) {
