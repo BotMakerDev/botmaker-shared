@@ -508,6 +508,87 @@ public final class VmSetup {
         }
     }
 
+    /** How long a launcher's download and silent install may take in the guest. */
+    private static final Duration LAUNCHER_INSTALL = Duration.ofMinutes(15);
+    /** {@code msiexec}'s "done, a restart finishes it": installed, as far as a launcher cares. */
+    private static final int MSI_RESTART_REQUIRED = 3010;
+
+    /** Whether {@code launcher} is installed in the running {@code vm}'s guest. */
+    public static boolean guestHas(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
+            throws IOException, InterruptedException {
+        if (launcher == GuestLauncher.UNKNOWN) return true;
+        switch (vm.hypervisor()) {
+            case QEMU -> {
+                try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
+                    for (String path : launcher.executables()) {
+                        if (agent.fileExists(path)) return true;
+                    }
+                }
+            }
+            case VMWARE -> {
+                VmwareWorkstation ws = VmwareWorkstation.find()
+                        .orElseThrow(() -> new IOException("VMware Workstation isn't installed."));
+                // vmrun's file check reads every failure as "no such file": a guest whose Tools aren't up yet
+                // would look as if it lacked the launcher.
+                if (!ws.toolsRunning(vm.vmx())) throw new IOException("VMware Tools isn't answering in the VM yet.");
+                for (String path : launcher.executables()) {
+                    if (ws.fileExistsInGuest(vm.vmx(), GUEST_USER, credentials.guest(), path)) return true;
+                }
+            }
+            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+        }
+        return false;
+    }
+
+    /**
+     * Downloads {@code launcher}'s installer in the running {@code vm}'s guest and runs it silently, waiting for
+     * it (a few minutes); the user then signs in through the VM's screen. The guest needs the internet, which both
+     * hypervisors' NAT gives it.
+     *
+     * @throws IOException with a sentence when the installer failed, or the launcher isn't there after it
+     */
+    public static void installInGuest(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
+            throws IOException, InterruptedException {
+        if (launcher == GuestLauncher.UNKNOWN) return;
+        List<String> arguments = List.of("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand",
+                launcher.encodedInstallScript());
+        String powershell = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+        GuestAgent.Ran ran = switch (vm.hypervisor()) {
+            case QEMU -> {
+                try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
+                    yield agent.run(powershell, arguments, LAUNCHER_INSTALL);
+                }
+            }
+            case VMWARE -> {
+                Spawn.Completed done = VmwareWorkstation.find()
+                        .orElseThrow(() -> new IOException("VMware Workstation isn't installed."))
+                        .runInGuestAndWait(vm.vmx(), GUEST_USER, credentials.guest(), powershell, arguments,
+                                LAUNCHER_INSTALL);
+                if (done.exitCode() == Commands.TIMED_OUT) {
+                    throw new IOException(launcher.displayName() + "'s installer was still running in the VM after "
+                            + LAUNCHER_INSTALL.toMinutes() + " minutes.");
+                }
+                yield new GuestAgent.Ran(done.exitCode(), done.output());
+            }
+            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+        };
+        if (ran.exitCode() != 0 && ran.exitCode() != MSI_RESTART_REQUIRED) {
+            String said = ran.output().strip();
+            throw new IOException(launcher.displayName() + "'s installer failed in the VM (exit code " + ran.exitCode()
+                    + ")" + (said.isEmpty() ? "." : ": " + lastLines(said, 3)));
+        }
+        if (!guestHas(vm, credentials, launcher)) {
+            throw new IOException(launcher.displayName() + "'s installer finished, but it isn't at "
+                    + String.join(" or ", launcher.executables()) + " in the VM.");
+        }
+    }
+
+    /** The last {@code n} lines of {@code text}, joined with spaces: what a program said last is why it failed. */
+    private static String lastLines(String text, int n) {
+        List<String> lines = text.lines().map(String::strip).filter(l -> !l.isEmpty()).toList();
+        return String.join(" ", lines.subList(Math.max(0, lines.size() - n), lines.size()));
+    }
+
     /** Whether the guest tools answer and the answer file's last command has run. */
     public static boolean guestReady(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
         return switch (vm.hypervisor()) {

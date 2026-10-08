@@ -68,6 +68,11 @@ class QemuTest {
         assertEquals(List.of(Path.of("C:\\VMs\\a\\a.vmx"), Path.of("D:\\b b\\b.vmx")),
                 VmwareWorkstation.parseList("Total running VMs: 2\r\nC:\\VMs\\a\\a.vmx\r\nD:\\b b\\b.vmx\r\n"));
         assertEquals(List.of(), VmwareWorkstation.parseList("Total running VMs: 0\n"));
+
+        // vmrun exits with its own code when the guest program fails, and says the guest's in its output.
+        assertEquals(3010, VmwareWorkstation.guestExitCode(new com.botmaker.shared.Spawn.Completed(255,
+                "Error: Guest program exited with non-zero exit code: 3010")).exitCode());
+        assertEquals(0, VmwareWorkstation.guestExitCode(new com.botmaker.shared.Spawn.Completed(0, "")).exitCode());
     }
 
     @Test

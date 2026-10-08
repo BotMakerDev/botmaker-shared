@@ -95,6 +95,38 @@ public final class GuestAgent implements AutoCloseable {
         return started.path("pid").asLong();
     }
 
+    /** How a program run in the guest ended: its exit code, and what it printed (standard output, then error). */
+    public record Ran(int exitCode, String output) {}
+
+    /**
+     * Runs {@code program} in the guest, as the agent's own account like {@link #exec}, and waits up to
+     * {@code timeout} for it to end, asking {@code guest-exec-status} each second.
+     *
+     * @throws IOException when it is still running at {@code timeout}
+     */
+    public Ran run(String program, List<String> arguments, java.time.Duration timeout)
+            throws IOException, InterruptedException {
+        long pid = channel.execute("guest-exec", Map.of("path", program, "arg", arguments,
+                "capture-output", true)).path("pid").asLong();
+        long until = System.nanoTime() + timeout.toNanos();
+        while (true) {
+            JsonNode status = channel.execute("guest-exec-status", Map.of("pid", pid));
+            if (status.path("exited").asBoolean(false)) {
+                return new Ran(status.path("exitcode").asInt(-1),
+                        decoded(status.path("out-data").asText("")) + decoded(status.path("err-data").asText("")));
+            }
+            if (System.nanoTime() > until) {
+                throw new IOException(program + " was still running in the guest after " + timeout.toMinutes() + " minutes.");
+            }
+            Thread.sleep(1_000);
+        }
+    }
+
+    /** Base64 output as text, in the console's code page as near as UTF-8 reads it. */
+    private static String decoded(String base64) {
+        return base64.isEmpty() ? "" : new String(Base64.getDecoder().decode(base64), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     /** Runs the guest's {@value GuestUnattend#LAUNCH_TASK} task, which starts the launch script on the desktop. */
     public void runLaunchTask() throws IOException {
         exec("schtasks.exe", List.of("/Run", "/TN", GuestUnattend.LAUNCH_TASK));

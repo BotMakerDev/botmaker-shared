@@ -54,6 +54,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   answer, and `runOnDesktop()` runs a command on the guest's desktop: through the guest agent and the launch
   task under QEMU, through `vmrun -interactive` under VMware. `GuestLaunch` turns a launch target into that
   command: a path, a command line, Steam or Epic, each handed off with `start ""`.
+- **A game VM's store launchers** (`vm.GuestLauncher`, Steam and Epic). `VmSetup.guestHas()` says whether the
+  guest has one, and `installInGuest()` downloads its installer in the guest and runs it silently, waiting for
+  it (both installed on the `live` VM; Steam's bootstrapper took 5 s). Epic's installer of
+  2026-10 puts it under `Program Files`, older ones under `Program Files (x86)`: both are looked for.
+  `GuestAgent.run()` waits for a program and hands back its exit code and output.
 
 - **Installing a game on an emulator, and making a new instance.** `PlayStoreSearch` finds an app on Google
   Play by name from this computer. `EmulatorInstall` starts the instance if needed, then either opens the app's

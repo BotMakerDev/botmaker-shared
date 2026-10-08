@@ -99,6 +99,29 @@ public record VmwareWorkstation(Path folder) {
         return Commands.run(QUICK, runInGuestCommand(vmx, user, password, program, arguments));
     }
 
+    /**
+     * Runs {@code program} in the guest, without a desktop, and waits up to {@code timeout} for it; the result's
+     * exit code is the program's, read from vmrun's "Guest program exited with non-zero exit code: N", as vmrun
+     * exits with its own code then.
+     */
+    public Spawn.Completed runInGuestAndWait(Path vmx, String user, String password, String program,
+                                             List<String> arguments, Duration timeout)
+            throws IOException, InterruptedException {
+        List<String> command = new ArrayList<>(List.of(vmrun().toString(), "-T", "ws", "-gu", user, "-gp", password,
+                "runProgramInGuest", vmx.toString(), program));
+        if (!arguments.isEmpty()) command.add(String.join(" ", arguments));
+        return guestExitCode(Commands.run(timeout, command));
+    }
+
+    private static final java.util.regex.Pattern GUEST_EXIT =
+            java.util.regex.Pattern.compile("non-zero exit code:\\s*(-?\\d+)");
+
+    /** {@code done} with the guest program's exit code where vmrun reported one. */
+    static Spawn.Completed guestExitCode(Spawn.Completed done) {
+        java.util.regex.Matcher m = GUEST_EXIT.matcher(done.output());
+        return m.find() ? new Spawn.Completed(Integer.parseInt(m.group(1)), done.output()) : done;
+    }
+
     /** Whether {@code path} exists in the guest; needs VMware Tools running there. */
     public boolean fileExistsInGuest(Path vmx, String user, String password, String path)
             throws IOException, InterruptedException {
