@@ -70,7 +70,7 @@ class VmxFileTest {
     @Test
     void aNewVmBootsEfiFromItsDiscsAndServesVncOnLoopback() {
         VmSpec spec = new VmSpec("Game VM", Path.of("vm"), new VmSize(4, 8192, 80), Path.of("C:\\isos\\win11.iso"),
-                List.of(Path.of("answer.iso"), Path.of("C:\\VMware\\windows.iso")), 5901);
+                List.of(Path.of("answer.iso"), Path.of("C:\\VMware\\windows.iso")), 5901, GuestOs.WINDOWS);
         VmxFile vmx = VmxFile.create(spec, "disk.vmdk", "abcd1234");
 
         assertEquals("UTF-8", vmx.get(".encoding"));
@@ -94,7 +94,12 @@ class VmxFileTest {
         assertEquals("cdrom,hdd", vmx.get("bios.bootOrder"));
         assertEquals("10000", vmx.get("bios.bootDelay"));
 
-        VmSpec installed = new VmSpec("Game VM", Path.of("vm"), new VmSize(4, 8192, 80), null, List.of(), 5901);
+        assertEquals("windows11-64", vmx.get("guestOS"));
+        assertEquals("ubuntu-64", VmxFile.create(new VmSpec("Game VM", Path.of("vm"), new VmSize(4, 8192, 80), null,
+                List.of(), 5901, GuestOs.LINUX), "disk.vmdk", "abcd1234").get("guestOS"));
+
+        VmSpec installed = new VmSpec("Game VM", Path.of("vm"), new VmSize(4, 8192, 80), null, List.of(), 5901,
+                GuestOs.WINDOWS);
         vmx.setDiscs(installed);
         assertNull(vmx.get("sata0:0.fileName"), "the installer is out");
         assertNull(vmx.get("sata0:1.present"), "and the answer disc");

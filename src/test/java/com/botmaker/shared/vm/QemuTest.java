@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -13,13 +14,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class QemuTest {
 
     private static final VmSpec SPEC = new VmSpec("game", Path.of("vm"), new VmSize(4, 8192, 80), Path.of("win.iso"),
-            List.of(Path.of("answer.iso"), Path.of("virtio,win.iso")), 5902);
+            List.of(Path.of("answer.iso"), Path.of("virtio,win.iso")), 5902, GuestOs.WINDOWS);
 
     @Test
     void theCommandLineRunsHeadlessOnTheHypervisorPlatformWithLoopbackScreenAndControl() {
         Qemu qemu = new Qemu(Path.of("qemu"));
         List<String> c = qemu.command(SPEC, Path.of("disk.qcow2"), Path.of("efivars.fd"),
-                new Qemu.Ports(4444, 4445, 4446));
+                new Qemu.Ports(4444, 4445, 4446), Optional.empty());
         String line = String.join(" ", c);
 
         assertEquals(qemu.system().toString(), c.getFirst());
@@ -42,6 +43,21 @@ class QemuTest {
         assertTrue(line.contains("port=4445,server=on,wait=off"));
         assertTrue(line.contains("name=org.qemu.guest_agent.0"));
         assertEquals("none", c.get(c.indexOf("-display") + 1));
+        assertEquals("base=localtime", c.get(c.indexOf("-rtc") + 1), "Windows keeps local time");
+        assertTrue(!c.contains("-kernel"));
+    }
+
+    @Test
+    void aLinuxInstallerBootsItsDiscsKernelWithAutoinstallAndKeepsUtc() {
+        VmSpec linux = new VmSpec("game", Path.of("vm"), new VmSize(4, 8192, 80), Path.of("ubuntu.iso"),
+                List.of(Path.of("answer.iso")), 5902, GuestOs.LINUX);
+        List<String> c = new Qemu(Path.of("qemu")).command(linux, Path.of("disk.qcow2"), Path.of("efivars.fd"),
+                new Qemu.Ports(4444, 4445, 4446), Optional.of(new Qemu.Kernel(Path.of("vm", "k"), Path.of("vm", "i"),
+                        LinuxAutoinstall.KERNEL_ARGUMENTS)));
+        assertEquals(Path.of("vm", "k").toString(), c.get(c.indexOf("-kernel") + 1));
+        assertEquals(Path.of("vm", "i").toString(), c.get(c.indexOf("-initrd") + 1));
+        assertEquals("autoinstall noprompt ---", c.get(c.indexOf("-append") + 1));
+        assertEquals("base=utc", c.get(c.indexOf("-rtc") + 1));
     }
 
     @Test
@@ -49,9 +65,10 @@ class QemuTest {
         assertEquals(List.of("winget", "install", "-e", "--id", "SoftwareFreedomConservancy.QEMU", "--silent",
                 "--accept-package-agreements", "--accept-source-agreements"), Qemu.installCommand());
         assertThrows(IllegalArgumentException.class, () -> new Qemu.Ports(4444, 4445, 4444));
-        VmSpec far = new VmSpec("game", Path.of("vm"), new VmSize(1, 4096, 80), Path.of("w.iso"), List.of(), 6000);
-        assertThrows(IllegalArgumentException.class,
-                () -> new Qemu(Path.of("q")).command(far, Path.of("d"), Path.of("v"), new Qemu.Ports(4444, 4445, 4446)));
+        VmSpec far = new VmSpec("game", Path.of("vm"), new VmSize(1, 4096, 80), Path.of("w.iso"), List.of(), 6000,
+                GuestOs.WINDOWS);
+        assertThrows(IllegalArgumentException.class, () -> new Qemu(Path.of("q")).command(far, Path.of("d"),
+                Path.of("v"), new Qemu.Ports(4444, 4445, 4446), Optional.empty()));
     }
 
     @Test
@@ -92,7 +109,8 @@ class QemuTest {
         assertEquals(1, small.cpus());
         assertEquals(4096, VmSize.forHost(6000, 4).memoryMb());
         assertThrows(IllegalArgumentException.class,
-                () -> new VmSpec("a/b", Path.of("vm"), new VmSize(1, 4096, 80), Path.of("w.iso"), List.of(), 5900));
+                () -> new VmSpec("a/b", Path.of("vm"), new VmSize(1, 4096, 80), Path.of("w.iso"), List.of(), 5900,
+                        GuestOs.WINDOWS));
         assertThrows(IllegalArgumentException.class, () -> new VmSize(2, 2048, 80), "below Windows 11's 4 GB");
     }
 }

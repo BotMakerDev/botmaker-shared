@@ -141,7 +141,7 @@ public final class VmxFile {
                 .set("config.version", "8")
                 .set("virtualHW.version", "21")
                 .set("displayName", spec.name())
-                .set("guestOS", "windows11-64")
+                .set("guestOS", spec.guestOs() == GuestOs.LINUX ? "ubuntu-64" : "windows11-64")
                 .set("firmware", "efi")
                 .set("uefi.secureBoot.enabled", "FALSE")
                 .set("bios.bootDelay", Integer.toString(BOOT_DELAY_MS))
@@ -189,9 +189,9 @@ public final class VmxFile {
      * wait and disc-first order, which only the installing boot needs.
      */
     public VmxFile setDiscs(VmSpec spec) {
-        if (spec.windowsIso() == null) remove("bios.bootDelay").remove("bios.bootOrder");
+        if (spec.installIso() == null) remove("bios.bootDelay").remove("bios.bootOrder");
         List<Path> discs = new ArrayList<>();
-        if (spec.windowsIso() != null) discs.add(spec.windowsIso());
+        if (spec.installIso() != null) discs.add(spec.installIso());
         discs.addAll(spec.discs());
         for (int i = 0; i < SATA_PORTS; i++) {
             String slot = String.format(Locale.ROOT, "sata0:%d", i);

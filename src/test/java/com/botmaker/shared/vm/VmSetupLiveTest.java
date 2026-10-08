@@ -51,7 +51,7 @@ class VmSetupLiveTest {
 
         Path folder = VmInventory.folder(name);
         VmRecord vm = Files.exists(folder.resolve(VmRecord.FILE)) ? VmRecord.load(folder)
-                : VmSetup.prepare(name, iso, hypervisor, size, listener);
+                : VmSetup.prepare(name, GuestOs.WINDOWS, iso, hypervisor, size, listener);
         long started = System.nanoTime();
         vm = VmSetup.install(vm, listener, Duration.ofHours(3));
         say(results, "install took " + Duration.ofNanos(System.nanoTime() - started).toMinutes() + " min");

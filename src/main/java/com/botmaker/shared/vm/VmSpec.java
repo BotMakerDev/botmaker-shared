@@ -5,17 +5,19 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * What a hypervisor runs for a game VM: its name and folder, its size, the discs in its drives, and the
- * loopback port its screen is served on.
+ * What a hypervisor runs for a game VM: its name and folder, its size, the discs in its drives, the loopback port
+ * its screen is served on, and the system it runs.
  *
- * @param windowsIso the Windows disc while Windows installs; {@code null} once it is installed
- * @param discs      further CD images in drive order after the Windows one
+ * @param installIso the system's disc while it installs; {@code null} once it is installed
+ * @param discs      further CD images in drive order after the system's one
  */
-public record VmSpec(String name, Path folder, VmSize size, Path windowsIso, List<Path> discs, int vncPort) {
+public record VmSpec(String name, Path folder, VmSize size, Path installIso, List<Path> discs, int vncPort,
+                     GuestOs guestOs) {
 
     public VmSpec {
         requireName(name);
         Objects.requireNonNull(size, "size");
+        Objects.requireNonNull(guestOs, "guestOs");
         if (vncPort < 1 || vncPort > 65535) throw new IllegalArgumentException("No such port: " + vncPort);
         discs = List.copyOf(discs);
     }

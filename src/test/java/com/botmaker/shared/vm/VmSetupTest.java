@@ -27,9 +27,13 @@ class VmSetupTest {
             Path folder = VmInventory.folder("Game VM");
             Files.createDirectories(folder);
             VmRecord saved = new VmRecord(folder, "Game VM", Hypervisor.QEMU, VmRecord.Stage.PREPARED, new VmSize(2, 6144, 80),
-                    Path.of("C:\\isos\\Win 11.iso"), "fr-FR", 5901, 40001, 40002, 40003);
+                    Path.of("C:\\isos\\Win 11.iso"), "fr-FR", 5901, 40001, 40002, 40003, GuestOs.LINUX);
             saved.save();
             assertEquals(saved, VmRecord.load(folder));
+            String text = Files.readString(folder.resolve(VmRecord.FILE));
+            Files.writeString(folder.resolve(VmRecord.FILE), text.replaceAll("(?m)^guestOs=.*\\R", ""));
+            assertEquals(GuestOs.WINDOWS, VmRecord.load(folder).guestOs(), "a record from before Linux VMs");
+            saved.save();
             assertEquals(List.of(saved), VmInventory.list());
             assertTrue(VmInventory.portsInUse().containsAll(List.of(5901, 40001, 40002, 40003)));
             assertTrue(VmSetup.freeVncPort() != 5901, "a port another VM has is never handed out again");
@@ -46,21 +50,45 @@ class VmSetupTest {
     @Test
     void whileInstallingItCarriesItsDiscsAndOnceReadyNone() {
         VmRecord vm = new VmRecord(Path.of("vm"), "g", Hypervisor.QEMU, VmRecord.Stage.INSTALLING, new VmSize(2, 4096, 80),
-                Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003);
+                Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003, GuestOs.WINDOWS);
         VmSpec installing = vm.spec(List.of(Path.of("tools.iso")));
-        assertEquals(Path.of("win.iso"), installing.windowsIso());
+        assertEquals(Path.of("win.iso"), installing.installIso());
         assertEquals(List.of(vm.answerIso(), Path.of("tools.iso")), installing.discs());
 
         VmSpec ready = vm.withStage(VmRecord.Stage.READY).spec(List.of(Path.of("tools.iso")));
-        assertNull(ready.windowsIso());
+        assertNull(ready.installIso());
         assertEquals(List.of(), ready.discs());
         assertEquals(VmRecord.Stage.UNKNOWN, VmRecord.Stage.fromId("later"));
     }
 
     @Test
+    void aLinuxVmBootsItsInstallerUntilTheInstallerHasRestartedIt(@TempDir Path folder) throws Exception {
+        VmRecord linux = new VmRecord(folder, "g", Hypervisor.QEMU, VmRecord.Stage.INSTALLING, new VmSize(2, 4096, 64),
+                Path.of("ubuntu.iso"), "en-US", 5900, 40001, 40002, 40003, GuestOs.LINUX);
+        Qemu.Kernel kernel = VmSetup.installerKernel(linux).orElseThrow();
+        assertEquals(folder.resolve(VmSetup.INSTALLER_KERNEL), kernel.kernel());
+        assertEquals(LinuxAutoinstall.KERNEL_ARGUMENTS, kernel.arguments());
+        try (var file = new java.io.RandomAccessFile(linux.disk().toFile(), "rw")) {
+            file.setLength(2L * 1024 * 1024 * 1024);
+        }
+        assertTrue(VmSetup.installerKernel(linux).isPresent(), "a disk half written by a start that ended");
+
+        Files.writeString(folder.resolve(VmSetup.INSTALLER_DONE), "");
+        assertTrue(VmSetup.installerKernel(linux).isEmpty(), "the installed system boots");
+        Files.delete(folder.resolve(VmSetup.INSTALLER_DONE));
+        assertTrue(VmSetup.installerKernel(linux.withStage(VmRecord.Stage.READY)).isEmpty());
+        assertTrue(VmSetup.installerKernel(new VmRecord(folder, "g", Hypervisor.QEMU, VmRecord.Stage.INSTALLING,
+                new VmSize(2, 4096, 64), Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003, GuestOs.WINDOWS))
+                .isEmpty(), "Windows boots its own disc");
+        assertEquals(List.of("A Linux game VM runs on QEMU for now."),
+                VmSetup.problems(GuestOs.LINUX, Hypervisor.VMWARE, null, new VmSize(2, 4096, 64)).stream()
+                        .filter(p -> p.contains("Linux")).toList());
+    }
+
+    @Test
     void theDiscsKeyIsPressedOnlyWhileTheDiskIsEmpty(@TempDir Path folder) throws Exception {
         VmRecord vm = new VmRecord(folder, "g", Hypervisor.QEMU, VmRecord.Stage.INSTALLING, new VmSize(2, 4096, 64),
-                Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003);
+                Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003, GuestOs.WINDOWS);
         assertTrue(!VmSetup.diskWritten(vm), "no disk yet");
         Files.write(vm.disk(), new byte[200 * 1024]);
         assertTrue(!VmSetup.diskWritten(vm), "a new qcow2 is a few hundred kilobytes");

@@ -83,9 +83,17 @@ public final class VmSetup {
 
     private VmSetup() {}
 
-    /** What stops setting up a VM of {@code size} from {@code windowsIso} with {@code hypervisor}; empty when nothing. */
-    public static List<String> problems(Hypervisor hypervisor, Path windowsIso, VmSize size) {
+    /**
+     * What stops setting up a {@code guestOs} VM of {@code size} with {@code hypervisor}, from {@code windowsIso}
+     * for Windows (Linux downloads its own); empty when nothing.
+     */
+    public static List<String> problems(GuestOs guestOs, Hypervisor hypervisor, Path windowsIso, VmSize size) {
         List<String> problems = new ArrayList<>();
+        if (guestOs == GuestOs.LINUX && hypervisor == Hypervisor.VMWARE) {
+            // Its installer needs "autoinstall" on its kernel's command line, which only QEMU gives a disc's kernel.
+            problems.add("A Linux game VM runs on QEMU for now.");
+        }
+        if (guestOs == GuestOs.UNKNOWN) problems.add("Pick Windows or Linux.");
         switch (hypervisor) {
             case VMWARE -> {
                 if (VmwareWorkstation.find().isEmpty()) problems.add("VMware Workstation isn't installed.");
@@ -98,7 +106,9 @@ public final class VmSetup {
             }
             case UNKNOWN -> problems.add("Neither VMware Workstation nor QEMU is installed.");
         }
-        if (windowsIso == null || !Files.isRegularFile(windowsIso)) problems.add("Pick the Windows disc image (.iso).");
+        if (guestOs == GuestOs.WINDOWS && (windowsIso == null || !Files.isRegularFile(windowsIso))) {
+            problems.add("Pick the Windows disc image (.iso).");
+        }
         try {
             Path root = VmInventory.root();
             Files.createDirectories(root);
@@ -142,47 +152,66 @@ public final class VmSetup {
 
     /**
      * Makes the VM's folder, passwords, answer disc, disk and configuration, and records it as {@link
-     * VmRecord.Stage#PREPARED}. Refuses a name already used, and anything {@link #problems} names.
+     * VmRecord.Stage#PREPARED}. A Windows VM installs from {@code windowsIso}; a Linux one downloads Ubuntu
+     * ({@link LinuxAutoinstall#UBUNTU}, about 4 GB, kept for the next VM) and ignores it. Refuses a name already
+     * used, and anything {@link #problems} names.
      */
-    public static VmRecord prepare(String name, Path windowsIso, Hypervisor hypervisor, VmSize size,
+    public static VmRecord prepare(String name, GuestOs guestOs, Path windowsIso, Hypervisor hypervisor, VmSize size,
                                    Listener listener) throws IOException, InterruptedException {
         try {
             VmSpec.requireName(name);
         } catch (IllegalArgumentException e) {
             throw new IOException("A VM's name is letters, digits, spaces, - and _, up to 41 characters.", e);
         }
-        List<String> problems = problems(hypervisor, windowsIso, size);
+        List<String> problems = problems(guestOs, hypervisor, windowsIso, size);
         if (!problems.isEmpty()) throw new IOException(problems.getFirst());
         Path folder = VmInventory.folder(name);
         if (Files.exists(folder.resolve(VmRecord.FILE))) throw new IOException("There is already a VM named " + name + ".");
         Files.createDirectories(folder);
 
-        listener.step("Reading the Windows disc.");
-        String language = isoLanguage(windowsIso);
+        Path iso;
+        String language;
+        if (guestOs == GuestOs.LINUX) {
+            iso = downloadUbuntu(listener);
+            language = "en-US";
+        } else {
+            listener.step("Reading the Windows disc.");
+            iso = windowsIso;
+            language = isoLanguage(windowsIso);
+        }
         int vnc = freeVncPort();
         int qmp = hypervisor == Hypervisor.QEMU ? freePort(List.of(vnc)) : 0;
         int agent = hypervisor == Hypervisor.QEMU ? freePort(List.of(vnc, qmp)) : 0;
         int events = hypervisor == Hypervisor.QEMU ? freePort(List.of(vnc, qmp, agent)) : 0;
-        VmRecord vm = new VmRecord(folder, name, hypervisor, VmRecord.Stage.PREPARED, size, windowsIso, language, vnc,
-                qmp, agent, events);
+        VmRecord vm = new VmRecord(folder, name, hypervisor, VmRecord.Stage.PREPARED, size, iso, language, vnc,
+                qmp, agent, events, guestOs);
 
         VmCredentials credentials = VmCredentials.random();
         credentials.save(folder);
 
-        Map<String, byte[]> answer = new LinkedHashMap<>();
-        answer.put("autounattend.xml", GuestUnattend.xml(GUEST_USER, credentials.guest(), computerName(name),
-                language, hypervisor).getBytes(StandardCharsets.UTF_8));
-        if (hypervisor == Hypervisor.QEMU) {
-            listener.step("Downloading the guest tools for QEMU (32 MB).");
-            Path tools = UserDirs.cache().resolve("vm").resolve("virtio-win-guest-tools-0.1.302.exe");
-            if (!Downloads.fetch(VIRTIO_GUEST_TOOLS, tools, Downloads.Progress.IGNORED)) {
-                throw new IOException("The guest tools for QEMU didn't download. Check the connection and try again.");
+        if (guestOs == GuestOs.LINUX) {
+            IsoImage.write(vm.answerIso(), LinuxAutoinstall.LABEL, LinuxAutoinstall.discFiles(GUEST_USER,
+                    credentials.guest(), LinuxAutoinstall.hostname(name), hypervisor));
+            listener.step("Taking the installer's start-up files off the Ubuntu disc.");
+            IsoFiles.copy(iso, LinuxAutoinstall.KERNEL, folder.resolve(INSTALLER_KERNEL));
+            IsoFiles.copy(iso, LinuxAutoinstall.INITRD, folder.resolve(INSTALLER_INITRD));
+        } else {
+            Map<String, byte[]> answer = new LinkedHashMap<>();
+            answer.put("autounattend.xml", GuestUnattend.xml(GUEST_USER, credentials.guest(), computerName(name),
+                    language, hypervisor).getBytes(StandardCharsets.UTF_8));
+            if (hypervisor == Hypervisor.QEMU) {
+                listener.step("Downloading the guest tools for QEMU (32 MB).");
+                Path tools = UserDirs.cache().resolve("vm").resolve("virtio-win-guest-tools-0.1.302.exe");
+                if (!Downloads.fetch(VIRTIO_GUEST_TOOLS, tools, Downloads.Progress.IGNORED)) {
+                    throw new IOException("The guest tools for QEMU didn't download. Check the connection and try again.");
+                }
+                answer.put("virtio-win-guest-tools.exe", Files.readAllBytes(tools));
             }
-            answer.put("virtio-win-guest-tools.exe", Files.readAllBytes(tools));
+            IsoImage.write(vm.answerIso(), "BOTMAKER", answer);
         }
-        IsoImage.write(vm.answerIso(), "BOTMAKER", answer);
 
-        listener.step("Creating a disk of up to " + size.diskGb() + " GB; it takes only what Windows writes.");
+        listener.step("Creating a disk of up to " + size.diskGb() + " GB; it takes only what " + guestOs.displayName()
+                + " writes.");
         switch (hypervisor) {
             case QEMU -> {
                 Qemu qemu = Qemu.find().orElseThrow(() -> new IOException("QEMU isn't installed."));
@@ -202,13 +231,64 @@ public final class VmSetup {
         return vm;
     }
 
+    /** The Ubuntu installer's kernel and initial RAM disk, copied off its disc into the VM's folder. */
+    static final String INSTALLER_KERNEL = "installer-vmlinuz";
+    static final String INSTALLER_INITRD = "installer-initrd";
+
     /**
-     * Installs Windows in {@code vm}, or goes on waiting for it: starts the VM if it isn't running, presses the
-     * key the Windows disc waits for on its first start, then follows Setup until the guest says it is done.
-     * Records {@link VmRecord.Stage#READY} and returns the record.
+     * Ubuntu's disc, downloaded into the cache once from the first place that has it, and checked; a step each
+     * tenth of the way. A disc already there is checked again (4 GB read, some seconds).
+     */
+    private static Path downloadUbuntu(Listener listener) throws IOException {
+        Path iso = UserDirs.cache().resolve("vm").resolve(LinuxAutoinstall.UBUNTU_FILE);
+        Files.createDirectories(iso.getParent());
+        if (Files.exists(iso)) {
+            listener.step("Checking the Ubuntu disc downloaded before.");
+            if (Downloads.matches(iso, LinuxAutoinstall.UBUNTU.getFirst())) return iso;
+            Files.delete(iso); // not the disc: fetch would read all of it again before replacing it
+        }
+        listener.step("Downloading Ubuntu Server (about 4 GB).");
+        for (Downloads.Remote from : LinuxAutoinstall.UBUNTU) {
+            int[] tenth = {0};
+            boolean fetched = Downloads.fetch(from, iso, (bytes, total) -> {
+                int now = total > 0 ? (int) (bytes * 10 / total) : 0;
+                if (now > tenth[0]) {
+                    tenth[0] = now;
+                    listener.step("Downloading Ubuntu Server: " + now * 10 + "%.");
+                }
+            });
+            if (fetched) return iso;
+        }
+        throw new IOException("Ubuntu didn't download. Check the connection and try again.");
+    }
+
+    /** Written when a Linux VM's installer has finished and restarted it: its disk then boots the system. */
+    static final String INSTALLER_DONE = "installer-done";
+
+    /**
+     * The kernel QEMU boots for {@code vm}: a Linux VM's installer's, with {@code autoinstall}, until the installer
+     * has finished ({@value #INSTALLER_DONE}); after that, and for Windows, the disk's own system. A start that
+     * ended halfway through boots the installer again, which starts over on a wiped disk: the disk's half-written
+     * system wouldn't boot, and the disc's own menu would boot the installer without {@code autoinstall}, which
+     * then waits for a "yes".
+     */
+    static Optional<Qemu.Kernel> installerKernel(VmRecord vm) {
+        if (vm.guestOs() != GuestOs.LINUX || vm.stage() == VmRecord.Stage.READY
+                || Files.exists(vm.folder().resolve(INSTALLER_DONE))) {
+            return Optional.empty();
+        }
+        return Optional.of(new Qemu.Kernel(vm.folder().resolve(INSTALLER_KERNEL), vm.folder().resolve(INSTALLER_INITRD),
+                LinuxAutoinstall.KERNEL_ARGUMENTS));
+    }
+
+    /**
+     * Installs {@code vm}'s system, or goes on waiting for it: starts the VM if it isn't running, presses the key
+     * the Windows disc waits for on its first start (a Linux VM's installer starts by itself,
+     * {@link #installerKernel}), then follows the installer until the guest says it is done. Records
+     * {@link VmRecord.Stage#READY} and returns the record.
      * <p>
-     * A QEMU VM is started again each time Windows restarts it ({@link Qemu#command} ends QEMU then, which exits
-     * with 0), and when its processor stopped on a fault; Setup goes on as after any restart. At most
+     * A QEMU VM is started again each time the guest restarts it ({@link Qemu#command} ends QEMU then, which exits
+     * with 0), and when its processor stopped on a fault; the installer goes on as after any restart. At most
      * {@link #MAX_STARTS} starts. Throws when QEMU ends otherwise (a crash, or someone ended it), when a VMware VM
      * stops, or when {@code timeout} passes.
      */
@@ -218,28 +298,30 @@ public final class VmSetup {
         VmCredentials credentials = VmCredentials.load(vm.folder())
                 .orElseThrow(() -> new IOException("The VM's passwords are missing; set it up again."));
         long deadline = System.nanoTime() + timeout.toNanos();
-        listener.step(vm.stage() == VmRecord.Stage.PREPARED ? "Starting the VM on the Windows disc." : "Starting the VM again.");
+        String os = vm.guestOs().displayName();
+        listener.step(vm.stage() == VmRecord.Stage.PREPARED ? "Starting the VM on the " + os + " disc."
+                : "Starting the VM again.");
         for (int starts = 1; ; starts++) {
-            if (System.nanoTime() >= deadline) throw new IOException(tooLong(timeout));
+            if (System.nanoTime() >= deadline) throw new IOException(tooLong(vm, timeout));
             Attempt attempt = installOnce(vm, credentials, starts == 1, listener, deadline, timeout);
             vm = attempt.vm();
             switch (attempt.ended()) {
                 case READY -> {
                     return vm;
                 }
-                case RESTARTED -> listener.step("Windows restarted the VM: starting it again.");
+                case RESTARTED -> listener.step(os + " restarted the VM: starting it again.");
                 case FAULTED -> listener.step("The VM's processor stopped on a fault: starting it again.");
                 case SCREEN_LOST -> listener.step("Connecting to the VM's screen again.");
             }
             if (starts >= MAX_STARTS) {
-                throw new IOException("The VM was started " + starts + " times and Windows still isn't installed."
+                throw new IOException("The VM was started " + starts + " times and " + os + " still isn't installed."
                         + logTail(vm));
             }
         }
     }
 
-    private static String tooLong(Duration timeout) {
-        return "Windows didn't finish installing within " + timeout.toMinutes()
+    private static String tooLong(VmRecord vm, Duration timeout) {
+        return vm.guestOs().displayName() + " didn't finish installing within " + timeout.toMinutes()
                 + " minutes. The VM is still running: look at its screen.";
     }
 
@@ -258,7 +340,8 @@ public final class VmSetup {
      */
     private static Attempt installOnce(VmRecord vm, VmCredentials credentials, boolean first, Listener listener,
                                        long deadline, Duration timeout) throws IOException, InterruptedException {
-        boolean pressKey = !diskWritten(vm);
+        boolean pressKey = vm.guestOs() == GuestOs.WINDOWS && !diskWritten(vm);
+        String os = vm.guestOs().displayName();
         try (Running running = start(vm.withStage(VmRecord.Stage.INSTALLING), credentials)) {
             VmRecord installing = running.vm();
             VncController screen = running.screen();
@@ -276,7 +359,9 @@ public final class VmSetup {
                 }
             }
             if (first) {
-                listener.step("Windows is installing: this takes 20 to 40 minutes, and the VM restarts a few times.");
+                listener.step(vm.guestOs() == GuestOs.LINUX
+                        ? "Ubuntu is installing, then Steam and Legendary: this takes 15 to 30 minutes."
+                        : "Windows is installing: this takes 20 to 40 minutes, and the VM restarts a few times.");
             }
             long nextCheck = 0;
             while (System.nanoTime() < deadline) {
@@ -288,14 +373,19 @@ public final class VmSetup {
                     nextCheck = System.nanoTime() + READY_POLL.toNanos();
                     if (!VmInventory.running(installing)) {
                         if (installing.hypervisor() != Hypervisor.QEMU) {
-                            throw new IOException("The VM stopped while Windows was installing." + logTail(installing));
+                            throw new IOException("The VM stopped while " + os + " was installing." + logTail(installing));
                         }
                         awaitExit(installing, running.qemu());
                         // Unknown when an earlier run started it: a restart is the likely end.
                         int exit = running.qemu().map(Process::exitValue).orElse(0);
                         if (exit != 0) {
-                            throw new IOException("QEMU ended (exit code " + exit + ") while Windows was installing."
+                            throw new IOException("QEMU ended (exit code " + exit + ") while " + os + " was installing."
                                     + logTail(installing));
+                        }
+                        // Ubuntu's installer restarts the VM once, when it is done; its system never does before
+                        // it is ready.
+                        if (installing.guestOs() == GuestOs.LINUX) {
+                            Files.writeString(installing.folder().resolve(INSTALLER_DONE), "");
                         }
                         return new Attempt(installing, Ended.RESTARTED);
                     }
@@ -308,13 +398,13 @@ public final class VmSetup {
                         VmRecord ready = installing.withStage(VmRecord.Stage.READY);
                         ready.save();
                         removeAnswerDisc(ready);
-                        listener.step("Windows is installed and signed in.");
+                        listener.step(os + " is installed" + (vm.guestOs() == GuestOs.WINDOWS ? " and signed in." : "."));
                         return new Attempt(ready, Ended.READY);
                     }
                 }
                 Thread.sleep(FRAME_EVERY.toMillis());
             }
-            throw new IOException(tooLong(timeout));
+            throw new IOException(tooLong(vm, timeout));
         }
     }
 
@@ -366,9 +456,9 @@ public final class VmSetup {
     }
 
     /**
-     * Ejects and deletes the answer disc of a VM whose Windows is installed: it holds the guest's password in plain
-     * text, and no later start attaches it. Never throws: Windows is installed whatever happens here, and
-     * {@link #start} tries again when the VM is next started.
+     * Ejects and deletes the answer disc of a VM whose system is installed: it holds the guest's password in plain
+     * text, and no later start attaches it. A Linux installer's kernel goes too. Never throws: the system is
+     * installed whatever happens here, and {@link #start} tries again when the VM is next started.
      */
     private static void removeAnswerDisc(VmRecord ready) {
         try {
@@ -376,10 +466,18 @@ public final class VmSetup {
         } catch (IOException e) {
             // QEMU holds the file until it ends; start() deletes it then.
         }
-        try {
-            Files.deleteIfExists(ready.answerIso());
-        } catch (IOException e) {
-            // as above
+        deleteInstallFiles(ready);
+    }
+
+    /** {@code vm}'s answer disc and installer kernel, which only its install needs; quietly, as above. */
+    private static void deleteInstallFiles(VmRecord vm) {
+        for (Path file : List.of(vm.answerIso(), vm.folder().resolve(INSTALLER_KERNEL),
+                vm.folder().resolve(INSTALLER_INITRD), vm.folder().resolve(INSTALLER_DONE))) {
+            try {
+                Files.deleteIfExists(file);
+            } catch (IOException e) {
+                // QEMU holds it until it ends
+            }
         }
     }
 
@@ -477,14 +575,14 @@ public final class VmSetup {
                 Qemu qemu = Qemu.find().orElseThrow(() -> new IOException("QEMU isn't installed."));
                 if (!QmpClient.listening(vm.qmpPort())) {
                     vm = withFreePorts(vm);
-                    if (vm.stage() == VmRecord.Stage.READY) Files.deleteIfExists(vm.answerIso()); // left by install()
+                    if (vm.stage() == VmRecord.Stage.READY) deleteInstallFiles(vm); // left by install()
                     Path log = vm.folder().resolve(QEMU_LOG);
                     // Appended, one header per start: an install starts QEMU several times, and why the earlier
                     // ones ended is the evidence.
                     Files.writeString(log, "--- " + java.time.LocalDateTime.now().withNano(0) + " start\n",
                             StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
                     started = Optional.of(new ProcessBuilder(qemu.command(vm.spec(List.of()), vm.disk(),
-                            vm.folder().resolve("efivars.fd"), vm.qemuPorts()))
+                            vm.folder().resolve("efivars.fd"), vm.qemuPorts(), installerKernel(vm)))
                             .redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()))
                             .redirectErrorStream(true)
                             .start());
@@ -517,7 +615,8 @@ public final class VmSetup {
             case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
         }
         VncController screen = VncController.connect("127.0.0.1", vm.vncPort(), credentials.vnc(),
-                Keysyms.NativeKeys.VIRTUAL_KEY, vm.name(), GuestWindows.reader(vm, credentials), 30_000);
+                Keysyms.NativeKeys.VIRTUAL_KEY, vm.name(),
+                vm.guestOs() == GuestOs.WINDOWS ? GuestWindows.reader(vm, credentials) : List::of, 30_000);
         return new Running(vm, screen, started);
     }
 
@@ -617,6 +716,7 @@ public final class VmSetup {
      */
     public static void runOnDesktop(VmRecord vm, VmCredentials credentials, String command)
             throws IOException, InterruptedException {
+        requireWindows(vm);
         synchronized (LAUNCHING) {
             switch (vm.hypervisor()) {
                 case QEMU -> {
@@ -685,6 +785,7 @@ public final class VmSetup {
      */
     public static GuestGame.Found game(VmRecord vm, VmCredentials credentials, LaunchSpec spec, boolean stop)
             throws IOException, InterruptedException {
+        requireWindows(vm);
         Optional<String> script = GuestGame.script(spec, stop);
         if (script.isEmpty()) return GuestGame.Found.UNKNOWN;
         GuestAgent.Ran ran = runPowerShell(vm, credentials, script.get(), GAME_CHECK);
@@ -752,6 +853,7 @@ public final class VmSetup {
     public static boolean guestHas(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
             throws IOException, InterruptedException {
         if (launcher == GuestLauncher.UNKNOWN) return true;
+        requireWindows(vm);
         switch (vm.hypervisor()) {
             case QEMU -> {
                 try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
@@ -785,6 +887,7 @@ public final class VmSetup {
     public static void installInGuest(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
             throws IOException, InterruptedException {
         if (launcher == GuestLauncher.UNKNOWN) return;
+        requireWindows(vm);
         GuestAgent.Ran ran = runPowerShell(vm, credentials, launcher.installScript(), LAUNCHER_INSTALL);
         if (ran.exitCode() == Commands.TIMED_OUT) {
             throw new IOException(launcher.displayName() + "'s installer was still running in the VM after "
@@ -807,12 +910,24 @@ public final class VmSetup {
         return String.join(" ", lines.subList(Math.max(0, lines.size() - n), lines.size()));
     }
 
+    /**
+     * Throws unless {@code vm} runs Windows: its desktop's launches, store launchers, game processes, window list
+     * and game copies are Windows', and a Linux VM's come with its displays.
+     */
+    static void requireWindows(VmRecord vm) throws IOException {
+        if (vm.guestOs() != GuestOs.WINDOWS) {
+            throw new IOException("The game VM " + vm.name() + " runs " + vm.guestOs().displayName()
+                    + ", which can't do this yet: it is for a Windows game VM.");
+        }
+    }
+
     /** Whether the guest tools answer and the answer file's last command has run. */
     public static boolean guestReady(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
+        String ready = vm.guestOs() == GuestOs.LINUX ? LinuxAutoinstall.READY_FILE : GuestUnattend.READY_FILE;
         return switch (vm.hypervisor()) {
             case QEMU -> {
                 try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), AGENT_TIMEOUT_MS)) {
-                    yield agent.fileExists(GuestUnattend.READY_FILE);
+                    yield agent.fileExists(ready);
                 } catch (IOException e) {
                     yield false;
                 }
@@ -820,7 +935,7 @@ public final class VmSetup {
             case VMWARE -> {
                 VmwareWorkstation ws = VmwareWorkstation.find().orElse(null);
                 yield ws != null && ws.toolsRunning(vm.vmx())
-                        && ws.fileExistsInGuest(vm.vmx(), GUEST_USER, credentials.guest(), GuestUnattend.READY_FILE);
+                        && ws.fileExistsInGuest(vm.vmx(), GUEST_USER, credentials.guest(), ready);
             }
             case UNKNOWN -> false;
         };

@@ -16,6 +16,27 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **A Linux game VM, set up unattended (QEMU).** `VmSetup.prepare` takes a `vm.GuestOs`, `WINDOWS` or
+  `LINUX`. `VmSpec` and `VmRecord` carry it, and a record without it reads as Windows. For Linux:
+  - Studio downloads Ubuntu Server 24.04.5 itself, checked against Canonical's SHA-256
+    (`LinuxAutoinstall.UBUNTU`, 4 GB, cached once). It tries the current releases' folder, then the archive
+    the disc moves to once the next point release replaces it.
+  - The answer is a cloud-init `CIDATA` disc with an autoinstall. It creates the account, and installs the
+    guest agent (or open-vm-tools), TigerVNC, Openbox, `xdotool` and `wmctrl`.
+  - Ubuntu's installer asks before it writes the disk unless `autoinstall` is on the kernel's command line. QEMU
+    therefore boots the disc's own kernel (`Qemu.Kernel`, copied off the disc by `IsoFiles`); no key is
+    pressed. It does so until the installer has restarted the VM (`installer-done`), so a start that ended
+    halfway installs again from the start.
+  - The first start installs Steam (with its i386 libraries and its licence answered) and Legendary 0.21.1,
+    checked against its SHA-256. A unit of its own then waits for cloud-init to finish, deletes the copies
+    of the answer (cloud-init's, and `/var/log/installer`; they hold the password), turns cloud-init off, and
+    writes `/var/lib/botmaker/ready`.
+  - Live on QEMU: the install took 9 minutes after the download. Steam, Legendary, Xvnc, Openbox, `xdotool`
+    and `wmctrl` were there, and no file or log in the guest held the password.
+  - QEMU keeps a Linux guest's clock in UTC, and a `.vmx` names it `ubuntu-64`. A Linux VM on VMware is
+    refused for now, since VMware can't put `autoinstall` on the installer's command line.
+  - A Linux VM's desktop launches, store launchers, game processes, window list and game copies are refused
+    with a sentence (`VmSetup.requireWindows`) until its displays exist.
 - **A game's processes inside a game VM.** `VmSetup.game(vm, credentials, spec, stop)` runs a PowerShell
   check in a Windows guest, through the guest agent or vmrun. It returns the target's processes (`vm.GuestGame`)
   and, with `stop`, ends each one's process tree first (`taskkill /F /T`).
@@ -160,6 +181,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **A download that takes over 30 s no longer fails.** `Downloads.fetch` set the request's 30 s timeout, and
+  the JDK closes the response body when that runs out, even mid-download: Ubuntu's 4 GB disc stopped at 1.8 GB,
+  live. That limit now covers only the server's answer; the body then reads for as long as it takes, and fails
+  only when no byte arrives for 30 s.
 - **An emulator app has its name, not its package.** `AdbDevice.appLabel` reads `<application android:label>` out
   of the installed APK's binary manifest and follows it into `resources.arsc` (default language, then English),
   over the same ranged reads as the icon (`ApkZip`), so "Clash of Clans" instead of `com.supercell.clashofclans`.

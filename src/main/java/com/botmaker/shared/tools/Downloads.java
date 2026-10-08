@@ -13,6 +13,11 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * <b>Fetching one pinned file, and refusing anything that isn't it.</b> The JDK's own {@link HttpClient} and
@@ -33,7 +38,11 @@ public final class Downloads {
 
     private Downloads() {}
 
-    /** How long to wait for a server to answer at all. The body itself is then read for as long as it takes. */
+    /**
+     * How long to wait for a server to answer at all, and for each next byte of the body. The body itself is then
+     * read for as long as it takes, which is why this isn't the request's own timeout: the JDK closes the body
+     * when that runs out, mid-download (seen 2026-10-08: Ubuntu's 4 GB disc ended at 1.8 GB, 30 s in).
+     */
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
     private static final int BUFFER_BYTES = 64 * 1024;
@@ -157,15 +166,33 @@ public final class Downloads {
                 .connectTimeout(TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL)   // GitHub releases redirect to a CDN host.
                 .build();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(remote.url()))
-                .timeout(TIMEOUT)
-                .GET()
-                .build();
-        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        HttpRequest request = HttpRequest.newBuilder(URI.create(remote.url())).GET().build();
+        CompletableFuture<HttpResponse<InputStream>> answer =
+                client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
+        HttpResponse<InputStream> response;
+        try {
+            response = answer.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            answer.cancel(true);
+            throw e;
+        }
+        AtomicLong lastRead = new AtomicLong(System.nanoTime());
+        AtomicBoolean stalled = new AtomicBoolean();
         try (InputStream in = response.body()) {
             if (response.statusCode() != 200) {
                 return null;
             }
+            // A body that stops arriving is closed, which ends the read below (live: an IOException); whichever
+            // way the read ends then, the download failed.
+            Thread stall = Thread.ofVirtual().start(() -> {
+                try {
+                    while (System.nanoTime() - lastRead.get() < TIMEOUT.toNanos()) Thread.sleep(1_000);
+                    stalled.set(true);
+                    in.close();
+                } catch (Exception e) {
+                    // interrupted: the body ended
+                }
+            });
             long total = response.headers().firstValueAsLong("content-length").orElse(-1);
             MessageDigest digest = MessageDigest.getInstance(remote.digest().algorithm());
             long written = 0;
@@ -173,13 +200,16 @@ public final class Downloads {
             try (OutputStream out = Files.newOutputStream(part)) {
                 int read;
                 while ((read = in.read(buffer)) > 0) {
+                    lastRead.set(System.nanoTime());
                     out.write(buffer, 0, read);
                     digest.update(buffer, 0, read);
                     written += read;
                     progress.accept(written, total);
                 }
+            } finally {
+                stall.interrupt();
             }
-            if (remote.size() > 0 && written != remote.size()) {
+            if (stalled.get() || remote.size() > 0 && written != remote.size()) {
                 return null;
             }
             return HexFormat.of().formatHex(digest.digest()).toLowerCase(Locale.ROOT);

@@ -143,6 +143,7 @@ public final class GameCopy {
      */
     public static void copy(VmRecord vm, VmCredentials credentials, Source game, Consumer<String> progress)
             throws IOException, InterruptedException {
+        VmSetup.requireWindows(vm);
         Guest guest = switch (vm.hypervisor()) {
             case QEMU -> new QemuGuest(vm.agentPort());
             case VMWARE -> VmwareGuest.of(vm, credentials);

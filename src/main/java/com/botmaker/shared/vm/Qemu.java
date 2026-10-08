@@ -47,6 +47,12 @@ public record Qemu(Path folder) {
         }
     }
 
+    /**
+     * A kernel QEMU boots itself, from files rather than a disk, with {@code arguments} on its command line: how a
+     * Linux installer is told to run unattended ({@link LinuxAutoinstall}).
+     */
+    public record Kernel(Path kernel, Path initrd, String arguments) {}
+
     /** The install that has {@code qemu-system-x86_64.exe}: its registry key, else the default folder. */
     public static Optional<Qemu> find() {
         if (!Os.current().isWindows()) return Optional.empty();
@@ -109,14 +115,16 @@ public record Qemu(Path folder) {
      *   <li>q35 with UEFI, every CPU feature the host offers (Windows 11 needs SSE4.2 and POPCNT);</li>
      *   <li>the disk on NVMe and an e1000e network card, which Windows Setup has drivers for;</li>
      *   <li>a USB tablet, so a VNC pointer lands where it is sent rather than drifting;</li>
-     *   <li>the Windows disc then {@code spec.discs()} on SATA;</li>
+     *   <li>the system's disc then {@code spec.discs()} on SATA;</li>
+     *   <li>{@code kernel}, when given, booted before any disk: a Linux installer's, while it installs;</li>
+     *   <li>the clock in local time for Windows, in UTC for Linux, as each expects;</li>
      *   <li>VNC on loopback with a password, set over QMP once it starts; QMP twice (commands, and events for a
      *       listener that must hear why the VM stopped) and the guest agent's channel on loopback; no window.</li>
      * </ul>
      * The Windows disc boots first, and its loader waits five seconds for a key before it gives up: whoever
      * starts the VM presses one over VNC.
      */
-    public List<String> command(VmSpec spec, Path disk, Path firmwareVars, Ports ports) {
+    public List<String> command(VmSpec spec, Path disk, Path firmwareVars, Ports ports, Optional<Kernel> kernel) {
         int vnc = spec.vncPort();
         if (vnc < 5900 || vnc > 5999) throw new IllegalArgumentException("QEMU serves VNC on 5900–5999: " + vnc);
         if (ports.has(vnc)) throw new IllegalArgumentException("VNC's port is taken: " + vnc);
@@ -129,7 +137,7 @@ public record Qemu(Path folder) {
                 "-cpu", "max",
                 "-smp", Integer.toString(spec.size().cpus()),
                 "-m", spec.size().memoryMb() + "M",
-                "-rtc", "base=localtime",
+                "-rtc", spec.guestOs() == GuestOs.LINUX ? "base=utc" : "base=localtime",
                 "-drive", "if=pflash,format=raw,readonly=on,file=" + drivePath(folder.resolve("share").resolve(FIRMWARE_CODE)),
                 "-drive", "if=pflash,format=raw,file=" + drivePath(firmwareVars),
                 "-drive", "if=none,id=disk0,format=qcow2,file=" + drivePath(disk),
@@ -139,8 +147,10 @@ public record Qemu(Path folder) {
                 "-device", "qemu-xhci",
                 "-device", "usb-tablet",
                 "-vga", "std"));
+        kernel.ifPresent(k -> c.addAll(List.of("-kernel", k.kernel().toString(), "-initrd", k.initrd().toString(),
+                "-append", k.arguments())));
         List<Path> discs = new ArrayList<>();
-        if (spec.windowsIso() != null) discs.add(spec.windowsIso());
+        if (spec.installIso() != null) discs.add(spec.installIso());
         discs.addAll(spec.discs());
         if (discs.size() > 6) throw new IllegalArgumentException("q35 has six SATA ports, for " + discs.size() + " discs.");
         for (int i = 0; i < discs.size(); i++) {
@@ -166,7 +176,7 @@ public record Qemu(Path folder) {
 
     /** How many CD drives a command line from {@code spec} has. */
     public static int cdDrives(VmSpec spec) {
-        return (spec.windowsIso() != null ? 1 : 0) + spec.discs().size();
+        return (spec.installIso() != null ? 1 : 0) + spec.discs().size();
     }
 
     /** A path inside a {@code -drive} option, where a comma would end the value unless doubled. */

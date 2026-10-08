@@ -15,7 +15,7 @@ class VmAutoStopTest {
 
     private static VmRecord vm(Path folder) {
         return new VmRecord(folder, "g", Hypervisor.QEMU, VmRecord.Stage.READY, new VmSize(2, 4096, 64),
-                Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003);
+                Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003, GuestOs.WINDOWS);
     }
 
     @Test
@@ -42,7 +42,7 @@ class VmAutoStopTest {
     @Test
     void anUnknownHypervisorHasNoWatcher(@TempDir Path folder) {
         VmRecord unknown = new VmRecord(folder, "g", Hypervisor.UNKNOWN, VmRecord.Stage.READY, new VmSize(2, 4096, 64),
-                Path.of("win.iso"), "en-US", 5900, 0, 0, 0);
+                Path.of("win.iso"), "en-US", 5900, 0, 0, 0, GuestOs.WINDOWS);
         assertTrue(VmAutoStop.watchScript(unknown, 1).isEmpty());
         assertTrue(!VmAutoStop.unwatched(unknown), "never idle: nothing to ask");
     }

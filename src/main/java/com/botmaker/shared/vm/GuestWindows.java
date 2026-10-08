@@ -129,6 +129,7 @@ public final class GuestWindows {
      * running goes on, and this one ends at once. The guest must have signed in ({@link VmSetup#guestReady}).
      */
     public static void start(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
+        VmSetup.requireWindows(vm);
         byte[] script = ("\uFEFF" + script()).getBytes(StandardCharsets.UTF_8);
         switch (vm.hypervisor()) {
             case QEMU -> {
