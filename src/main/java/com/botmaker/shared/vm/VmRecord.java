@@ -17,9 +17,11 @@ import java.util.Properties;
  *
  * @param qmpPort   QEMU's control port; {@code 0} for VMware
  * @param agentPort QEMU's guest-agent port; {@code 0} for VMware
+ * @param eventsPort QEMU's second QMP port, for {@link QmpEvents}; {@code 0} for VMware, and for a VM recorded
+ *                   before it had one until its next start
  */
 public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage stage, VmSize size, Path windowsIso,
-                       String language, int vncPort, int qmpPort, int agentPort) {
+                       String language, int vncPort, int qmpPort, int agentPort, int eventsPort) {
 
     static final String FILE = "vm.properties";
     static final String ANSWER_ISO = "answer.iso";
@@ -59,11 +61,12 @@ public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage st
     }
 
     public VmRecord withStage(Stage next) {
-        return new VmRecord(folder, name, hypervisor, next, size, windowsIso, language, vncPort, qmpPort, agentPort);
+        return new VmRecord(folder, name, hypervisor, next, size, windowsIso, language, vncPort, qmpPort, agentPort,
+                eventsPort);
     }
 
-    public VmRecord withPorts(int vnc, int qmp, int agent) {
-        return new VmRecord(folder, name, hypervisor, stage, size, windowsIso, language, vnc, qmp, agent);
+    public VmRecord withPorts(int vnc, int qmp, int agent, int events) {
+        return new VmRecord(folder, name, hypervisor, stage, size, windowsIso, language, vnc, qmp, agent, events);
     }
 
     public Path disk() {
@@ -79,7 +82,7 @@ public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage st
     }
 
     public Qemu.Ports qemuPorts() {
-        return new Qemu.Ports(qmpPort, agentPort);
+        return new Qemu.Ports(qmpPort, agentPort, eventsPort);
     }
 
     /**
@@ -109,6 +112,7 @@ public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage st
         p.setProperty("vncPort", Integer.toString(vncPort));
         p.setProperty("qmpPort", Integer.toString(qmpPort));
         p.setProperty("agentPort", Integer.toString(agentPort));
+        p.setProperty("eventsPort", Integer.toString(eventsPort));
         Path tmp = folder.resolve(FILE + ".tmp");
         try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
             p.store(w, "A BotMaker game VM");
@@ -129,7 +133,8 @@ public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage st
                     Hypervisor.fromId(p.getProperty("hypervisor")), Stage.fromId(p.getProperty("stage")), size,
                     Path.of(p.getProperty("windowsIso")), p.getProperty("language", "en-US"),
                     Integer.parseInt(p.getProperty("vncPort")), Integer.parseInt(p.getProperty("qmpPort", "0")),
-                    Integer.parseInt(p.getProperty("agentPort", "0")));
+                    Integer.parseInt(p.getProperty("agentPort", "0")),
+                    Integer.parseInt(p.getProperty("eventsPort", "0")));
         } catch (RuntimeException e) {
             throw new IOException("The VM record in " + folder + " is damaged.", e);
         }

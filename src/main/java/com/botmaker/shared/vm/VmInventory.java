@@ -80,6 +80,7 @@ public final class VmInventory {
             ports.add(vm.vncPort());
             ports.add(vm.qmpPort());
             ports.add(vm.agentPort());
+            ports.add(vm.eventsPort());
         }
         return ports;
     }

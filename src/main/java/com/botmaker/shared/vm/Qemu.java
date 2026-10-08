@@ -29,13 +29,21 @@ public record Qemu(Path folder) {
     private static final String FIRMWARE_CODE = "edk2-x86_64-code.fd";
     private static final String FIRMWARE_VARS = "edk2-i386-vars.fd";
 
-    /** The loopback ports one VM uses besides its screen's ({@link VmSpec#vncPort()}): QMP and the guest agent's. */
-    public record Ports(int qmp, int agent) {
+    /**
+     * The loopback ports one VM uses besides its screen's ({@link VmSpec#vncPort()}): QMP for commands, the guest
+     * agent's, and a second QMP for whoever listens to the VM's events ({@link QmpEvents}).
+     */
+    public record Ports(int qmp, int agent, int events) {
 
         public Ports {
-            if (qmp < 1024 || qmp > 65535 || agent < 1024 || agent > 65535 || qmp == agent) {
-                throw new IllegalArgumentException("Two different ports from 1024 up: " + qmp + ", " + agent);
+            List<Integer> all = List.of(qmp, agent, events);
+            if (all.stream().anyMatch(p -> p < 1024 || p > 65535) || all.stream().distinct().count() < all.size()) {
+                throw new IllegalArgumentException("Three different ports from 1024 up: " + all);
             }
+        }
+
+        boolean has(int port) {
+            return port == qmp || port == agent || port == events;
         }
     }
 
@@ -102,8 +110,8 @@ public record Qemu(Path folder) {
      *   <li>the disk on NVMe and an e1000e network card, which Windows Setup has drivers for;</li>
      *   <li>a USB tablet, so a VNC pointer lands where it is sent rather than drifting;</li>
      *   <li>the Windows disc then {@code spec.discs()} on SATA;</li>
-     *   <li>VNC on loopback with a password, set over QMP once it starts; QMP and the guest agent's channel on
-     *       loopback; no window.</li>
+     *   <li>VNC on loopback with a password, set over QMP once it starts; QMP twice (commands, and events for a
+     *       listener that must hear why the VM stopped) and the guest agent's channel on loopback; no window.</li>
      * </ul>
      * The Windows disc boots first, and its loader waits five seconds for a key before it gives up: whoever
      * starts the VM presses one over VNC.
@@ -111,7 +119,7 @@ public record Qemu(Path folder) {
     public List<String> command(VmSpec spec, Path disk, Path firmwareVars, Ports ports) {
         int vnc = spec.vncPort();
         if (vnc < 5900 || vnc > 5999) throw new IllegalArgumentException("QEMU serves VNC on 5900–5999: " + vnc);
-        if (vnc == ports.qmp() || vnc == ports.agent()) throw new IllegalArgumentException("VNC's port is taken: " + vnc);
+        if (ports.has(vnc)) throw new IllegalArgumentException("VNC's port is taken: " + vnc);
         List<String> c = new ArrayList<>(List.of(
                 system().toString(),
                 "-name", "botmaker-" + spec.name(),
@@ -143,6 +151,7 @@ public record Qemu(Path folder) {
         c.addAll(List.of(
                 "-vnc", String.format(Locale.ROOT, "127.0.0.1:%d,password=on", vnc - 5900),
                 "-qmp", "tcp:127.0.0.1:" + ports.qmp() + ",server=on,wait=off",
+                "-qmp", "tcp:127.0.0.1:" + ports.events() + ",server=on,wait=off",
                 "-chardev", "socket,id=agent0,host=127.0.0.1,port=" + ports.agent() + ",server=on,wait=off",
                 "-device", "virtio-serial-pci",
                 "-device", "virtserialport,chardev=agent0,name=org.qemu.guest_agent.0",

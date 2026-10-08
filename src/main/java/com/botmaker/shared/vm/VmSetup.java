@@ -159,8 +159,9 @@ public final class VmSetup {
         int vnc = freeVncPort();
         int qmp = hypervisor == Hypervisor.QEMU ? freePort(List.of(vnc)) : 0;
         int agent = hypervisor == Hypervisor.QEMU ? freePort(List.of(vnc, qmp)) : 0;
+        int events = hypervisor == Hypervisor.QEMU ? freePort(List.of(vnc, qmp, agent)) : 0;
         VmRecord vm = new VmRecord(folder, name, hypervisor, VmRecord.Stage.PREPARED, size, windowsIso, language, vnc,
-                qmp, agent);
+                qmp, agent, events);
 
         VmCredentials credentials = VmCredentials.random();
         credentials.save(folder);
@@ -456,7 +457,7 @@ public final class VmSetup {
                         .orElseThrow(() -> new IOException("VMware Workstation isn't installed."));
                 if (!VmInventory.running(vm)) {
                     if (!bindable(vm.vncPort())) {
-                        vm = vm.withPorts(freeVncPort(), 0, 0);
+                        vm = vm.withPorts(freeVncPort(), 0, 0, 0);
                         vm.save();
                     }
                     VmxFile.read(vm.vmx()).setDiscs(vm.spec(List.of(ws.toolsIso())))
@@ -472,16 +473,81 @@ public final class VmSetup {
         return new Running(vm, screen, started);
     }
 
-    /** {@code vm} with any of its QEMU ports that can't be bound now chosen again, and saved when one moved. */
+    /**
+     * {@code vm} with any of its QEMU ports that can't be bound now chosen again, and saved when one moved. A VM
+     * recorded before it had an events port is given one here.
+     */
     private static VmRecord withFreePorts(VmRecord vm) throws IOException {
         int vnc = bindable(vm.vncPort()) ? vm.vncPort() : freeVncPort();
         int qmp = bindable(vm.qmpPort()) && vm.qmpPort() != vnc ? vm.qmpPort() : freePort(List.of(vnc));
         int agent = bindable(vm.agentPort()) && vm.agentPort() != vnc && vm.agentPort() != qmp
                 ? vm.agentPort() : freePort(List.of(vnc, qmp));
-        if (vnc == vm.vncPort() && qmp == vm.qmpPort() && agent == vm.agentPort()) return vm;
-        VmRecord moved = vm.withPorts(vnc, qmp, agent);
+        int events = vm.eventsPort() != 0 && bindable(vm.eventsPort()) && !List.of(vnc, qmp, agent).contains(vm.eventsPort())
+                ? vm.eventsPort() : freePort(List.of(vnc, qmp, agent));
+        if (vnc == vm.vncPort() && qmp == vm.qmpPort() && agent == vm.agentPort() && events == vm.eventsPort()) return vm;
+        VmRecord moved = vm.withPorts(vnc, qmp, agent, events);
         moved.save();
         return moved;
+    }
+
+    /** How long Windows gets to shut down before the VM is powered off. */
+    private static final Duration SHUT_DOWN = Duration.ofMinutes(3);
+
+    /**
+     * Shuts {@code vm} down as its power button would and waits until it has stopped; when Windows hasn't
+     * finished within {@link #SHUT_DOWN} (an app holding it up), powers it off. Nothing happens when it isn't
+     * running. A bot running in it ends: its session hears that Windows shut down, which isn't a restart.
+     *
+     * @return whether Windows shut down by itself; {@code false} when it had to be powered off
+     */
+    public static boolean shutDown(VmRecord vm) throws IOException, InterruptedException {
+        if (!VmInventory.running(vm)) return true;
+        switch (vm.hypervisor()) {
+            case QEMU -> {
+                try (QmpClient qmp = QmpClient.connect(vm.qmpPort())) {
+                    qmp.powerDown();
+                }
+                long until = System.nanoTime() + SHUT_DOWN.toNanos();
+                boolean clean = true;
+                while (QmpClient.listening(vm.qmpPort())) {
+                    if (System.nanoTime() > until) {
+                        stopQemu(vm, Optional.empty());
+                        clean = false;
+                        break;
+                    }
+                    Thread.sleep(1_000);
+                }
+                awaitDiskFree(vm);
+                return clean;
+            }
+            case VMWARE -> {
+                VmwareWorkstation ws = VmwareWorkstation.find()
+                        .orElseThrow(() -> new IOException("VMware Workstation isn't installed."));
+                if (ws.stop(vm.vmx(), false).ok()) return true;
+                Commands.require(ws.stop(vm.vmx(), true), "VMware couldn't power the VM off");
+                return false;
+            }
+            default -> throw new IOException("This VM's hypervisor is unknown.");
+        }
+    }
+
+    /**
+     * Waits until the QEMU that ran {@code vm} has let go of its disk: its QMP port closes before that, and a
+     * start in between would find the disk taken. Gives up quietly after {@link #QEMU_START}, as the start then
+     * says why it can't.
+     */
+    private static void awaitDiskFree(VmRecord vm) throws InterruptedException {
+        long until = System.nanoTime() + QEMU_START.toNanos();
+        while (System.nanoTime() < until) {
+            try (java.nio.channels.FileChannel disk = java.nio.channels.FileChannel.open(vm.disk(),
+                    StandardOpenOption.READ, StandardOpenOption.WRITE);
+                 java.nio.channels.FileLock lock = disk.tryLock()) {
+                if (lock != null) return;
+            } catch (IOException e) {
+                // still held
+            }
+            Thread.sleep(500);
+        }
     }
 
     /**

@@ -87,6 +87,54 @@ class QmpClientTest {
     }
 
     @Test
+    void theScreensClientsAreCounted() throws Exception {
+        try (FakeQemu qemu = new FakeQemu(List.of(List.of(OK),
+                List.of("{\"return\": {\"enabled\": true, \"clients\": [{\"host\": \"127.0.0.1\"}, {\"host\": \"127.0.0.1\"}]}}")));
+             QmpClient qmp = QmpClient.connect(qemu.port())) {
+            assertEquals(2, qmp.vncClients());
+            assertEquals("{\"execute\":\"query-vnc\"}", qemu.received.get(1));
+        }
+    }
+
+    @Test
+    void theEventsSayWhyQemuEnded() throws Exception {
+        String reset = "{\"event\": \"SHUTDOWN\", \"data\": {\"guest\": true, \"reason\": \"guest-reset\"}, \"timestamp\": {}}";
+        try (FakeQemu qemu = new FakeQemu(List.of(List.of(OK, "{\"event\": \"RESUME\", \"timestamp\": {}}", reset)));
+             QmpEvents events = QmpEvents.listen(qemu.port())) {
+            assertEquals(java.util.Optional.of(QmpEvents.Reason.GUEST_RESET), events.awaitEnd(java.time.Duration.ofSeconds(5)),
+                    "the fake hangs up after its event, as QEMU exits after its own");
+        }
+        try (FakeQemu qemu = new FakeQemu(List.of(List.of(OK)));
+             QmpEvents events = QmpEvents.listen(qemu.port())) {
+            assertEquals(java.util.Optional.of(QmpEvents.Reason.ENDED), events.awaitEnd(java.time.Duration.ofSeconds(5)),
+                    "no event: ended from outside");
+        }
+        assertEquals(QmpEvents.Reason.UNKNOWN, QmpEvents.Reason.fromId("snapshot-load"));
+    }
+
+    @Test
+    void aRunningQemuHasNotEnded() throws Exception {
+        try (ServerSocket listener = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread.ofPlatform().daemon().start(() -> {
+                try (Socket s = listener.accept()) {
+                    BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+                    OutputStream out = s.getOutputStream();
+                    out.write("{\"QMP\": {}}\n".getBytes(StandardCharsets.UTF_8));
+                    in.readLine();
+                    out.write((OK + "\n").getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                    Thread.sleep(10_000); // still running
+                } catch (IOException | InterruptedException e) {
+                    // the test is over
+                }
+            });
+            try (QmpEvents events = QmpEvents.listen(listener.getLocalPort())) {
+                assertEquals(java.util.Optional.empty(), events.awaitEnd(java.time.Duration.ofMillis(300)));
+            }
+        }
+    }
+
+    @Test
     void quitIsDoneWhenQemuHangsUpBeforeAnswering() throws Exception {
         try (FakeQemu qemu = new FakeQemu(List.of(List.of(OK), List.of()));
              QmpClient qmp = QmpClient.connect(qemu.port())) {

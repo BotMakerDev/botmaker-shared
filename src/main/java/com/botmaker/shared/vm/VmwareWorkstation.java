@@ -71,9 +71,9 @@ public record VmwareWorkstation(Path folder) {
         return Commands.run(SLOW, startCommand(vmx));
     }
 
-    /** Asks the guest to shut down, and waits for it. */
-    public Spawn.Completed stop(Path vmx) throws IOException, InterruptedException {
-        return Commands.run(SLOW, stopCommand(vmx));
+    /** Asks the guest to shut down and waits for it; {@code hard} powers it off at once instead. */
+    public Spawn.Completed stop(Path vmx, boolean hard) throws IOException, InterruptedException {
+        return Commands.run(SLOW, stopCommand(vmx, hard));
     }
 
     /** The {@code .vmx} files of the VMs running now. */
@@ -143,8 +143,8 @@ public record VmwareWorkstation(Path folder) {
         return List.of(vmrun().toString(), "-T", "ws", "start", vmx.toString(), "nogui");
     }
 
-    List<String> stopCommand(Path vmx) {
-        return List.of(vmrun().toString(), "-T", "ws", "stop", vmx.toString(), "soft");
+    List<String> stopCommand(Path vmx, boolean hard) {
+        return List.of(vmrun().toString(), "-T", "ws", "stop", vmx.toString(), hard ? "hard" : "soft");
     }
 
     List<String> runInGuestCommand(Path vmx, String user, String password, String program, String arguments) {

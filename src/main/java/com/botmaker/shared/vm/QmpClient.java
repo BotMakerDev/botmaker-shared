@@ -100,6 +100,11 @@ public final class QmpClient implements AutoCloseable {
         return RunState.fromId(execute("query-status", Map.of()).path("status").asText());
     }
 
+    /** How many VNC clients are connected to the VM's screen now: a bot's session, a VM screen in Studio. */
+    public int vncClients() throws IOException {
+        return execute("query-vnc", Map.of()).path("clients").size();
+    }
+
     /** Presses the guest's power button: Windows shuts down as it does for one. */
     public void powerDown() throws IOException {
         execute("system_powerdown", Map.of());

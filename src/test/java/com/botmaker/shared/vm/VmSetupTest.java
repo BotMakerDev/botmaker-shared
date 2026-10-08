@@ -23,11 +23,11 @@ class VmSetupTest {
             Path folder = VmInventory.folder("Game VM");
             Files.createDirectories(folder);
             VmRecord saved = new VmRecord(folder, "Game VM", Hypervisor.QEMU, VmRecord.Stage.PREPARED, new VmSize(2, 6144, 80),
-                    Path.of("C:\\isos\\Win 11.iso"), "fr-FR", 5901, 40001, 40002);
+                    Path.of("C:\\isos\\Win 11.iso"), "fr-FR", 5901, 40001, 40002, 40003);
             saved.save();
             assertEquals(saved, VmRecord.load(folder));
             assertEquals(List.of(saved), VmInventory.list());
-            assertTrue(VmInventory.portsInUse().containsAll(List.of(5901, 40001, 40002)));
+            assertTrue(VmInventory.portsInUse().containsAll(List.of(5901, 40001, 40002, 40003)));
             assertTrue(VmSetup.freeVncPort() != 5901, "a port another VM has is never handed out again");
 
             Files.createDirectories(VmInventory.folder("broken"));
@@ -42,7 +42,7 @@ class VmSetupTest {
     @Test
     void whileInstallingItCarriesItsDiscsAndOnceReadyNone() {
         VmRecord vm = new VmRecord(Path.of("vm"), "g", Hypervisor.QEMU, VmRecord.Stage.INSTALLING, new VmSize(2, 4096, 80),
-                Path.of("win.iso"), "en-US", 5900, 40001, 40002);
+                Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003);
         VmSpec installing = vm.spec(List.of(Path.of("tools.iso")));
         assertEquals(Path.of("win.iso"), installing.windowsIso());
         assertEquals(List.of(vm.answerIso(), Path.of("tools.iso")), installing.discs());
@@ -56,7 +56,7 @@ class VmSetupTest {
     @Test
     void theDiscsKeyIsPressedOnlyWhileTheDiskIsEmpty(@TempDir Path folder) throws Exception {
         VmRecord vm = new VmRecord(folder, "g", Hypervisor.QEMU, VmRecord.Stage.INSTALLING, new VmSize(2, 4096, 64),
-                Path.of("win.iso"), "en-US", 5900, 40001, 40002);
+                Path.of("win.iso"), "en-US", 5900, 40001, 40002, 40003);
         assertTrue(!VmSetup.diskWritten(vm), "no disk yet");
         Files.write(vm.disk(), new byte[200 * 1024]);
         assertTrue(!VmSetup.diskWritten(vm), "a new qcow2 is a few hundred kilobytes");

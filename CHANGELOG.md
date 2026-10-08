@@ -59,6 +59,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   it (both installed on the `live` VM; Steam's bootstrapper took 5 s). Epic's installer of
   2026-10 puts it under `Program Files`, older ones under `Program Files (x86)`: both are looked for.
   `GuestAgent.run()` waits for a program and hands back its exit code and output.
+- **Shutting a game VM down, and knowing why one stopped.** `VmSetup.shutDown()` presses the VM's power
+  button (QEMU's `system_powerdown`, VMware's `stop soft`), waits for Windows, and powers it off after three
+  minutes. A QEMU VM has a second QMP port (`VmRecord.eventsPort`, given to an older record at its next
+  start): `QmpEvents` listens there and says why QEMU ended (a Windows restart, a shutdown, ended from
+  outside). `VmAutoStop` keeps a VM's own settings in its folder: shut down when Studio closes, which a
+  PowerShell process watching Studio's process does even after a crash, and after some minutes with no VNC
+  client (`QmpClient.vncClients()`, QEMU only).
 
 - **Installing a game on an emulator, and making a new instance.** `PlayStoreSearch` finds an app on Google
   Play by name from this computer. `EmulatorInstall` starts the instance if needed, then either opens the app's

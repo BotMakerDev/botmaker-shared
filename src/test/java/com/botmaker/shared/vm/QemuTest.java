@@ -19,7 +19,7 @@ class QemuTest {
     void theCommandLineRunsHeadlessOnTheHypervisorPlatformWithLoopbackScreenAndControl() {
         Qemu qemu = new Qemu(Path.of("qemu"));
         List<String> c = qemu.command(SPEC, Path.of("disk.qcow2"), Path.of("efivars.fd"),
-                new Qemu.Ports(4444, 4445));
+                new Qemu.Ports(4444, 4445, 4446));
         String line = String.join(" ", c);
 
         assertEquals(qemu.system().toString(), c.getFirst());
@@ -37,6 +37,8 @@ class QemuTest {
         assertTrue(line.contains("file=virtio,,win.iso"), "a comma in a path is doubled");
         assertEquals("127.0.0.1:2,password=on", c.get(c.indexOf("-vnc") + 1));
         assertEquals("tcp:127.0.0.1:4444,server=on,wait=off", c.get(c.indexOf("-qmp") + 1));
+        assertEquals("tcp:127.0.0.1:4446,server=on,wait=off", c.get(c.lastIndexOf("-qmp") + 1),
+                "a second QMP, for whoever listens to why the VM stops");
         assertTrue(line.contains("port=4445,server=on,wait=off"));
         assertTrue(line.contains("name=org.qemu.guest_agent.0"));
         assertEquals("none", c.get(c.indexOf("-display") + 1));
@@ -46,10 +48,10 @@ class QemuTest {
     void installingIsOneSilentWingetCommand() {
         assertEquals(List.of("winget", "install", "-e", "--id", "SoftwareFreedomConservancy.QEMU", "--silent",
                 "--accept-package-agreements", "--accept-source-agreements"), Qemu.installCommand());
-        assertThrows(IllegalArgumentException.class, () -> new Qemu.Ports(4444, 4444));
+        assertThrows(IllegalArgumentException.class, () -> new Qemu.Ports(4444, 4445, 4444));
         VmSpec far = new VmSpec("game", Path.of("vm"), new VmSize(1, 4096, 80), Path.of("w.iso"), List.of(), 6000);
         assertThrows(IllegalArgumentException.class,
-                () -> new Qemu(Path.of("q")).command(far, Path.of("d"), Path.of("v"), new Qemu.Ports(4444, 4445)));
+                () -> new Qemu(Path.of("q")).command(far, Path.of("d"), Path.of("v"), new Qemu.Ports(4444, 4445, 4446)));
     }
 
     @Test

@@ -45,6 +45,11 @@ final class JsonChannel implements AutoCloseable {
         }
     }
 
+    /** How long a read waits from now on; {@code 0} for as long as it takes. */
+    void readTimeout(int ms) throws IOException {
+        socket.setSoTimeout(ms);
+    }
+
     void send(String command, Map<String, ?> arguments) throws IOException {
         if (broken) throw new IOException("The connection to QEMU lost its place in a reply; connect again.");
         ObjectNode request = JSON.createObjectNode().put("execute", command);
