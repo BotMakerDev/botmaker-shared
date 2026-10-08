@@ -65,6 +65,27 @@ public final class GuestAgent implements AutoCloseable {
         return true;
     }
 
+    /** {@code path}'s bytes in the guest; empty when it doesn't exist or can't be read. */
+    public java.util.Optional<byte[]> readFile(String path) throws IOException {
+        long handle;
+        try {
+            handle = channel.execute("guest-file-open", Map.of("path", path, "mode", "rb")).asLong();
+        } catch (QmpClient.Refused e) {
+            return java.util.Optional.empty();
+        }
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try {
+            while (true) {
+                JsonNode read = channel.execute("guest-file-read", Map.of("handle", handle, "count", CHUNK));
+                bytes.writeBytes(Base64.getDecoder().decode(read.path("buf-b64").asText("")));
+                if (read.path("eof").asBoolean(true) || read.path("count").asInt(0) == 0) break;
+            }
+        } finally {
+            channel.execute("guest-file-close", Map.of("handle", handle));
+        }
+        return java.util.Optional.of(bytes.toByteArray());
+    }
+
     /** Writes {@code bytes} to {@code path} in the guest, replacing it. */
     public void writeFile(String path, byte[] bytes) throws IOException {
         long handle = channel.execute("guest-file-open", Map.of("path", path, "mode", "wb")).asLong();

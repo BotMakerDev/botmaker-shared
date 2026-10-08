@@ -51,6 +51,29 @@ public enum GuestLauncher {
         return executables;
     }
 
+    /** Its program's process name in the guest, to close it; empty for {@link #UNKNOWN}. */
+    public String process() {
+        return switch (this) {
+            case STEAM -> "steam.exe";
+            case EPIC -> "EpicGamesLauncher.exe";
+            case UNKNOWN -> "";
+        };
+    }
+
+    /**
+     * The guest folder it installs games in by default, given where its program is there ({@link #executables()}):
+     * Steam's library is beside its program, Epic's games folder is fixed.
+     *
+     * @throws IllegalStateException for {@link #UNKNOWN}, which installs nothing
+     */
+    public String gamesFolder(String executable) {
+        return switch (this) {
+            case STEAM -> executable.substring(0, executable.lastIndexOf('\\')) + "\\steamapps\\common";
+            case EPIC -> "C:\\Program Files\\Epic Games";
+            case UNKNOWN -> throw new IllegalStateException("An unknown launcher installs no game.");
+        };
+    }
+
     /** The launcher {@code id} names; {@link #UNKNOWN} for anything else. */
     public static GuestLauncher fromId(String id) {
         for (GuestLauncher l : values()) {

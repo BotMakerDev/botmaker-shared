@@ -69,6 +69,17 @@ public final class EpicLibraryScanner implements GameLibraryProvider {
         return games;
     }
 
+    /** Every {@code .item} manifest of this computer's Epic Games Launcher, unread. Never throws. */
+    public static List<Path> manifests() {
+        Path dir = manifestsDir();
+        if (dir == null) return List.of();
+        try (Stream<Path> items = Files.list(dir)) {
+            return items.filter(EpicLibraryScanner::isManifest).sorted().toList();
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
     private static boolean isManifest(Path p) {
         return p.getFileName().toString().endsWith(".item");
     }

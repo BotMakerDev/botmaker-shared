@@ -89,6 +89,33 @@ public final class SteamLibraryScanner implements GameLibraryProvider {
     private static final Pattern TOOL_NAME =
             Pattern.compile("^(Proton(\\s|$)|Steam Linux Runtime|Steamworks Common Redistributables)");
 
+    /**
+     * Every {@code appmanifest_<appid>.acf} of this computer's Steam libraries, Steam's own tools left out. Reads
+     * no picture; never throws.
+     */
+    public static List<Path> appManifests() {
+        List<Path> found = new ArrayList<>();
+        try {
+            Path root = steamRoot();
+            if (root == null) return found;
+            for (Path library : libraryFolders(root)) {
+                try (Stream<Path> files = Files.list(library.resolve("steamapps"))) {
+                    files.filter(SteamLibraryScanner::isAppManifest).forEach(acf -> {
+                        String text = readString(acf);
+                        Matcher name = text == null ? null : NAME_ENTRY.matcher(text);
+                        String id = appIdFromFileName(acf);
+                        if (name != null && name.find() && id != null && !isTool(id, name.group(1))) found.add(acf);
+                    });
+                } catch (IOException e) {
+                    // an unreadable library: the others still count
+                }
+            }
+        } catch (RuntimeException e) {
+            // what was found before stands
+        }
+        return found;
+    }
+
     private static boolean isAppManifest(Path p) {
         String n = p.getFileName().toString();
         return n.startsWith("appmanifest_") && n.endsWith(".acf");

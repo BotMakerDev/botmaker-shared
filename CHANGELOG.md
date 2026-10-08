@@ -16,6 +16,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **A game of this PC copied into a game VM.** `vm.GameCopy.onThisPc()` lists the Steam and Epic games here;
+  `GameCopy.copy` has a QEMU guest fetch one's folder from a loopback `FolderServer` (token, read-only, at
+  `10.0.2.2`) into the folder its launcher installs to, skipping files already there whole, then writes the
+  launcher's record (Steam's `.acf`; Epic's `.item` and `LauncherInstalled.dat` entry) so it checks rather
+  than downloads. No account or share on this PC. Measured: Firestone, 754 MB, in 47 s. VMware: not yet.
+  `GuestAgent.readFile`; `SteamLibraryScanner.manifestOf`, `EpicLibraryScanner.manifestOf`.
 - **A VM's screen as a `NativeController`.** `vnc.VncController` connects to the VNC server a hypervisor
   serves for a virtual machine on this computer. It captures the screen and sends clicks, drags, the wheel,
   keys and text as VNC messages, so this computer's cursor and keyboard are never touched. The protocol is
