@@ -16,6 +16,26 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **A screen of its own for each bot in a Linux game VM: `vm.LinuxDisplay`.** `open(vm, title)` gives the bot
+  an X display of its own in the guest, so several bots share the VM, each with its own pointer, keyboard and
+  windows.
+  - In the guest, each display is two systemd units run as the VM's user. `botmaker-display-N` runs Xvnc with
+    the display's own VNC password, Openbox, and a loop that lists its windows and its game's processes into
+    files each second. `botmaker-game-N` runs the game, whose control group holds every process the launch
+    started, so a stop ends them all.
+  - From the host, the display is reached through a loopback port QEMU forwards while the VM runs
+    (`hostfwd_add`). Its password goes into the guest as a file, never a command line, which the guest agent
+    logs.
+  - `launch(spec)` starts the game there (`GuestLaunch.linuxCommand`): `steam -applaunch`, `legendary launch`,
+    a Windows program through Wine, a path or a command line.
+  - `game(stop)` reads the listed processes, or ends them. `screen()` is the display's `VncController`, whose
+    windows are the display's own, framed as Windows lists them.
+  - `close()` ends the display and its game. Xvnc also ends by itself a minute after its last viewer left.
+  - Two displays at once worked live: each listed its own window and game, and a click or a stop on one
+    reached that one alone.
+  - The scripts are written at each `open`, so a VM set up before them gets them.
+- **A Linux guest's store launchers are found where its setup put them** (`GuestLauncher.linuxExecutable`,
+  `VmSetup.guestHas`).
 - **A Linux game VM, set up unattended (QEMU).** `VmSetup.prepare` takes a `vm.GuestOs`, `WINDOWS` or
   `LINUX`. `VmSpec` and `VmRecord` carry it, and a record without it reads as Windows. For Linux:
   - Studio downloads Ubuntu Server 24.04.5 itself, checked against Canonical's SHA-256

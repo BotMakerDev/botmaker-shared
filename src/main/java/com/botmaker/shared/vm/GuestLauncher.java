@@ -49,6 +49,15 @@ public enum GuestLauncher {
         return executables;
     }
 
+    /** Where a Linux guest has it, from its setup ({@link LinuxAutoinstall}); empty for {@link #UNKNOWN}. */
+    public String linuxExecutable() {
+        return switch (this) {
+            case STEAM -> "/usr/games/steam";
+            case EPIC -> "/usr/local/bin/legendary";
+            case UNKNOWN -> "";
+        };
+    }
+
     /** Its program's process name in the guest, to close it; empty for {@link #UNKNOWN}. */
     public String process() {
         return switch (this) {

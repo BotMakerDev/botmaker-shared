@@ -31,6 +31,18 @@ class GuestLaunchTest {
     }
 
     @Test
+    void aLinuxGuestStartsSteamAndEpicThroughItsLaunchersAndAWindowsProgramInWine() {
+        assertEquals(Optional.of("steam -applaunch 570"), GuestLaunch.linuxCommand(LaunchSpec.parse("steam:570")));
+        assertEquals(Optional.of("legendary launch Fortnite"), GuestLaunch.linuxCommand(LaunchSpec.parse("epic:Fortnite")));
+        assertEquals(Optional.of("wine '/home/botmaker/Games/It'\\''s/game.EXE'"),
+                GuestLaunch.linuxCommand(LaunchSpec.parse("exe:/home/botmaker/Games/It's/game.EXE")));
+        assertEquals(Optional.of("'/opt/game/run'"), GuestLaunch.linuxCommand(LaunchSpec.parse("exe:/opt/game/run")));
+        assertEquals(Optional.of("xmessage -center hi"), GuestLaunch.linuxCommand(LaunchSpec.parse("cli:xmessage -center hi")));
+        assertEquals(Optional.empty(), GuestLaunch.linuxCommand(LaunchSpec.parse("steam:570 & rm x")));
+        assertEquals(Optional.empty(), GuestLaunch.linuxCommand(LaunchSpec.parse("heroic:abc")));
+    }
+
+    @Test
     void theScriptExpandsVariablesAsCmdDoesAndReadsUtf8() {
         assertEquals("@echo off\r\nchcp 65001 >nul\r\nstart \"\" \"%ProgramFiles%\\é.exe\"\r\n"
                         + "del \"C:\\BotMaker\\launch.pending\" & exit /b\r\n",

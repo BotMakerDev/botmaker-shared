@@ -853,6 +853,12 @@ public final class VmSetup {
     public static boolean guestHas(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
             throws IOException, InterruptedException {
         if (launcher == GuestLauncher.UNKNOWN) return true;
+        if (vm.guestOs() == GuestOs.LINUX) {
+            LinuxDisplay.requireLinuxOnQemu(vm);
+            try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
+                return agent.fileExists(launcher.linuxExecutable());
+            }
+        }
         requireWindows(vm);
         switch (vm.hypervisor()) {
             case QEMU -> {
@@ -987,7 +993,7 @@ public final class VmSetup {
         throw new IOException("Every VNC port from 5900 to 5999 is in use.");
     }
 
-    private static int freePort(List<Integer> alsoTaken) throws IOException {
+    static int freePort(List<Integer> alsoTaken) throws IOException {
         List<Integer> taken = new ArrayList<>(VmInventory.portsInUse());
         taken.addAll(alsoTaken);
         for (int attempt = 0; attempt < 20; attempt++) {

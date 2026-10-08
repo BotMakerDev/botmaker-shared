@@ -3,6 +3,7 @@ package com.botmaker.shared.vm;
 import com.botmaker.shared.launch.LaunchSpec;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -37,6 +38,32 @@ public final class GuestLaunch {
             case CLI -> Optional.of("start \"\" " + token);
             default -> Optional.empty();
         };
+    }
+
+    /**
+     * The shell command that starts {@code spec} on a Linux guest's display ({@link LinuxDisplay}), or empty for a
+     * kind it can't start or a token that would break the line. Steam's own client starts its game; Legendary
+     * starts an Epic game; a Windows program runs in Wine, and any other path as itself.
+     *
+     * <p>Steam runs one client per account: a second Steam game hands its launch to the client already running,
+     * on that client's display.
+     */
+    public static Optional<String> linuxCommand(LaunchSpec spec) {
+        String token = spec.token().trim();
+        if (token.isEmpty() || token.contains("\n") || token.contains("\r")) return Optional.empty();
+        return switch (spec.kind()) {
+            case STEAM -> STEAM_ID.matcher(token).matches() ? Optional.of("steam -applaunch " + token) : Optional.empty();
+            case EPIC -> EPIC_ID.matcher(token).matches() ? Optional.of("legendary launch " + token) : Optional.empty();
+            case EXE -> Optional.of((token.toLowerCase(Locale.ROOT).endsWith(".exe") ? "wine " : "")
+                    + shellQuoted(token));
+            case CLI -> Optional.of(token);
+            default -> Optional.empty();
+        };
+    }
+
+    /** {@code s} as one POSIX shell word. */
+    static String shellQuoted(String s) {
+        return "'" + s.replace("'", "'\\''") + "'";
     }
 
     /**
