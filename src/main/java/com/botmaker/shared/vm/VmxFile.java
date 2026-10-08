@@ -140,9 +140,9 @@ public final class VmxFile {
                 .set("guestOS", "windows11-64")
                 .set("firmware", "efi")
                 .set("uefi.secureBoot.enabled", "FALSE")
-                .set("memsize", Integer.toString(spec.memoryMb()))
-                .set("numvcpus", Integer.toString(spec.cpus()))
-                .set("cpuid.coresPerSocket", Integer.toString(spec.cpus()))
+                .set("memsize", Integer.toString(spec.size().memoryMb()))
+                .set("numvcpus", Integer.toString(spec.size().cpus()))
+                .set("cpuid.coresPerSocket", Integer.toString(spec.size().cpus()))
                 .set("pciBridge0.present", "TRUE")
                 .set("nvme0.present", "TRUE")
                 .set("nvme0:0.present", "TRUE")
@@ -155,7 +155,7 @@ public final class VmxFile {
                 .set("usb_xhci.present", "TRUE")
                 .set("svga.present", "TRUE")
                 .set("mks.enable3d", "TRUE")
-                .set("svga.graphicsMemoryKB", Integer.toString(Math.min(spec.memoryMb() / 2, 8192) * 1024))
+                .set("svga.graphicsMemoryKB", Integer.toString(Math.min(spec.size().memoryMb() / 2, 8192) * 1024))
                 .set("tools.syncTime", "TRUE")
                 .set("floppy0.present", "FALSE")
                 .set("RemoteDisplay.vnc.enabled", "TRUE")
@@ -167,16 +167,32 @@ public final class VmxFile {
                     .set("pciBridge" + bridge + ".virtualDev", "pcieRootPort")
                     .set("pciBridge" + bridge + ".functions", "8");
         }
+        return vmx.setDiscs(spec);
+    }
+
+    /** SATA ports VMware gives a controller. */
+    private static final int SATA_PORTS = 30;
+    private static final List<String> SLOT_KEYS = List.of(".present", ".deviceType", ".fileName", ".startConnected");
+
+    /**
+     * Puts {@code spec}'s discs in the SATA drives, the Windows one first, and empties every other drive: once
+     * Windows is installed, that takes the installer and the answer disc out.
+     */
+    public VmxFile setDiscs(VmSpec spec) {
         List<Path> discs = new ArrayList<>();
-        discs.add(spec.windowsIso());
+        if (spec.windowsIso() != null) discs.add(spec.windowsIso());
         discs.addAll(spec.discs());
-        for (int i = 0; i < discs.size(); i++) {
+        for (int i = 0; i < SATA_PORTS; i++) {
             String slot = String.format(Locale.ROOT, "sata0:%d", i);
-            vmx.set(slot + ".present", "TRUE")
+            if (i >= discs.size()) {
+                for (String key : SLOT_KEYS) remove(slot + key);
+                continue;
+            }
+            set(slot + ".present", "TRUE")
                     .set(slot + ".deviceType", "cdrom-image")
                     .set(slot + ".fileName", discs.get(i).toString())
                     .set(slot + ".startConnected", "TRUE");
         }
-        return vmx;
+        return this;
     }
 }

@@ -35,6 +35,19 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   `IsoImage` writes the ISO 9660 + Joliet disc that carries that file. `VmCredentials` keeps the guest and
   VNC passwords encrypted with DPAPI.
 
+- **Setting a game VM up, end to end** (`vm.VmSetup`). `problems()` names what stops it: no hypervisor, the
+  Windows Hypervisor Platform off for QEMU (`enableHypervisorPlatform()` turns it on), too little disk or
+  memory, no Windows disc. `prepare()` makes the VM's folder under `UserDirs.config()/vm`:
+  - its passwords;
+  - its answer disc, in the Windows disc's own language, carrying virtio-win's guest tools for QEMU;
+  - its disk and configuration.
+
+  `install()` starts the VM, presses the key the Windows disc waits for, and follows Setup over VNC until the
+  guest says the first sign-in is done. It resumes after a restart and deletes the answer disc at the end.
+  `start()` starts a VM and connects to its screen, choosing new ports for any that were taken since.
+  `VmRecord` keeps each VM's record and `VmInventory` lists them. `GuestAgent` reads, writes and runs inside
+  a QEMU guest.
+
 - **Installing a game on an emulator, and making a new instance.** `PlayStoreSearch` finds an app on Google
   Play by name from this computer. `EmulatorInstall` starts the instance if needed, then either opens the app's
   Google Play page there and waits for the install, or installs an `.apk`, `.xapk` or `.apks` file (splits

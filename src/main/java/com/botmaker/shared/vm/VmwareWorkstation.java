@@ -68,24 +68,24 @@ public record VmwareWorkstation(Path folder) {
 
     /** Starts {@code vmx} without Workstation's window. */
     public Spawn.Completed start(Path vmx) throws IOException, InterruptedException {
-        return Spawn.run(SLOW, startCommand(vmx));
+        return Commands.run(SLOW, startCommand(vmx));
     }
 
     /** Asks the guest to shut down, and waits for it. */
     public Spawn.Completed stop(Path vmx) throws IOException, InterruptedException {
-        return Spawn.run(SLOW, stopCommand(vmx));
+        return Commands.run(SLOW, stopCommand(vmx));
     }
 
     /** The {@code .vmx} files of the VMs running now. */
     public List<Path> running() throws IOException, InterruptedException {
-        Spawn.Completed listed = Spawn.run(QUICK, vmrun().toString(), "-T", "ws", "list");
+        Spawn.Completed listed = Commands.run(QUICK, vmrun().toString(), "-T", "ws", "list");
         if (!listed.ok()) throw new IOException("vmrun list failed: " + listed.output().strip());
         return parseList(listed.output());
     }
 
     /** Whether VMware Tools runs in the guest, which is what a program run in it needs. */
     public boolean toolsRunning(Path vmx) throws IOException, InterruptedException {
-        Spawn.Completed state = Spawn.run(QUICK, vmrun().toString(), "-T", "ws", "checkToolsState", vmx.toString());
+        Spawn.Completed state = Commands.run(QUICK, vmrun().toString(), "-T", "ws", "checkToolsState", vmx.toString());
         return state.ok() && state.output().strip().equalsIgnoreCase("running");
     }
 
@@ -96,12 +96,24 @@ public record VmwareWorkstation(Path folder) {
      */
     public Spawn.Completed runInGuest(Path vmx, String user, String password, String program, String arguments)
             throws IOException, InterruptedException {
-        return Spawn.run(QUICK, runInGuestCommand(vmx, user, password, program, arguments));
+        return Commands.run(QUICK, runInGuestCommand(vmx, user, password, program, arguments));
+    }
+
+    /** Whether {@code path} exists in the guest; needs VMware Tools running there. */
+    public boolean fileExistsInGuest(Path vmx, String user, String password, String path)
+            throws IOException, InterruptedException {
+        Spawn.Completed found = Commands.run(QUICK, fileExistsCommand(vmx, user, password, path));
+        return found.ok() && found.output().contains("The file exists");
+    }
+
+    List<String> fileExistsCommand(Path vmx, String user, String password, String path) {
+        return List.of(vmrun().toString(), "-T", "ws", "-gu", user, "-gp", password, "fileExistsInGuest",
+                vmx.toString(), path);
     }
 
     /** Creates a growable disk of {@code gigabytes} at {@code vmdk}. */
     public Spawn.Completed createDisk(Path vmdk, int gigabytes) throws IOException, InterruptedException {
-        return Spawn.run(QUICK, createDiskCommand(vmdk, gigabytes));
+        return Commands.run(QUICK, createDiskCommand(vmdk, gigabytes));
     }
 
     List<String> startCommand(Path vmx) {

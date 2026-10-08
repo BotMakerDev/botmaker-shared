@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** QEMU's command line for a game VM, and VMware's commands and output. */
 class QemuTest {
 
-    private static final VmSpec SPEC = new VmSpec("game", Path.of("vm"), 4, 8192, 80, Path.of("win.iso"),
+    private static final VmSpec SPEC = new VmSpec("game", Path.of("vm"), new VmSize(4, 8192, 80), Path.of("win.iso"),
             List.of(Path.of("answer.iso"), Path.of("virtio,win.iso")), 5902);
 
     @Test
@@ -45,7 +45,7 @@ class QemuTest {
         assertEquals(List.of("winget", "install", "-e", "--id", "SoftwareFreedomConservancy.QEMU", "--silent",
                 "--accept-package-agreements", "--accept-source-agreements"), Qemu.installCommand());
         assertThrows(IllegalArgumentException.class, () -> new Qemu.Ports(4444, 4444));
-        VmSpec far = new VmSpec("game", Path.of("vm"), 1, 4096, 80, Path.of("w.iso"), List.of(), 6000);
+        VmSpec far = new VmSpec("game", Path.of("vm"), new VmSize(1, 4096, 80), Path.of("w.iso"), List.of(), 6000);
         assertThrows(IllegalArgumentException.class,
                 () -> new Qemu(Path.of("q")).command(far, Path.of("d"), Path.of("v"), new Qemu.Ports(4444, 4445)));
     }
@@ -58,6 +58,8 @@ class QemuTest {
         assertEquals(List.of(ws.vmrun().toString(), "-T", "ws", "-gu", "botmaker", "-gp", "pw", "runProgramInGuest",
                         vmx.toString(), "-noWait", "-activeWindow", "-interactive", "C:\\Game\\game.exe", "-windowed"),
                 ws.runInGuestCommand(vmx, "botmaker", "pw", "C:\\Game\\game.exe", "-windowed"));
+        assertEquals(List.of(ws.vmrun().toString(), "-T", "ws", "-gu", "botmaker", "-gp", "pw", "fileExistsInGuest",
+                vmx.toString(), "C:\\BotMaker\\ready"), ws.fileExistsCommand(vmx, "botmaker", "pw", "C:\\BotMaker\\ready"));
         assertEquals(List.of(ws.diskManager().toString(), "-c", "-s", "80GB", "-a", "lsilogic", "-t", "0", "d.vmdk"),
                 ws.createDiskCommand(Path.of("d.vmdk"), 80));
 
@@ -68,15 +70,16 @@ class QemuTest {
 
     @Test
     void aHostsDefaultSizeIsHalfItsMemoryAndCores() {
-        VmSpec big = VmSpec.sized("g", Path.of("vm"), 32_768, 16, Path.of("w.iso"), List.of(), 5900);
+        VmSize big = VmSize.forHost(32_768, 16);
         assertEquals(8192, big.memoryMb());
         assertEquals(4, big.cpus());
         assertEquals(80, big.diskGb());
-        VmSpec small = VmSpec.sized("g", Path.of("vm"), 14_000, 2, Path.of("w.iso"), List.of(), 5900);
+        VmSize small = VmSize.forHost(14_000, 2);
         assertEquals(6144, small.memoryMb(), "half of 14 GB, in whole gigabytes");
         assertEquals(1, small.cpus());
-        assertEquals(4096, VmSpec.sized("g", Path.of("vm"), 6000, 4, Path.of("w.iso"), List.of(), 5900).memoryMb());
+        assertEquals(4096, VmSize.forHost(6000, 4).memoryMb());
         assertThrows(IllegalArgumentException.class,
-                () -> new VmSpec("a/b", Path.of("vm"), 1, 4096, 80, Path.of("w.iso"), List.of(), 5900));
+                () -> new VmSpec("a/b", Path.of("vm"), new VmSize(1, 4096, 80), Path.of("w.iso"), List.of(), 5900));
+        assertThrows(IllegalArgumentException.class, () -> new VmSize(2, 2048, 80), "below Windows 11's 4 GB");
     }
 }

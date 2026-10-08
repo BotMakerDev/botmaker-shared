@@ -60,7 +60,7 @@ public record Qemu(Path folder) {
 
     /** Installs QEMU from winget; its installer asks for administrator rights once. */
     public static Spawn.Completed install() throws IOException, InterruptedException {
-        return Spawn.run(INSTALL, installCommand());
+        return Commands.run(INSTALL, installCommand());
     }
 
     static List<String> installCommand() {
@@ -78,7 +78,7 @@ public record Qemu(Path folder) {
 
     /** Creates a growable qcow2 disk of {@code gigabytes} at {@code disk}. */
     public Spawn.Completed createDisk(Path disk, int gigabytes) throws IOException, InterruptedException {
-        return Spawn.run(QUICK, img().toString(), "create", "-f", "qcow2", disk.toString(), gigabytes + "G");
+        return Commands.run(QUICK, img().toString(), "create", "-f", "qcow2", disk.toString(), gigabytes + "G");
     }
 
     /** Copies the firmware's variable store into {@code vmFolder}, once: it is where the guest's boot entries live. */
@@ -113,8 +113,8 @@ public record Qemu(Path folder) {
                 "-accel", "whpx,kernel-irqchip=off", "-accel", "tcg",
                 "-machine", "q35",
                 "-cpu", "max",
-                "-smp", Integer.toString(spec.cpus()),
-                "-m", spec.memoryMb() + "M",
+                "-smp", Integer.toString(spec.size().cpus()),
+                "-m", spec.size().memoryMb() + "M",
                 "-rtc", "base=localtime",
                 "-drive", "if=pflash,format=raw,readonly=on,file=" + drivePath(folder.resolve("share").resolve(FIRMWARE_CODE)),
                 "-drive", "if=pflash,format=raw,file=" + drivePath(firmwareVars),
@@ -126,7 +126,7 @@ public record Qemu(Path folder) {
                 "-device", "usb-tablet",
                 "-vga", "std"));
         List<Path> discs = new ArrayList<>();
-        discs.add(spec.windowsIso());
+        if (spec.windowsIso() != null) discs.add(spec.windowsIso());
         discs.addAll(spec.discs());
         if (discs.size() > 6) throw new IllegalArgumentException("q35 has six SATA ports, for " + discs.size() + " discs.");
         for (int i = 0; i < discs.size(); i++) {

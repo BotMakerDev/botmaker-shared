@@ -69,7 +69,7 @@ class VmxFileTest {
 
     @Test
     void aNewVmBootsEfiFromItsDiscsAndServesVncOnLoopback() {
-        VmSpec spec = new VmSpec("Game VM", Path.of("vm"), 4, 8192, 80, Path.of("C:\\isos\\win11.iso"),
+        VmSpec spec = new VmSpec("Game VM", Path.of("vm"), new VmSize(4, 8192, 80), Path.of("C:\\isos\\win11.iso"),
                 List.of(Path.of("answer.iso"), Path.of("C:\\VMware\\windows.iso")), 5901);
         VmxFile vmx = VmxFile.create(spec, "disk.vmdk", "abcd1234");
 
@@ -91,5 +91,12 @@ class VmxFileTest {
         assertEquals("127.0.0.1", vmx.get("RemoteDisplay.vnc.ip"));
         assertEquals("5901", vmx.get("RemoteDisplay.vnc.port"));
         assertEquals("abcd1234", vmx.get("RemoteDisplay.vnc.password"));
+
+        VmSpec installed = new VmSpec("Game VM", Path.of("vm"), new VmSize(4, 8192, 80), null, List.of(), 5901);
+        vmx.setDiscs(installed);
+        assertNull(vmx.get("sata0:0.fileName"), "the installer is out");
+        assertNull(vmx.get("sata0:1.present"), "and the answer disc");
+        assertNull(vmx.get("sata0:2.deviceType"));
+        assertEquals("TRUE", vmx.get("sata0.present"), "the controller stays");
     }
 }

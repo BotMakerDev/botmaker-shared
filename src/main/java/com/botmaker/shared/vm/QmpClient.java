@@ -1,28 +1,18 @@
 package com.botmaker.shared.vm;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
  * QEMU's machine protocol (QMP) over a loopback socket: one JSON object a line each way. It reads past the
- * events QEMU sends unasked, and an {@code error} reply is an {@link IOException} carrying QEMU's own sentence.
+ * events QEMU sends unasked, and an {@code error} reply is a {@link Refused} carrying QEMU's own sentence.
  * One command at a time.
  */
 public final class QmpClient implements AutoCloseable {
 
-    private static final int CONNECT_TIMEOUT_MS = 5_000;
     private static final int READ_TIMEOUT_MS = 30_000;
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     /** QEMU answered, and refused: its own sentence. Any other {@link IOException} is the connection's. */
     public static final class Refused extends IOException {
@@ -64,46 +54,41 @@ public final class QmpClient implements AutoCloseable {
         }
     }
 
-    private final Socket socket;
-    private final BufferedReader in;
-    private final OutputStream out;
+    private final JsonChannel channel;
 
-    private QmpClient(Socket socket) throws IOException {
-        this.socket = socket;
-        this.in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-        this.out = socket.getOutputStream();
+    private QmpClient(JsonChannel channel) {
+        this.channel = channel;
     }
 
     /** Connects, reads QEMU's greeting and enters command mode. */
     public static QmpClient connect(int port) throws IOException {
-        Socket socket = new Socket();
+        JsonChannel channel = JsonChannel.connect(port, READ_TIMEOUT_MS);
         try {
-            socket.connect(new InetSocketAddress("127.0.0.1", port), CONNECT_TIMEOUT_MS);
-            socket.setSoTimeout(READ_TIMEOUT_MS);
-            QmpClient qmp = new QmpClient(socket);
-            if (!qmp.read().has("QMP")) throw new IOException("Port " + port + " doesn't speak QMP.");
-            qmp.execute("qmp_capabilities", Map.of());
-            return qmp;
+            if (!channel.read().has("QMP")) throw new IOException("Port " + port + " doesn't speak QMP.");
+            channel.execute("qmp_capabilities", Map.of());
+            return new QmpClient(channel);
         } catch (IOException e) {
-            socket.close();
+            channel.close();
             throw e;
+        }
+    }
+
+    /**
+     * Whether something listens on {@code port}: for a VM's own QMP port, that its QEMU is running. Only a
+     * connection, never a greeting: QEMU serves one QMP client at a time, and a second waits.
+     */
+    public static boolean listening(int port) {
+        try (java.net.Socket s = new java.net.Socket()) {
+            s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 1_000);
+            return true;
+        } catch (IOException e) {
+            return false;
         }
     }
 
     /** Runs {@code command} with {@code arguments} and returns its {@code return} value. */
     public synchronized JsonNode execute(String command, Map<String, ?> arguments) throws IOException {
-        ObjectNode request = JSON.createObjectNode().put("execute", command);
-        if (!arguments.isEmpty()) request.set("arguments", JSON.valueToTree(arguments));
-        out.write((JSON.writeValueAsString(request) + "\n").getBytes(StandardCharsets.UTF_8));
-        out.flush();
-        while (true) {
-            JsonNode reply = read();
-            if (reply.has("event")) continue;
-            if (reply.has("error")) {
-                throw new Refused("QEMU refused " + command + ": " + reply.path("error").path("desc").asText());
-            }
-            if (reply.has("return")) return reply.get("return");
-        }
+        return channel.execute(command, arguments);
     }
 
     /** Sets the password VNC clients must give. QEMU keeps only its first 8 characters, as VNC does. */
@@ -134,14 +119,8 @@ public final class QmpClient implements AutoCloseable {
         }
     }
 
-    private JsonNode read() throws IOException {
-        String line = in.readLine();
-        if (line == null) throw new IOException("QEMU closed its QMP connection.");
-        return JSON.readTree(line);
-    }
-
     @Override
     public void close() throws IOException {
-        socket.close();
+        channel.close();
     }
 }
