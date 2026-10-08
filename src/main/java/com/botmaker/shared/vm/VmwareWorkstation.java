@@ -5,10 +5,12 @@ import com.botmaker.shared.emulator.WindowsRegistry;
 import com.botmaker.shared.platform.Os;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 
@@ -100,17 +102,46 @@ public record VmwareWorkstation(Path folder) {
     }
 
     /**
-     * Runs {@code program} in the guest, without a desktop, and waits up to {@code timeout} for it; the result's
-     * exit code is the program's, read from vmrun's "Guest program exited with non-zero exit code: N", as vmrun
-     * exits with its own code then.
+     * Runs PowerShell {@code script} in the guest, without a desktop, and waits up to {@code timeout} for it.
+     * The result is the script's exit code and what it printed; a failure of vmrun itself, or the timeout, is
+     * vmrun's. The script goes into the guest as a file and its output comes back as one: PowerShell started
+     * straight by vmrun has no output to write to and exits 1 at once, whatever the script, live, so {@code cmd}
+     * starts it with its output sent to a file. The script runs elevated, as vmrun's programs do.
      */
-    public Spawn.Completed runInGuestAndWait(Path vmx, String user, String password, String program,
-                                             List<String> arguments, Duration timeout)
+    public Spawn.Completed runPowerShell(Path vmx, String user, String password, String script, Duration timeout)
             throws IOException, InterruptedException {
-        List<String> command = new ArrayList<>(List.of(vmrun().toString(), "-T", "ws", "-gu", user, "-gp", password,
-                "runProgramInGuest", vmx.toString(), program));
-        if (!arguments.isEmpty()) command.add(String.join(" ", arguments));
-        return guestExitCode(Commands.run(timeout, command));
+        String name = GuestUnattend.GUEST_FOLDER + "\\script-" + HexFormat.of().formatHex(randomBytes());
+        Path hostScript = Files.createTempFile("botmaker-guest", ".ps1");
+        Path hostLog = Files.createTempFile("botmaker-guest", ".log");
+        try {
+            // UTF-8 with its mark, or Windows PowerShell reads the file in the guest's ANSI code page.
+            Files.writeString(hostScript, "\uFEFF[Console]::OutputEncoding = [Text.Encoding]::UTF8\n" + script,
+                    StandardCharsets.UTF_8);
+            Commands.require(copyToGuest(vmx, user, password, hostScript, name + ".ps1"),
+                    "VMware couldn't put a script in the VM");
+            Spawn.Completed done = Commands.run(timeout, powerShellCommand(vmx, user, password, name));
+            Spawn.Completed ran = guestExitCode(done);
+            if (!done.ok() && ran == done) return done;
+            String output = copyFromGuest(vmx, user, password, name + ".log", hostLog).ok()
+                    ? Files.readString(hostLog, StandardCharsets.UTF_8).replaceFirst("^\uFEFF", "") : "";
+            return new Spawn.Completed(ran.exitCode(), output);
+        } finally {
+            for (String extension : List.of(".ps1", ".log")) deleteInGuest(vmx, user, password, name + extension);
+            Files.deleteIfExists(hostScript);
+            Files.deleteIfExists(hostLog);
+        }
+    }
+
+    List<String> powerShellCommand(Path vmx, String user, String password, String name) {
+        return guestCommand(vmx, user, password, "runProgramInGuest", "C:\\Windows\\System32\\cmd.exe",
+                "/c C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass"
+                        + " -File " + name + ".ps1 > " + name + ".log 2>&1");
+    }
+
+    private static byte[] randomBytes() {
+        byte[] bytes = new byte[6];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return bytes;
     }
 
     private static final java.util.regex.Pattern GUEST_EXIT =
@@ -122,6 +153,73 @@ public record VmwareWorkstation(Path folder) {
         return m.find() ? new Spawn.Completed(Integer.parseInt(m.group(1)), done.output()) : done;
     }
 
+    /** Copies this PC's {@code file} to {@code guestPath}, replacing what is there; needs VMware Tools running. */
+    public Spawn.Completed copyToGuest(Path vmx, String user, String password, Path file, String guestPath)
+            throws IOException, InterruptedException {
+        return Commands.run(SLOW, guestCommand(vmx, user, password, "copyFileFromHostToGuest", file.toString(),
+                guestPath));
+    }
+
+    /** Copies the guest's {@code guestPath} to this PC's {@code file}; needs VMware Tools running. */
+    public Spawn.Completed copyFromGuest(Path vmx, String user, String password, String guestPath, Path file)
+            throws IOException, InterruptedException {
+        return Commands.run(SLOW, guestCommand(vmx, user, password, "copyFileFromGuestToHost", guestPath,
+                file.toString()));
+    }
+
+    /**
+     * Shares this PC's {@code folder} with the running guest, read-only, as {@code name}: the guest reads it at
+     * {@link #sharedFolderInGuest}. A share of that name left from before is replaced. vmrun adds a share
+     * writable and makes it read-only in a second call: when any step fails, the share is taken away again.
+     *
+     * @return whether the VM's shared folders were on already, which {@link #unshareFolder} then leaves them
+     */
+    public boolean shareFolder(Path vmx, String name, Path folder) throws IOException, InterruptedException {
+        boolean wereOn = "FALSE".equalsIgnoreCase(VmxFile.read(vmx).get("isolation.tools.hgfs.disable"));
+        try {
+            Commands.require(Commands.run(QUICK, vmrun().toString(), "-T", "ws", "enableSharedFolders",
+                    vmx.toString()), "VMware couldn't turn the VM's shared folders on");
+            Commands.run(QUICK, vmrun().toString(), "-T", "ws", "removeSharedFolder", vmx.toString(), name);
+            Commands.require(Commands.run(QUICK, vmrun().toString(), "-T", "ws", "addSharedFolder", vmx.toString(),
+                    name, folder.toString()), "VMware couldn't share " + folder + " with the VM");
+            Commands.require(Commands.run(QUICK, vmrun().toString(), "-T", "ws", "setSharedFolderState",
+                    vmx.toString(), name, folder.toString(), "readonly"),
+                    "VMware couldn't make the VM's share of " + folder + " read-only");
+            return wereOn;
+        } catch (IOException | RuntimeException | InterruptedException e) {
+            unshareFolder(vmx, name, wereOn);
+            throw e;
+        }
+    }
+
+    /**
+     * Stops sharing {@code name}, and turns the VM's shared folders off unless {@code keepOn}; never throws on a
+     * share already gone. VMware leaves the share's lines in the {@code .vmx}, past its {@code
+     * sharedFolder.maxNum}, where they do nothing.
+     */
+    public void unshareFolder(Path vmx, String name, boolean keepOn) throws IOException, InterruptedException {
+        Commands.run(QUICK, vmrun().toString(), "-T", "ws", "removeSharedFolder", vmx.toString(), name);
+        if (!keepOn) Commands.run(QUICK, vmrun().toString(), "-T", "ws", "disableSharedFolders", vmx.toString());
+    }
+
+    /** Deletes the guest's file {@code guestPath}, if it is there; needs VMware Tools running. */
+    public Spawn.Completed deleteInGuest(Path vmx, String user, String password, String guestPath)
+            throws IOException, InterruptedException {
+        return Commands.run(QUICK, guestCommand(vmx, user, password, "deleteFileInGuest", guestPath));
+    }
+
+    /** Where the guest reads the folder shared as {@code name}. */
+    public static String sharedFolderInGuest(String name) {
+        return "\\\\vmware-host\\Shared Folders\\" + name;
+    }
+
+    private List<String> guestCommand(Path vmx, String user, String password, String operation, String... arguments) {
+        List<String> command = new ArrayList<>(List.of(vmrun().toString(), "-T", "ws", "-gu", user, "-gp", password,
+                operation, vmx.toString()));
+        command.addAll(List.of(arguments));
+        return command;
+    }
+
     /** Whether {@code path} exists in the guest; needs VMware Tools running there. */
     public boolean fileExistsInGuest(Path vmx, String user, String password, String path)
             throws IOException, InterruptedException {
@@ -130,8 +228,7 @@ public record VmwareWorkstation(Path folder) {
     }
 
     List<String> fileExistsCommand(Path vmx, String user, String password, String path) {
-        return List.of(vmrun().toString(), "-T", "ws", "-gu", user, "-gp", password, "fileExistsInGuest",
-                vmx.toString(), path);
+        return guestCommand(vmx, user, password, "fileExistsInGuest", path);
     }
 
     /** Creates a growable disk of {@code gigabytes} at {@code vmdk}. */

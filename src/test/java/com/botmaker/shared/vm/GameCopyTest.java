@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** A game of this PC found, served to the guest, and recorded in the guest's launcher. */
@@ -111,12 +112,29 @@ class GameCopyTest {
     void theGuestScriptQuotesTheFolderReadsUtf8AndRefusesWithoutRoom(@TempDir Path dir) throws Exception {
         Path folder = Files.createDirectories(dir.resolve("Bob's Game"));
         GameCopy.Source game = new GameCopy.Source(GuestLauncher.EPIC, "bob", "Bob's Game", folder, dir.resolve("x.item"));
-        String script = GameCopy.copyScript(40123, "t0k", game, game.guestFolder("C:\\Program Files\\Epic Games"));
+        String into = game.guestFolder("C:\\Program Files\\Epic Games");
+        String script = GameCopy.copyScript(GameCopy.From.server(40123, "t0k"), game, into);
         assertTrue(script.contains("$base = 'http://10.0.2.2:40123/t0k'"), script);
         assertTrue(script.contains("$dest = 'C:\\Program Files\\Epic Games\\Bob''s Game'"), script);
         assertTrue(script.contains("$web.Encoding = [Text.Encoding]::UTF8"), script);
         assertTrue(script.contains("exit " + GameCopy.NO_ROOM), script);
         assertTrue(script.contains("CreateDirectory('" + GameCopy.EPIC_MANIFESTS + "')"), script);
+        assertFalse(script.contains(GameCopy.PROGRESS_FILE), "this PC's server counts what QEMU's guest fetches");
+    }
+
+    @Test
+    void aVmwareGuestCopiesFromItsShareAndSaysHowFarItIs(@TempDir Path dir) throws Exception {
+        Path folder = Files.createDirectories(dir.resolve("Game"));
+        GameCopy.Source game = new GameCopy.Source(GuestLauncher.STEAM, "1", "Game", folder, dir.resolve("a.acf"));
+        String into = game.guestFolder("C:\\Program Files (x86)\\Steam\\steamapps\\common");
+        String script = GameCopy.copyScript(GameCopy.From.share("\\\\vmware-host\\Shared Folders\\it's"), game, into);
+        assertTrue(script.contains("$src = '\\\\vmware-host\\Shared Folders\\it''s'"), script);
+        assertTrue(script.contains("Get-ChildItem -LiteralPath $src -Recurse -File -Force"), script);
+        assertTrue(script.contains("[IO.File]::Copy([IO.Path]::Combine($src, $f[0]), $f[1], $true)"), script);
+        assertTrue(script.contains("Set-Content -LiteralPath '" + GameCopy.PROGRESS_FILE + "' 0"), "a fresh count");
+        assertTrue(script.contains("Set-Content -LiteralPath '" + GameCopy.PROGRESS_FILE + "' $done"), script);
+        assertTrue(script.contains("CreateDirectory('C:\\Program Files (x86)\\Steam\\steamapps')"), script);
+        assertFalse(script.contains("$web"), script);
     }
 
     private static HttpResponse<String> get(HttpClient http, String url) throws Exception {

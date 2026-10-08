@@ -661,19 +661,18 @@ public final class VmSetup {
     public static void installInGuest(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
             throws IOException, InterruptedException {
         if (launcher == GuestLauncher.UNKNOWN) return;
-        List<String> arguments = List.of("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand",
-                launcher.encodedInstallScript());
-        String powershell = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
         GuestAgent.Ran ran = switch (vm.hypervisor()) {
             case QEMU -> {
                 try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
-                    yield agent.run(powershell, arguments, LAUNCHER_INSTALL);
+                    yield agent.run("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                            List.of("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand",
+                                    launcher.encodedInstallScript()), LAUNCHER_INSTALL);
                 }
             }
             case VMWARE -> {
                 Spawn.Completed done = VmwareWorkstation.find()
                         .orElseThrow(() -> new IOException("VMware Workstation isn't installed."))
-                        .runInGuestAndWait(vm.vmx(), GUEST_USER, credentials.guest(), powershell, arguments,
+                        .runPowerShell(vm.vmx(), GUEST_USER, credentials.guest(), launcher.installScript(),
                                 LAUNCHER_INSTALL);
                 if (done.exitCode() == Commands.TIMED_OUT) {
                     throw new IOException(launcher.displayName() + "'s installer was still running in the VM after "

@@ -94,8 +94,8 @@ public enum GuestLauncher {
 
     /**
      * The PowerShell that downloads the installer and runs it silently, waiting for it; it exits with the
-     * installer's code. As {@code -EncodedCommand}'s argument (UTF-16LE, Base64), which needs no quoting on any
-     * command line it crosses: the guest agent's, or {@code vmrun}'s.
+     * installer's code. VMware runs it as a file ({@link VmwareWorkstation#runPowerShell}); the guest agent, as
+     * {@link #encodedInstallScript()}.
      */
     String installScript() {
         String run = this == EPIC
@@ -109,7 +109,10 @@ public enum GuestLauncher {
                 + "exit $p.ExitCode\n";
     }
 
-    /** {@link #installScript()} as {@code powershell.exe -EncodedCommand} takes it. */
+    /**
+     * {@link #installScript()} as {@code powershell.exe -EncodedCommand} takes it (UTF-16LE, Base64), which needs
+     * no quoting on the agent's command line.
+     */
     String encodedInstallScript() {
         return Base64.getEncoder().encodeToString(installScript().getBytes(StandardCharsets.UTF_16LE));
     }

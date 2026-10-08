@@ -17,11 +17,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 ### Added
 
 - **A game of this PC copied into a game VM.** `vm.GameCopy.onThisPc()` lists the Steam and Epic games here;
-  `GameCopy.copy` has a QEMU guest fetch one's folder from a loopback `FolderServer` (token, read-only, at
-  `10.0.2.2`) into the folder its launcher installs to, skipping files already there whole, then writes the
-  launcher's record (Steam's `.acf`; Epic's `.item` and `LauncherInstalled.dat` entry) so it checks rather
-  than downloads. No account or share on this PC. Measured: Firestone, 754 MB, in 47 s. VMware: not yet.
-  `GuestAgent.readFile`; `SteamLibraryScanner.manifestOf`, `EpicLibraryScanner.manifestOf`.
+  `GameCopy.copy` has the guest copy one's folder into the folder its launcher installs to, skipping files
+  already there whole, then writes the launcher's record (Steam's `.acf`; Epic's `.item` and
+  `LauncherInstalled.dat` entry) so it checks rather than downloads. No account on this PC. A QEMU guest
+  fetches the folder from a loopback `FolderServer` (token, read-only, at `10.0.2.2`); a VMware guest reads it
+  from a VMware shared folder, read-only, shared with that VM for the copy's length only
+  (`VmwareWorkstation.shareFolder`), and writes its progress in the guest for this PC to read. Measured:
+  Firestone, 754 MB, in 47 s (QEMU) and 26 s (VMware). `GuestAgent.readFile`; `SteamLibraryScanner.manifestOf`,
+  `EpicLibraryScanner.manifestOf`.
 - **A VM's screen as a `NativeController`.** `vnc.VncController` connects to the VNC server a hypervisor
   serves for a virtual machine on this computer. It captures the screen and sends clicks, drags, the wheel,
   keys and text as VNC messages, so this computer's cursor and keyboard are never touched. The protocol is
@@ -67,9 +70,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   command: a path, a command line, Steam or Epic, each handed off with `start ""`.
 - **A game VM's store launchers** (`vm.GuestLauncher`, Steam and Epic). `VmSetup.guestHas()` says whether the
   guest has one, and `installInGuest()` downloads its installer in the guest and runs it silently, waiting for
-  it (both installed on the `live` VM; Steam's bootstrapper took 5 s). Epic's installer of
-  2026-10 puts it under `Program Files`, older ones under `Program Files (x86)`: both are looked for.
-  `GuestAgent.run()` waits for a program and hands back its exit code and output.
+  it (both installed on the `live` VM; Steam's bootstrapper took 5 s; Epic on the VMware VM in 102 s). Epic's
+  installer of 2026-10 puts it under `Program Files`, older ones under `Program Files (x86)`: both are looked
+  for. `GuestAgent.run()` waits for a program and hands back its exit code and output.
+  `VmwareWorkstation.runPowerShell()` does the same under VMware: PowerShell started straight by `vmrun` has
+  no output to write to and exits 1 at once, so the script goes into the guest as a file and `cmd` runs it with
+  its output sent to another, which comes back.
 - **Shutting a game VM down, and knowing why one stopped.** `VmSetup.shutDown()` presses the VM's power
   button (QEMU's `system_powerdown`, VMware's `stop soft`), waits for Windows, and powers it off after three
   minutes. A QEMU VM has a second QMP port (`VmRecord.eventsPort`, given to an older record at its next

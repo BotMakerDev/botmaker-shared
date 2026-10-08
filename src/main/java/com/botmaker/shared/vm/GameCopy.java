@@ -1,5 +1,6 @@
 package com.botmaker.shared.vm;
 
+import com.botmaker.shared.Spawn;
 import com.botmaker.shared.game.EpicLibraryScanner;
 import com.botmaker.shared.game.SteamLibraryScanner;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,18 +22,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * A Steam or Epic game of this PC, copied into a game VM once, so the VM's launcher has it without downloading
- * it again. The guest fetches the game's folder from a {@link FolderServer} at {@code 10.0.2.2} (QEMU's user
- * network), into the folder its launcher installs games in; then the launcher's own record of the game is
- * written beside it (Steam's {@code appmanifest_<id>.acf}, Epic's {@code .item} manifest and its entry in
- * {@code LauncherInstalled.dat}), so the launcher lists it installed and checks the files rather than fetching
- * them. Nothing is shared and no account is made on this PC.
- *
- * <p>QEMU only: VMware's guest reaches this PC through a network of its own, which the server doesn't listen on.
+ * it again. The guest copies the game's folder into the folder its launcher installs games in; then the
+ * launcher's own record of the game is written beside it (Steam's {@code appmanifest_<id>.acf}, Epic's {@code
+ * .item} manifest and its entry in {@code LauncherInstalled.dat}), so the launcher lists it installed and checks
+ * the files rather than fetching them. No account is made on this PC.
+ * <ul>
+ *   <li><b>QEMU:</b> the guest fetches the folder from a {@link FolderServer} at {@code 10.0.2.2}, QEMU's user
+ *       network's name for this PC's loopback. Nothing is shared.</li>
+ *   <li><b>VMware:</b> its guest reaches this PC through a network of its own, which the server doesn't listen
+ *       on; the folder is shared with that VM alone, read-only, through VMware Tools for as long as the copy
+ *       takes.</li>
+ * </ul>
  */
 public final class GameCopy {
 
@@ -51,6 +58,13 @@ public final class GameCopy {
     /** The copy script's exit code when the guest's disk lacks the room. */
     static final int NO_ROOM = 3;
     private static final String POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+    /** The name a VMware VM is given the game's folder by while it copies it. */
+    static final String SHARE = "botmaker-game";
+    /**
+     * Where a VMware guest's copy writes the bytes it has copied, for this PC to read: no server here counts
+     * them.
+     */
+    static final String PROGRESS_FILE = GuestUnattend.GUEST_FOLDER + "\\copy-progress";
 
     private static final ObjectMapper JSON = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private static final Pattern INSTALL_DIR = Pattern.compile("\"installdir\"\\s+\"([^\"]+)\"");
@@ -121,66 +135,224 @@ public final class GameCopy {
 
     /**
      * Copies {@code game} into the running {@code vm} and records it in the VM's launcher, telling
-     * {@code progress} one sentence every few seconds (the bytes fetched: a resumed copy skips the files already
+     * {@code progress} one sentence every few seconds (the bytes copied, counted per file under VMware: a resumed copy skips the files already
      * there whole, and finishes short of the total). The VM's launcher is closed for the record to be written:
      * the user opens it again, and it checks the files.
      *
      * @throws IOException with a sentence: no launcher in the VM, not enough room, or the copy failing
      */
-    public static void copy(VmRecord vm, Source game, Consumer<String> progress)
+    public static void copy(VmRecord vm, VmCredentials credentials, Source game, Consumer<String> progress)
             throws IOException, InterruptedException {
-        if (vm.hypervisor() != Hypervisor.QEMU) {
-            throw new IOException("Copying a game into a VMware VM isn't possible yet: install it from the VM's "
-                    + game.launcher().displayName() + ".");
-        }
-        String into;
-        try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), AGENT_TIMEOUT_MS)) {
-            into = game.guestFolder(gamesFolder(agent, game.launcher()).orElseThrow(() -> new IOException(
-                    game.launcher().displayName() + " isn't installed in the game VM " + vm.name()
-                            + ": install it there first.")));
-        }
-        try (FolderServer server = FolderServer.serve(game.folder())) {
-            String of = " MB fetched, of " + megabytes(server.total()) + " MB.";
-            Thread reporter = Thread.ofPlatform().daemon().name("game-copy-progress").start(() -> {
-                try {
-                    while (true) {
-                        Thread.sleep(REPORT_EVERY);
-                        progress.accept("Copying " + game.name() + " into the VM: " + megabytes(server.sent()) + of);
-                    }
-                } catch (InterruptedException e) {
-                    // the copy is over
-                }
-            });
-            GuestAgent.Ran ran;
-            try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), COPY_REPLY_MS)) {
-                ran = agent.run(POWERSHELL, encoded(copyScript(server.port(), server.token(), game, into)), COPY);
-            } finally {
-                reporter.interrupt();
-                reporter.join(); // its last sentence before the next one
-            }
-            if (ran.exitCode() == NO_ROOM) throw new IOException(ran.output().strip());
-            if (ran.exitCode() != 0) {
-                throw new IOException("Copying " + game.name() + " into the VM failed (exit code " + ran.exitCode()
-                        + "): " + ran.output().strip());
-            }
+        Guest guest = switch (vm.hypervisor()) {
+            case QEMU -> new QemuGuest(vm.agentPort());
+            case VMWARE -> VmwareGuest.of(vm, credentials);
+            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+        };
+        String into = game.guestFolder(gamesFolder(guest, game.launcher()).orElseThrow(() -> new IOException(
+                game.launcher().displayName() + " isn't installed in the game VM " + vm.name()
+                        + ": install it there first.")));
+        GuestAgent.Ran ran = guest.copy(game, into, progress);
+        if (ran.exitCode() == NO_ROOM) throw new IOException(ran.output().strip());
+        if (ran.exitCode() != 0) {
+            throw new IOException("Copying " + game.name() + " into the VM failed (exit code " + ran.exitCode()
+                    + "): " + ran.output().strip());
         }
         progress.accept("Recording " + game.name() + " in the VM's " + game.launcher().displayName() + "…");
-        try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), AGENT_TIMEOUT_MS)) {
-            agent.run("C:\\Windows\\System32\\taskkill.exe", List.of("/F", "/T", "/IM", game.launcher().process()),
-                    Duration.ofSeconds(30));
-            byte[] installed = game.launcher() == GuestLauncher.EPIC ? agent.readFile(EPIC_INSTALLED).orElse(null) : null;
-            for (Map.Entry<String, byte[]> file : record(game, into, installed).entrySet()) {
-                agent.writeFile(file.getKey(), file.getValue());
-            }
+        guest.end(game.launcher().process());
+        byte[] installed = game.launcher() == GuestLauncher.EPIC ? guest.read(EPIC_INSTALLED).orElse(null) : null;
+        for (Map.Entry<String, byte[]> file : record(game, into, installed).entrySet()) {
+            guest.write(file.getKey(), file.getValue());
         }
     }
 
     /** Where the guest's {@code launcher} installs games, from where its program is there; empty when it isn't. */
-    private static Optional<String> gamesFolder(GuestAgent agent, GuestLauncher launcher) throws IOException {
+    private static Optional<String> gamesFolder(Guest guest, GuestLauncher launcher)
+            throws IOException, InterruptedException {
         for (String exe : launcher.executables()) {
-            if (agent.fileExists(exe)) return Optional.of(launcher.gamesFolder(exe));
+            if (guest.exists(exe)) return Optional.of(launcher.gamesFolder(exe));
         }
         return Optional.empty();
+    }
+
+    /** What a copy asks of the guest, through QEMU's guest agent or VMware Tools. */
+    private interface Guest {
+
+        boolean exists(String path) throws IOException, InterruptedException;
+
+        /** Runs the copy script for {@code game} into {@code into}, telling {@code progress} how far it is. */
+        GuestAgent.Ran copy(Source game, String into, Consumer<String> progress) throws IOException, InterruptedException;
+
+        /** Ends {@code process} and the processes it started, if it runs. */
+        void end(String process) throws IOException, InterruptedException;
+
+        Optional<byte[]> read(String path) throws IOException, InterruptedException;
+
+        void write(String path, byte[] bytes) throws IOException, InterruptedException;
+    }
+
+    /** A QEMU guest, through its agent; one connection per call, as a copy lasts longer than one should. */
+    private record QemuGuest(int agentPort) implements Guest {
+
+        @Override
+        public boolean exists(String path) throws IOException {
+            try (GuestAgent agent = GuestAgent.connect(agentPort, AGENT_TIMEOUT_MS)) {
+                return agent.fileExists(path);
+            }
+        }
+
+        @Override
+        public GuestAgent.Ran copy(Source game, String into, Consumer<String> progress)
+                throws IOException, InterruptedException {
+            try (FolderServer server = FolderServer.serve(game.folder())) {
+                Thread reporter = reporter(game, server.total(), server::sent, progress);
+                try (GuestAgent agent = GuestAgent.connect(agentPort, COPY_REPLY_MS)) {
+                    return agent.run(POWERSHELL, encoded(copyScript(From.server(server.port(), server.token()), game,
+                            into)), COPY);
+                } finally {
+                    stop(reporter);
+                }
+            }
+        }
+
+        @Override
+        public void end(String process) throws IOException, InterruptedException {
+            try (GuestAgent agent = GuestAgent.connect(agentPort, AGENT_TIMEOUT_MS)) {
+                agent.run("C:\\Windows\\System32\\taskkill.exe", List.of("/F", "/T", "/IM", process),
+                        Duration.ofSeconds(30));
+            }
+        }
+
+        @Override
+        public Optional<byte[]> read(String path) throws IOException {
+            try (GuestAgent agent = GuestAgent.connect(agentPort, AGENT_TIMEOUT_MS)) {
+                return agent.readFile(path);
+            }
+        }
+
+        @Override
+        public void write(String path, byte[] bytes) throws IOException {
+            try (GuestAgent agent = GuestAgent.connect(agentPort, AGENT_TIMEOUT_MS)) {
+                agent.writeFile(path, bytes);
+            }
+        }
+    }
+
+    /** A VMware guest, through {@code vmrun} and VMware Tools, as the VM's own user. */
+    private record VmwareGuest(VmwareWorkstation ws, Path vmx, String user, String password) implements Guest {
+
+        static VmwareGuest of(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
+            VmwareWorkstation ws = VmwareWorkstation.find()
+                    .orElseThrow(() -> new IOException("VMware Workstation isn't installed."));
+            // vmrun's file check reads every failure as "no such file": a guest whose Tools aren't up yet would
+            // look as if it lacked the launcher.
+            if (!ws.toolsRunning(vm.vmx())) throw new IOException("VMware Tools isn't answering in the VM yet.");
+            return new VmwareGuest(ws, vm.vmx(), VmSetup.GUEST_USER, credentials.guest());
+        }
+
+        @Override
+        public boolean exists(String path) throws IOException, InterruptedException {
+            return ws.fileExistsInGuest(vmx, user, password, path);
+        }
+
+        @Override
+        public GuestAgent.Ran copy(Source game, String into, Consumer<String> progress)
+                throws IOException, InterruptedException {
+            long total;
+            try (Stream<Path> walk = Files.walk(game.folder())) {
+                total = walk.filter(Files::isRegularFile).mapToLong(f -> f.toFile().length()).sum();
+            }
+            // The last copy's count, left in the guest, is no count of this one.
+            ws.deleteInGuest(vmx, user, password, PROGRESS_FILE);
+            boolean wereOn = ws.shareFolder(vmx, SHARE, game.folder());
+            try {
+                Thread reporter = reporter(game, total, this::copied, progress);
+                try {
+                    Spawn.Completed ran = ws.runPowerShell(vmx, user, password,
+                            copyScript(From.share(VmwareWorkstation.sharedFolderInGuest(SHARE)), game, into), COPY);
+                    return new GuestAgent.Ran(ran.exitCode(), ran.output());
+                } finally {
+                    stop(reporter);
+                }
+            } finally {
+                ws.unshareFolder(vmx, SHARE, wereOn);
+            }
+        }
+
+        /**
+         * The bytes the guest's copy says it has copied; -1 when that can't be read (not written yet, among
+         * others). One vmrun call, no existence check first: it runs every few seconds for the whole copy.
+         */
+        private long copied() {
+            Path file = null;
+            try {
+                file = Files.createTempFile("botmaker-guest", ".txt");
+                return ws.copyFromGuest(vmx, user, password, PROGRESS_FILE, file).ok()
+                        ? Long.parseLong(Files.readString(file, StandardCharsets.US_ASCII).strip()) : -1;
+            } catch (IOException | RuntimeException e) {
+                return -1;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return -1;
+            } finally {
+                if (file != null) file.toFile().delete();
+            }
+        }
+
+        @Override
+        public void end(String process) throws IOException, InterruptedException {
+            ws.runPowerShell(vmx, user, password, "& taskkill.exe /F /T /IM " + quoted(process)
+                    + " 2>&1 | Out-Null\nexit 0\n", Duration.ofSeconds(30));
+        }
+
+        @Override
+        public Optional<byte[]> read(String path) throws IOException, InterruptedException {
+            if (!exists(path)) return Optional.empty();
+            Path file = Files.createTempFile("botmaker-guest", ".bin");
+            try {
+                Commands.require(ws.copyFromGuest(vmx, user, password, path, file), "VMware couldn't read " + path
+                        + " in the VM");
+                return Optional.of(Files.readAllBytes(file));
+            } finally {
+                Files.deleteIfExists(file);
+            }
+        }
+
+        @Override
+        public void write(String path, byte[] bytes) throws IOException, InterruptedException {
+            Path file = Files.createTempFile("botmaker-guest", ".bin");
+            try {
+                Files.write(file, bytes);
+                Commands.require(ws.copyToGuest(vmx, user, password, file, path), "VMware couldn't write " + path
+                        + " in the VM");
+            } finally {
+                Files.deleteIfExists(file);
+            }
+        }
+    }
+
+    /**
+     * Tells {@code progress}, every few seconds, the bytes {@code copied} of {@code total}, until stopped; a
+     * count of -1, unknown, and one read as the copy ended, say nothing.
+     */
+    private static Thread reporter(Source game, long total, LongSupplier copied, Consumer<String> progress) {
+        String of = " MB copied, of " + megabytes(total) + " MB.";
+        return Thread.ofPlatform().daemon().name("game-copy-progress").start(() -> {
+            try {
+                while (true) {
+                    Thread.sleep(REPORT_EVERY);
+                    long bytes = copied.getAsLong();
+                    if (Thread.currentThread().isInterrupted()) return;
+                    if (bytes >= 0) progress.accept("Copying " + game.name() + " into the VM: " + megabytes(bytes) + of);
+                }
+            } catch (InterruptedException e) {
+                // the copy is over
+            }
+        });
+    }
+
+    private static void stop(Thread reporter) throws InterruptedException {
+        reporter.interrupt();
+        reporter.join(); // its last sentence before the next one
     }
 
     private static List<String> encoded(String script) {
@@ -199,31 +371,62 @@ public final class GameCopy {
     }
 
     /**
-     * The guest's PowerShell for the copy into {@code into}: lists the files (UTF-8), skips those already there
-     * whole, refuses (exit {@value #NO_ROOM}, one sentence) when the disk lacks the room, then fetches the rest,
-     * each tried three times. It also makes the folders the launcher's record goes in, which a launcher not yet
-     * started may lack.
+     * Where the guest's copy reads the game: its PowerShell that sets the source up, an expression that is the
+     * list of {@code <size>\t<relative path>} lines, a statement that copies {@code $f[0]} (relative) to
+     * {@code $f[1]}, and the guest file it writes its bytes copied to, or {@code null}.
      */
-    static String copyScript(int port, String token, Source game, String into) {
+    record From(String setup, String list, String fetch, String progressFile) {
+
+        /** QEMU: this PC's {@link FolderServer}, at {@code 10.0.2.2}. */
+        static From server(int port, String token) {
+            return new From("$base = 'http://10.0.2.2:" + port + "/" + token + "'\n"
+                    + "$web = New-Object Net.WebClient\n"
+                    + "$web.Encoding = [Text.Encoding]::UTF8\n",
+                    "($web.DownloadString(\"$base/list\") -split \"`n\")",
+                    "$web.DownloadFile(\"$base/file?p=\" + [Uri]::EscapeDataString($f[0]), $f[1])",
+                    null);
+        }
+
+        /** VMware: the folder shared with the guest at {@code guestPath}. */
+        static From share(String guestPath) {
+            // The last copy's count, left in the guest, is no count of this one.
+            return new From("$src = " + quoted(guestPath) + "\nSet-Content -LiteralPath " + quoted(PROGRESS_FILE)
+                    + " 0\n",
+                    "(Get-ChildItem -LiteralPath $src -Recurse -File -Force"
+                            + " | ForEach-Object { '' + $_.Length + \"`t\" + $_.FullName.Substring($src.Length + 1) })",
+                    "[IO.File]::Copy([IO.Path]::Combine($src, $f[0]), $f[1], $true)",
+                    PROGRESS_FILE);
+        }
+    }
+
+    /**
+     * The guest's PowerShell for the copy into {@code into}: lists the files {@code from} has, skips those
+     * already there whole, refuses (exit {@value #NO_ROOM}, one sentence) when the disk lacks the room, then
+     * copies the rest, each tried three times, writing its bytes copied to {@code from}'s progress file every
+     * second or so when it has one. It also makes the folders the launcher's record goes in, which a launcher not
+     * yet started may lack.
+     */
+    static String copyScript(From from, Source game, String into) {
         List<String> folders = game.launcher() == GuestLauncher.EPIC
                 ? List.of(EPIC_MANIFESTS, EPIC_INSTALLED.substring(0, EPIC_INSTALLED.lastIndexOf('\\')))
                 : List.of(recordFolder(game, into));
         StringBuilder make = new StringBuilder();
         for (String f : folders) make.append("[void][IO.Directory]::CreateDirectory(").append(quoted(f)).append(")\n");
+        String report = from.progressFile() == null ? ""
+                : "  if ($clock.ElapsedMilliseconds -ge 1000) { Set-Content -LiteralPath " + quoted(from.progressFile())
+                        + " $done; $clock.Restart() }\n";
         return "$ErrorActionPreference = 'Stop'\n"
-                + "$base = 'http://10.0.2.2:" + port + "/" + token + "'\n"
+                + from.setup()
                 + "$dest = " + quoted(into) + "\n"
-                + "$web = New-Object Net.WebClient\n"
-                + "$web.Encoding = [Text.Encoding]::UTF8\n"
                 + "$todo = New-Object Collections.ArrayList\n"
                 + "$need = [long]0\n"
-                + "foreach ($line in ($web.DownloadString(\"$base/list\") -split \"`n\")) {\n"
+                + "foreach ($line in " + from.list() + ") {\n"
                 + "  if (-not $line) { continue }\n"
                 + "  $size, $rel = $line -split \"`t\", 2\n"
                 + "  $to = [IO.Path]::Combine($dest, $rel)\n"
                 + "  $have = New-Object IO.FileInfo $to\n"
                 + "  if ($have.Exists -and $have.Length -eq [long]$size) { continue }\n"
-                + "  [void]$todo.Add(@($rel, $to)); $need += [long]$size\n"
+                + "  [void]$todo.Add(@($rel, $to, [long]$size)); $need += [long]$size\n"
                 + "}\n"
                 + "$free = (New-Object IO.DriveInfo 'C').AvailableFreeSpace\n"
                 + "if ($free -lt $need + 1GB) {\n"
@@ -231,12 +434,16 @@ public final class GameCopy {
                 + "($need / 1GB))\n"
                 + "  exit " + NO_ROOM + "\n"
                 + "}\n"
+                + "$done = [long]0\n"
+                + "$clock = [Diagnostics.Stopwatch]::StartNew()\n"
                 + "foreach ($f in $todo) {\n"
                 + "  [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($f[1]))\n"
                 + "  for ($try = 1; ; $try++) {\n"
-                + "    try { $web.DownloadFile(\"$base/file?p=\" + [Uri]::EscapeDataString($f[0]), $f[1]); break }\n"
+                + "    try { " + from.fetch() + "; break }\n"
                 + "    catch { if ($try -ge 3) { Write-Output ($f[0] + ': ' + $_.Exception.Message); exit 1 } }\n"
                 + "  }\n"
+                + "  $done += $f[2]\n"
+                + report
                 + "}\n"
                 + make
                 + "exit 0\n";
