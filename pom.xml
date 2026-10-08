@@ -69,17 +69,6 @@
         </dependency>
 
         <!--
-          VNC (com.botmaker.shared.vnc): the screen and input of a virtual machine that VMware or QEMU serves
-          on this computer. MIT, 92 KB, no dependencies of its own; its last release is 2021, and RFB has not
-          changed since.
-        -->
-        <dependency>
-            <groupId>com.shinyhut</groupId>
-            <artifactId>vernacular</artifactId>
-            <version>1.14</version>
-        </dependency>
-
-        <!--
           Installed-game discovery (com.botmaker.shared.game): the Epic and Faugus launchers keep their
           catalogues as JSON manifests, so a scanner has to read JSON. Compile scope, and it costs the
           consumers nothing they did not already have — the SDK and Studio both declare jackson-databind

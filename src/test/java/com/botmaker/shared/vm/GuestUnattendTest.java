@@ -52,7 +52,9 @@ class GuestUnattendTest {
         assertTrue(qemu.getLast().contains(GuestUnattend.READY_FILE), "ready is written last");
 
         List<String> vmware = GuestUnattend.firstLogonCommands(Hypervisor.VMWARE);
-        assertTrue(vmware.stream().anyMatch(c -> c.contains("setup64.exe /S /v \"/qn REBOOT=R\"")));
+        String tools = vmware.stream().filter(c -> c.contains("VMwareToolsUpgrader.exe")).findFirst().orElseThrow();
+        assertTrue(tools.contains("setup64.exe /S /v \"/qn REBOOT=R\"") && tools.contains("setup.exe /S /v \"/qn REBOOT=R\""),
+                "older Tools discs name it setup64.exe, current ones setup.exe: " + tools);
 
         Document orders = parse(GuestUnattend.xml("botmaker", "p", "VM", "en-US", Hypervisor.VMWARE));
         NodeList commands = orders.getElementsByTagNameNS(NS, "SynchronousCommand");

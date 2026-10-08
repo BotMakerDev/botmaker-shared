@@ -130,7 +130,11 @@ public final class VmxFile {
      * vncPassword}. The NVMe disk and the network card sit on the PCIe root ports VMware's own wizard writes.
      *
      * <p>The Windows disc boots first, and its loader waits five seconds for a key before it gives up: whoever
-     * starts the VM presses one over VNC.
+     * starts the VM presses one over VNC. The discs boot before the disk, and the firmware holds
+     * {@value #BOOT_DELAY_MS} ms first, so the screen is connected by then: left to itself, VMware's firmware
+     * tried the empty disk and the network before the disc, and its prompt came after the key presses had ended,
+     * live, leaving the VM in its Boot Manager. Once Windows is installed the discs are taken out, and the disk
+     * boots.
      */
     public static VmxFile create(VmSpec spec, String disk, String vncPassword) {
         VmxFile vmx = empty()
@@ -140,6 +144,8 @@ public final class VmxFile {
                 .set("guestOS", "windows11-64")
                 .set("firmware", "efi")
                 .set("uefi.secureBoot.enabled", "FALSE")
+                .set("bios.bootDelay", Integer.toString(BOOT_DELAY_MS))
+                .set("bios.bootOrder", "cdrom,hdd")
                 .set("memsize", Integer.toString(spec.size().memoryMb()))
                 .set("numvcpus", Integer.toString(spec.size().cpus()))
                 .set("cpuid.coresPerSocket", Integer.toString(spec.size().cpus()))
@@ -170,15 +176,20 @@ public final class VmxFile {
         return vmx.setDiscs(spec);
     }
 
+    /** How long the firmware waits before booting: long enough for the screen to connect. */
+    static final int BOOT_DELAY_MS = 10_000;
+
     /** SATA ports VMware gives a controller. */
     private static final int SATA_PORTS = 30;
     private static final List<String> SLOT_KEYS = List.of(".present", ".deviceType", ".fileName", ".startConnected");
 
     /**
      * Puts {@code spec}'s discs in the SATA drives, the Windows one first, and empties every other drive: once
-     * Windows is installed, that takes the installer and the answer disc out.
+     * Windows is installed, that takes the installer and the answer disc out, and with them the firmware's
+     * wait and disc-first order, which only the installing boot needs.
      */
     public VmxFile setDiscs(VmSpec spec) {
+        if (spec.windowsIso() == null) remove("bios.bootDelay").remove("bios.bootOrder");
         List<Path> discs = new ArrayList<>();
         if (spec.windowsIso() != null) discs.add(spec.windowsIso());
         discs.addAll(spec.discs());

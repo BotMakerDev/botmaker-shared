@@ -4,11 +4,15 @@ import com.botmaker.shared.tools.UserDirs;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -61,7 +65,11 @@ class VmSetupTest {
         Files.write(vm.disk(), new byte[200 * 1024]);
         assertTrue(!VmSetup.diskWritten(vm), "a new qcow2 is a few hundred kilobytes");
         try (var file = new java.io.RandomAccessFile(vm.disk().toFile(), "rw")) {
-            file.setLength(65L * 1024 * 1024);
+            file.setLength(78L * 1024 * 1024);
+        }
+        assertTrue(!VmSetup.diskWritten(vm), "a new VMware disk is already 78 MB of tables");
+        try (var file = new java.io.RandomAccessFile(vm.disk().toFile(), "rw")) {
+            file.setLength(600L * 1024 * 1024);
         }
         assertTrue(VmSetup.diskWritten(vm), "Setup has partitioned it: the disc would start over");
     }
@@ -85,5 +93,31 @@ class VmSetupTest {
         assertEquals("a-very-long-nam", VmSetup.computerName("a very long name indeed"));
         assertEquals("BOTMAKER-123", VmSetup.computerName("123"));
         assertEquals("BOTMAKER", VmSetup.computerName("__"));
+    }
+
+    @Test
+    void theDiscsPromptIsALineAtTheTopAndNothingElse() {
+        BufferedImage prompt = screen();
+        paint(prompt, 32, 18, 480, 16); // "Press any key to boot from CD or DVD...."
+        assertTrue(VmSetup.looksLikeBootPrompt(prompt));
+
+        BufferedImage splash = screen();
+        paint(splash, 290, 350, 450, 70); // the firmware's logo, in the middle
+        assertFalse(VmSetup.looksLikeBootPrompt(splash));
+
+        paint(prompt, 200, 190, 340, 16); // the Boot Manager's menu, under its title
+        assertFalse(VmSetup.looksLikeBootPrompt(prompt));
+        assertFalse(VmSetup.looksLikeBootPrompt(screen()), "a black screen says nothing yet");
+    }
+
+    private static BufferedImage screen() {
+        return new BufferedImage(1024, 768, BufferedImage.TYPE_INT_RGB);
+    }
+
+    private static void paint(BufferedImage image, int x, int y, int w, int h) {
+        Graphics2D g = image.createGraphics();
+        g.setColor(new Color(0xB0, 0x00, 0xB0));
+        g.fillRect(x, y, w, h);
+        g.dispose();
     }
 }

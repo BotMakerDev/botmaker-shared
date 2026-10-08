@@ -25,7 +25,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - **A VM's screen as a `NativeController`.** `vnc.VncController` connects to the VNC server a hypervisor
   serves for a virtual machine on this computer. It captures the screen and sends clicks, drags, the wheel,
   keys and text as VNC messages, so this computer's cursor and keyboard are never touched. The protocol is
-  Vernacular's (`com.shinyhut:vernacular` 1.14, MIT, no dependencies of its own). `Keysyms` turns the Windows
+  `vnc.RfbClient`'s (RFB 3.3–3.8, None or VNC Authentication, Raw and CopyRect). It decodes pixels in the
+  format the server sends: VMware's server ignores a client's SetPixelFormat, and the library used before
+  showed white as magenta there. `Keysyms` turns the Windows
   virtual-key codes a bot passes into the X keysyms VNC sends. Once the server is gone, it degrades rather
   than throws.
 
@@ -52,7 +54,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   guest says the first sign-in is done. It resumes after a restart of the host, and ejects and deletes the
   answer disc at the end. QEMU runs with `-no-reboot` on the Hypervisor Platform's own interrupt controller:
   a restart inside it hangs the firmware or stops the processor, so `install()` starts QEMU again each time
-  Windows restarts, and when QEMU pauses the VM (umbrella doc 44 §4b.2.1). A VM's disk is 64 GB by default,
+  Windows restarts, and when QEMU pauses the VM (umbrella doc 44 §4b.2.1). Under VMware the firmware waits
+  10 s and boots the discs first, and the key is pressed only once the disc's prompt is on screen: a key
+  pressed earlier opens VMware's Boot Manager. The Tools disc is found by its `VMwareToolsUpgrader.exe`, and
+  its installer is `setup64.exe` on older discs, `setup.exe` on current ones. A VM's disk is 64 GB by default,
   Windows 11's minimum, and takes only what Windows writes.
   `start()` starts a VM and connects to its screen, choosing new ports for any that were taken since.
   `VmRecord` keeps each VM's record and `VmInventory` lists them (`find(name)` reads one). `GuestAgent` reads,

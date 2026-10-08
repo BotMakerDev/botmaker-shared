@@ -134,6 +134,9 @@ public final class GuestUnattend {
         return x.toString();
     }
 
+    /** VMware Tools' installer: silent, and no restart until Windows next restarts. */
+    private static final String TOOLS_ARGS = "/S /v \"/qn REBOOT=R\"";
+
     /**
      * What runs at the first sign-in, as the signed-in user, in order: power, lock screen, guest tools, the
      * launch task, ready. The task names no {@code /RU}: it is that user's, and naming one would make schtasks
@@ -148,9 +151,12 @@ public final class GuestUnattend {
                 "reg add HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization /v NoLockScreen /t REG_DWORD /d 1 /f",
                 "reg add \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive /t REG_SZ /d 0 /f"));
         switch (hypervisor) {
-            // VMware Tools: its disc's setup64.exe, on whichever drive letter the disc got; it reboots later.
-            case VMWARE -> c.add("cmd /c for %d in (D E F G H I) do if exist %d:\\setup64.exe"
-                    + " start /wait %d:\\setup64.exe /S /v \"/qn REBOOT=R\"");
+            // VMware Tools, on whichever drive letter its disc got (the one with VMwareToolsUpgrader.exe: the
+            // Windows disc has a setup.exe too); it reboots later. Older discs name the 64-bit installer
+            // setup64.exe, current ones ship only setup.exe, 64-bit: live, setup64.exe alone installed nothing.
+            case VMWARE -> c.add("cmd /c for %d in (D E F G H I) do if exist %d:\\VMwareToolsUpgrader.exe"
+                    + " (if exist %d:\\setup64.exe (start /wait %d:\\setup64.exe " + TOOLS_ARGS + ")"
+                    + " else start /wait %d:\\setup.exe " + TOOLS_ARGS + ")");
             // virtio-win's guest tools: the serial driver the guest agent talks through, and the agent.
             case QEMU -> c.add("cmd /c for %d in (D E F G H I) do if exist %d:\\virtio-win-guest-tools.exe"
                     + " start /wait %d:\\virtio-win-guest-tools.exe /install /quiet /norestart");

@@ -262,6 +262,9 @@ public final class VmSetup {
             installing.save();
             if (pressKey) {
                 listener.step("Pressing the key the Windows disc waits for.");
+                // VMware's firmware takes a key during its start-up screen as a call for its Boot Manager, where
+                // the VM then stays: there, the keys wait for the disc's prompt itself.
+                if (installing.hypervisor() == Hypervisor.VMWARE) awaitBootPrompt(screen);
                 long keysUntil = System.nanoTime() + BOOT_KEYS.toNanos();
                 while (System.nanoTime() < keysUntil) {
                     screen.keyDown(SPACE);
@@ -312,9 +315,51 @@ public final class VmSetup {
         }
     }
 
-    /** Whether Setup has written to {@code vm}'s disk: a new one, of either kind, holds well under this. */
+    /** How long a VM's firmware may take to show the Windows disc's prompt. */
+    private static final Duration BOOT_PROMPT = Duration.ofSeconds(60);
+
+    /**
+     * Waits until {@code screen} shows the Windows disc's "Press any key to boot from CD or DVD" or
+     * {@link #BOOT_PROMPT} has passed; the keys go either way.
+     */
+    private static void awaitBootPrompt(VncController screen) throws InterruptedException {
+        long until = System.nanoTime() + BOOT_PROMPT.toNanos();
+        while (System.nanoTime() < until && screen.alive()) {
+            BufferedImage frame = screen.captureScreen();
+            if (frame != null && looksLikeBootPrompt(frame)) return;
+            Thread.sleep(250);
+        }
+    }
+
+    /** The share of the screen's height the boot prompt's line sits in, from the top. */
+    private static final double PROMPT_BAND = 0.08;
+
+    /**
+     * Whether {@code frame} is the Windows disc's boot prompt: a line of text at the top and nothing else, live
+     * on VMware at 1024x768. Its start-up screen (a logo in the middle) and Boot Manager (a menu in the middle)
+     * are not.
+     */
+    static boolean looksLikeBootPrompt(BufferedImage frame) {
+        int band = (int) (frame.getHeight() * PROMPT_BAND);
+        boolean text = false;
+        for (int y = 0; y < frame.getHeight(); y += 2) {
+            for (int x = 0; x < frame.getWidth(); x += 2) {
+                int rgb = frame.getRGB(x, y);
+                boolean lit = ((rgb >> 16) & 0xFF) + ((rgb >> 8) & 0xFF) + (rgb & 0xFF) > 96;
+                if (!lit) continue;
+                if (y >= band) return false;
+                text = true;
+            }
+        }
+        return text;
+    }
+
+    /**
+     * Whether Setup has written to {@code vm}'s disk. A new one holds only its own tables: a few hundred KB for
+     * qcow2, 78 MB for VMware's 64 GB sparse disk (live). Setup writes gigabytes within minutes.
+     */
     static boolean diskWritten(VmRecord vm) throws IOException {
-        return Files.exists(vm.disk()) && Files.size(vm.disk()) > 64L * 1024 * 1024;
+        return Files.exists(vm.disk()) && Files.size(vm.disk()) > 512L * 1024 * 1024;
     }
 
     /**

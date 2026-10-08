@@ -40,6 +40,14 @@ final class FakeVncServer implements AutoCloseable {
     private final BlockingQueue<byte[]> messages = new LinkedBlockingQueue<>();
     /** Whether the first full-screen request gets a (black) screen back; off to play a server that never paints. */
     volatile boolean sendsFirstFrame = true;
+    /**
+     * The 16-byte pixel format the greeting announces and pictures are sent in, as VMware's server does: it
+     * ignores a client's SetPixelFormat. {@code null} announces none and paints as the client asks. Set it
+     * before the client connects.
+     */
+    volatile byte[] ownFormat;
+    /** Whether the client sent a SetPixelFormat. */
+    volatile boolean askedForFormat;
     private volatile DataOutputStream out;
     private volatile Socket socket;
     volatile String failure;
@@ -95,7 +103,13 @@ final class FakeVncServer implements AutoCloseable {
             in.readUnsignedByte(); // ClientInit
             o.writeShort(width);
             o.writeShort(height);
-            o.write(new byte[16]);
+            byte[] own = ownFormat;
+            o.write(own != null ? own : new byte[16]);
+            if (own != null) {
+                byte[] asMessage = new byte[20];
+                System.arraycopy(own, 0, asMessage, 4, 16);
+                pixelFormat = asMessage;
+            }
             byte[] name = "fake guest".getBytes(StandardCharsets.UTF_8);
             o.writeInt(name.length);
             o.write(name);
@@ -104,7 +118,10 @@ final class FakeVncServer implements AutoCloseable {
             boolean answered = false;
             while (true) {
                 byte[] message = readMessage(in);
-                if (message[0] == 0) pixelFormat = message;
+                if (message[0] == 0) {
+                    askedForFormat = true;
+                    if (own == null) pixelFormat = message;
+                }
                 // A real server answers the first full-screen request with the whole screen.
                 if (message[0] == 3 && message[1] == 0 && !answered && sendsFirstFrame) {
                     answered = true;

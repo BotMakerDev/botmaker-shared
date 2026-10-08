@@ -55,6 +55,29 @@ class VncControllerTest {
     }
 
     @Test
+    void aServerThatKeepsItsOwnFormatIsDecodedInIt() throws Exception {
+        // VMware's: 32 bits little-endian, red at 16, green at 8, blue at 0; a SetPixelFormat changes nothing.
+        byte[] vmware = {32, 24, 0, 1, 0, (byte) 255, 0, (byte) 255, 0, (byte) 255, 16, 8, 0, 0, 0, 0};
+        // and one no client would ask for: big-endian, the channels the other way round
+        byte[] odd = {32, 24, 1, 1, 0, (byte) 255, 0, (byte) 255, 0, (byte) 255, 0, 8, 16, 0, 0, 0};
+        for (byte[] own : List.of(vmware, odd)) {
+            try (FakeVncServer server = new FakeVncServer(V38, FakeVncServer.SECURITY_NONE, null, 3, 1)) {
+                server.ownFormat = own;
+                try (VncController vnc = connect(server, null)) {
+                    long seen = vnc.frames();
+                    server.raw(0, 0, 3, 1, new int[]{0xAFD2E0, 0xFFCE44, 0x253824});
+                    vnc.awaitFrame(seen, 3_000);
+                    BufferedImage frame = vnc.captureScreen();
+                    assertEquals(0xAFD2E0, frame.getRGB(0, 0) & 0xFFFFFF);
+                    assertEquals(0xFFCE44, frame.getRGB(1, 0) & 0xFFFFFF);
+                    assertEquals(0x253824, frame.getRGB(2, 0) & 0xFFFFFF);
+                    assertFalse(server.askedForFormat, "a format the client reads is never asked to change");
+                }
+            }
+        }
+    }
+
+    @Test
     void aCopiedAreaAndAResizeReachTheCapture() throws Exception {
         try (FakeVncServer server = new FakeVncServer(V38, FakeVncServer.SECURITY_NONE, null, 4, 2);
              VncController vnc = connect(server, null)) {

@@ -91,6 +91,8 @@ class VmxFileTest {
         assertEquals("127.0.0.1", vmx.get("RemoteDisplay.vnc.ip"));
         assertEquals("5901", vmx.get("RemoteDisplay.vnc.port"));
         assertEquals("abcd1234", vmx.get("RemoteDisplay.vnc.password"));
+        assertEquals("cdrom,hdd", vmx.get("bios.bootOrder"));
+        assertEquals("10000", vmx.get("bios.bootDelay"));
 
         VmSpec installed = new VmSpec("Game VM", Path.of("vm"), new VmSize(4, 8192, 80), null, List.of(), 5901);
         vmx.setDiscs(installed);
@@ -98,5 +100,7 @@ class VmxFileTest {
         assertNull(vmx.get("sata0:1.present"), "and the answer disc");
         assertNull(vmx.get("sata0:2.deviceType"));
         assertEquals("TRUE", vmx.get("sata0.present"), "the controller stays");
+        assertNull(vmx.get("bios.bootDelay"), "an installed VM boots its disk with no wait");
+        assertNull(vmx.get("bios.bootOrder"));
     }
 }
