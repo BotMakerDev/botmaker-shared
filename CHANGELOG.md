@@ -16,6 +16,16 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **The windows inside a game VM.** `vm.GuestWindows` writes a hidden PowerShell loop into a Windows guest and
+  starts it on the signed-in desktop. Each second it lists the guest's visible top-level windows (handle,
+  process, visible frame, title, which one has the focus) into `C:\BotMaker\windows.tsv`. The host reads that
+  file through the guest tools, once a second in the background. A read takes about 7 ms through QEMU's agent
+  and 0.6 s through vmrun, so no capture waits on it. A list that can't be read for 10 s is dropped. A named mutex
+  keeps one loop running, so starting it at every connection is harmless. `VncController.connect` takes the
+  list (`vnc.GuestWindow`). `getAllWindows` returns the guest's windows, each captured as its part of the
+  screen and clicked relative to it. `getForegroundWindow` is the guest's, and `focusWindow` clicks a window's
+  title bar. A guest that lists nothing still shows the whole screen as one window. `VmSetup.start` passes the
+  list. Live on `vmw` (VMware) and `live` (QEMU): Notepad listed at its frame and captured as it is.
 - **A game of this PC copied into a game VM.** `vm.GameCopy.onThisPc()` lists the Steam and Epic games here;
   `GameCopy.copy` has the guest copy one's folder into the folder its launcher installs to, skipping files
   already there whole, then writes the launcher's record (Steam's `.acf`; Epic's `.item` and
@@ -65,8 +75,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   `start()` starts a VM and connects to its screen, choosing new ports for any that were taken since.
   `VmRecord` keeps each VM's record and `VmInventory` lists them (`find(name)` reads one). `GuestAgent` reads,
   writes and runs inside a QEMU guest. `guestReady()` says whether a guest has signed in and its tools
-  answer, and `runOnDesktop()` runs a command on the guest's desktop: through the guest agent and the launch
-  task under QEMU, through `vmrun -interactive` under VMware. `GuestLaunch` turns a launch target into that
+  answer, and `runOnDesktop()` runs a command on the guest's desktop: it writes the launch script and starts
+  the launch task, through the guest agent under QEMU and through vmrun under VMware, which creates the task in
+  a VM that lacks it. It returns once the script has run its command (the script deletes
+  `C:\BotMaker\launch.pending`), one launch at a time. Live, a second launch written sooner took the first one's
+  place, and `vmrun -interactive` was no way to launch. It mangled the command's quotes, and it ended whatever
+  `start` handed off once its own program exited. `GuestLaunch` turns a launch target into that
   command: a path, a command line, Steam or Epic, each handed off with `start ""`.
 - **A game VM's store launchers** (`vm.GuestLauncher`, Steam and Epic). `VmSetup.guestHas()` says whether the
   guest has one, and `installInGuest()` downloads its installer in the guest and runs it silently, waiting for

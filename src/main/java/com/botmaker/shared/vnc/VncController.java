@@ -7,20 +7,29 @@ import java.awt.Dimension;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
+import java.awt.image.ColorModel;
+import java.awt.image.WritableRaster;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * A screen served over VNC, driven as a {@link NativeController}: what a bot's capture, clicks and keys go
  * through when its game runs in a virtual machine that VMware or QEMU serves on this computer. The protocol is
- * {@link RfbClient}'s; this class is the bot's side of it. The whole screen is one window at {@code (0, 0)}, so
- * a point in a capture is the point clicked.
+ * {@link RfbClient}'s; this class is the bot's side of it. Coordinates are the screen's pixels, so a point in a
+ * capture of the {@link #screen()} is the point clicked.
+ *
+ * <p><b>The guest's windows.</b> VNC carries pixels only, so which windows are on the screen comes from the
+ * guest, through the {@code windows} given to {@link #connect}: each is a {@link GenericWindow} at its rectangle
+ * in the screen, captured as that part of the frame and clicked relative to it. With none listed (a guest that
+ * lists nothing), the whole screen is the one window, as it was before guests listed theirs.
  *
  * <p>Nothing here touches this computer's own cursor, keyboard or windows: every gesture is a VNC message, and
  * the hypervisor delivers it through the guest's virtual mouse and keyboard — hence
- * {@link #supportsBackgroundInput()}. The window methods (focus, move, resize, restore) have nothing to act on.
+ * {@link #supportsBackgroundInput()}. A window is focused by a click on its title bar; move, resize and restore
+ * have nothing to act through.
  * The mouse pointer is left out of the frames (the client takes the pointer's shape and drops it), so a capture
  * holds no cursor for a picture search to trip on.
  *
@@ -42,9 +51,12 @@ public final class VncController implements NativeController, AutoCloseable {
     /** RFB's pointer mask: the wheel is buttons 4 (up) and 5 (down), pressed and released. */
     private static final int WHEEL_UP = 1 << 3;
     private static final int WHEEL_DOWN = 1 << 4;
+    /** How far below a window's top edge its title bar is clicked to focus it. */
+    private static final int TITLE_BAR = 8;
 
     private final Keysyms.NativeKeys keys;
     private final String title;
+    private final Supplier<List<GuestWindow>> windows;
     private final Object frameLock = new Object();
     private final Object pointerLock = new Object();
     private RfbClient client;
@@ -55,20 +67,24 @@ public final class VncController implements NativeController, AutoCloseable {
     private int y;
     private int buttons;
 
-    private VncController(Keysyms.NativeKeys keys, String title) {
+    private VncController(Keysyms.NativeKeys keys, String title, Supplier<List<GuestWindow>> windows) {
         this.keys = keys;
         this.title = title;
+        this.windows = windows;
     }
 
     /**
      * Connects to the VNC server at {@code host:port}, with {@code password} when it asks for one ({@code null}
      * for none), and waits up to {@code firstFrameMs} for its first frame. {@code keys} says what the bot's key
-     * codes are on this host; {@code title} names the one window. Throws with a sentence a UI can show when the
-     * server can't be reached, refuses the password, or sends no picture.
+     * codes are on this host; {@code title} names the whole {@link #screen()}; {@code windows} lists the guest's
+     * windows as they stand ({@code List::of} for a guest that can't), and is asked on each call that needs them,
+     * so it caches what it reads. Throws with a sentence a UI can show when the server can't be reached, refuses
+     * the password, or sends no picture.
      */
     public static VncController connect(String host, int port, String password, Keysyms.NativeKeys keys,
-                                        String title, long firstFrameMs) throws IOException {
-        VncController controller = new VncController(keys, title);
+                                        String title, Supplier<List<GuestWindow>> windows, long firstFrameMs)
+            throws IOException {
+        VncController controller = new VncController(keys, title, windows);
         Socket socket = new Socket();
         try {
             socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
@@ -175,15 +191,32 @@ public final class VncController implements NativeController, AutoCloseable {
         }
     }
 
-    /** The one window: the whole screen. */
+    /** The whole screen as a window at {@code (0, 0)}, named by the {@code title} given to {@link #connect}. */
     public GenericWindow screen() {
         Dimension size = screenSize();
         return new GenericWindow(this, title, new Rectangle(0, 0, size.width, size.height));
     }
 
+    /** The guest's windows as it lists them now; empty when it lists none or the screen is gone. */
+    public List<GuestWindow> guestWindows() {
+        if (!alive()) return List.of();
+        try {
+            List<GuestWindow> listed = windows.get();
+            return listed == null ? List.of() : listed;
+        } catch (RuntimeException e) {
+            return List.of(); // the guest's list is best-effort; the screen still works without it
+        }
+    }
+
+    /**
+     * The window the guest says has the focus; the whole screen when none of those it lists has it (the desktop or
+     * the taskbar, which it doesn't list) or it lists none.
+     */
     @Override
     public GenericWindow getForegroundWindow() {
-        return alive() ? screen() : null;
+        if (!alive()) return null;
+        return guestWindows().stream().filter(GuestWindow::foreground).findFirst().map(this::window)
+                .orElseGet(this::screen);
     }
 
     @Override
@@ -191,19 +224,61 @@ public final class VncController implements NativeController, AutoCloseable {
         return List.of();
     }
 
+    /** The guest's windows, topmost first; the whole screen alone when it lists none. */
     @Override
     public List<GenericWindow> getAllWindows() {
-        return alive() ? List.of(screen()) : List.of();
+        if (!alive()) return List.of();
+        List<GuestWindow> listed = guestWindows();
+        return listed.isEmpty() ? List.of(screen()) : listed.stream().map(this::window).toList();
     }
 
+    /**
+     * {@code listed} as a window, at the part of its frame on the screen: a maximised window's frame reaches past
+     * the screen's edges, and its capture, its clicks and the corner a bot adds a match to must be the same
+     * rectangle.
+     */
+    private GenericWindow window(GuestWindow listed) {
+        Dimension size = screenSize();
+        return new GenericWindow(listed, listed.title(),
+                listed.rect().intersection(new Rectangle(0, 0, size.width, size.height)));
+    }
+
+    /**
+     * Where {@code window} was when it was found, which is what its corner says too; the whole screen for anything
+     * but a guest window. A bot following a window that moves finds it again ({@code window("…")} does at each
+     * use).
+     */
+    private Rectangle where(GenericWindow window) {
+        if (window != null && window.getNativeHandle() instanceof GuestWindow) return window.getRect();
+        Dimension size = screenSize();
+        return new Rectangle(0, 0, size.width, size.height);
+    }
+
+    /**
+     * That part of the frame where {@code window} is; the whole screen for {@link #screen()}. It is the screen's
+     * pixels, so a window behind another shows what covers it.
+     */
     @Override
     public BufferedImage captureWindow(GenericWindow window) {
-        return captureScreen();
+        Rectangle wanted = where(window);
+        synchronized (frameLock) {
+            if (latest == null) return null;
+            // The frame may have changed size since the window was found: a game switching resolution.
+            Rectangle r = wanted.intersection(new Rectangle(0, 0, latest.getWidth(), latest.getHeight()));
+            if (r.isEmpty()) return null;
+            if (r.width == latest.getWidth() && r.height == latest.getHeight()) return RfbClient.copy(latest);
+            BufferedImage part = latest.getSubimage(r.x, r.y, r.width, r.height);
+            ColorModel model = part.getColorModel();
+            WritableRaster pixels = model.createCompatibleWritableRaster(r.width, r.height);
+            part.copyData(pixels); // a sub-image's own raster starts at the parent's corner, so it's copied out
+            return new BufferedImage(model, pixels, model.isAlphaPremultiplied(), null);
+        }
     }
 
     @Override
     public void postLeftClick(GenericWindow window, int relativeX, int relativeY) {
-        click(relativeX, relativeY, 1);
+        Rectangle r = where(window);
+        click(r.x + relativeX, r.y + relativeY, 1);
     }
 
     @Override
@@ -211,8 +286,18 @@ public final class VncController implements NativeController, AutoCloseable {
         return true;
     }
 
+    /**
+     * Clicks {@code window}'s title bar, unless the guest says it has the focus already: the click is what a person
+     * would do, and Windows lets a program other than the one in front take the focus only that way. A borderless
+     * window has no title bar, so the click lands near its top edge.
+     */
     @Override
     public void focusWindow(GenericWindow window) {
+        if (window == null || !(window.getNativeHandle() instanceof GuestWindow found)) return;
+        boolean inFront = guestWindows().stream().anyMatch(w -> w.id() == found.id() && w.foreground());
+        if (inFront) return;
+        Rectangle r = where(window);
+        if (!r.isEmpty()) click(r.x + r.width / 2, r.y + Math.min(TITLE_BAR, r.height - 1), 1);
     }
 
     @Override

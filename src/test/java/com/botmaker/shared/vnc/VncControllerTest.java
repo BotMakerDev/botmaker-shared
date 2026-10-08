@@ -1,5 +1,6 @@
 package com.botmaker.shared.vnc;
 
+import com.botmaker.shared.capture.GenericWindow;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Dimension;
@@ -10,6 +11,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,8 +29,58 @@ class VncControllerTest {
     private static final String V38 = "RFB 003.008\n";
 
     private static VncController connect(FakeVncServer server, String password) throws IOException {
+        return connect(server, password, List::of);
+    }
+
+    private static VncController connect(FakeVncServer server, String password,
+                                         Supplier<List<GuestWindow>> windows) throws IOException {
         return VncController.connect("127.0.0.1", server.port(), password, Keysyms.NativeKeys.VIRTUAL_KEY,
-                "Guest", 3_000);
+                "Guest", windows, 3_000);
+    }
+
+    @Test
+    void theGuestsWindowsAreItsListCapturedAsTheirPartOfTheScreenAndClickedRelativeToIt() throws Exception {
+        GuestWindow notepad = new GuestWindow(7, "Notepad", "notepad", new Rectangle(1, 1, 2, 1), false);
+        GuestWindow game = new GuestWindow(9, "Firestone", "Firestone", new Rectangle(0, 2, 3, 1), true);
+        List<List<GuestWindow>> listed = new java.util.concurrent.CopyOnWriteArrayList<>(List.of(List.of(notepad, game)));
+        try (FakeVncServer server = new FakeVncServer(V38, FakeVncServer.SECURITY_NONE, null, 4, 3);
+             VncController vnc = connect(server, null, () -> listed.getLast())) {
+            long seen = vnc.frames();
+            server.raw(1, 1, 2, 1, new int[]{0xFF0000, 0x00FF00});
+            vnc.awaitFrame(seen, 3_000);
+
+            List<GenericWindow> all = vnc.getAllWindows();
+            assertEquals(List.of("Notepad", "Firestone"), all.stream().map(GenericWindow::getTitle).toList());
+            assertEquals("Firestone", vnc.getForegroundWindow().getTitle());
+            BufferedImage shot = vnc.captureWindow(all.get(0));
+            assertEquals(new Dimension(2, 1), new Dimension(shot.getWidth(), shot.getHeight()));
+            assertEquals(0xFF0000, shot.getRGB(0, 0) & 0xFFFFFF);
+            assertEquals(0x00FF00, shot.getRGB(1, 0) & 0xFFFFFF);
+            assertEquals(new Dimension(4, 3), new Dimension(vnc.captureWindow(vnc.screen()).getWidth(),
+                    vnc.captureWindow(vnc.screen()).getHeight()), "the whole screen is still a window to capture");
+
+            vnc.postLeftClick(all.get(1), 2, 0);
+            assertArrayEquals(pointerEvent(1, 2, 2), server.inputs(3).get(1), "relative to the window");
+
+            vnc.focusWindow(all.get(1));
+            vnc.focusWindow(all.get(0)); // Notepad is behind: its title bar is clicked
+            assertArrayEquals(pointerEvent(1, 2, 1), server.inputs(3).get(1),
+                    "the one click was Notepad's: the game was in front already");
+
+            // Notepad moved: the window found before is captured where it was, which is the corner it reports.
+            listed.add(List.of(new GuestWindow(7, "Notepad", "notepad", new Rectangle(-1, -1, 6, 5), false)));
+            assertEquals(2, vnc.captureWindow(all.get(0)).getWidth());
+            GenericWindow maximised = vnc.getAllWindows().getFirst();
+            assertEquals(new Rectangle(0, 0, 4, 3), maximised.getRect(), "its frame past the screen's edges is cut");
+            assertEquals(4, vnc.captureWindow(maximised).getWidth());
+            assertEquals("Guest", vnc.getForegroundWindow().getTitle(), "the desktop has the focus: the screen");
+
+            listed.add(List.of());
+            assertEquals(List.of(new Rectangle(0, 0, 4, 3)),
+                    vnc.getAllWindows().stream().map(GenericWindow::getRect).toList(),
+                    "a guest that lists nothing shows the whole screen, as before");
+            assertEquals("Guest", vnc.getForegroundWindow().getTitle());
+        }
     }
 
     @Test
@@ -124,7 +176,7 @@ class VncControllerTest {
         try (FakeVncServer server = new FakeVncServer(V38, FakeVncServer.SECURITY_NONE, null, 2, 2)) {
             server.sendsFirstFrame = false;
             IOException silent = assertThrows(IOException.class, () -> VncController.connect("127.0.0.1",
-                    server.port(), null, Keysyms.NativeKeys.VIRTUAL_KEY, "Guest", 300));
+                    server.port(), null, Keysyms.NativeKeys.VIRTUAL_KEY, "Guest", List::of, 300));
             assertTrue(silent.getMessage().contains("no picture"), silent.getMessage());
         }
     }
@@ -216,7 +268,7 @@ class VncControllerTest {
         }
         int closed = port;
         IOException e = assertThrows(IOException.class, () -> VncController.connect("127.0.0.1", closed, null,
-                Keysyms.NativeKeys.VIRTUAL_KEY, "Guest", 1_000));
+                Keysyms.NativeKeys.VIRTUAL_KEY, "Guest", List::of, 1_000));
         assertTrue(e.getMessage().startsWith("Nothing answers VNC"), e.getMessage());
     }
 

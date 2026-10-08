@@ -92,16 +92,6 @@ public record VmwareWorkstation(Path folder) {
     }
 
     /**
-     * Starts {@code program} in the guest, on the signed-in user's desktop, and returns without waiting for it.
-     * The guest account's password goes on vmrun's command line; it is the guest's own local account, which
-     * only BotMaker uses.
-     */
-    public Spawn.Completed runInGuest(Path vmx, String user, String password, String program, String arguments)
-            throws IOException, InterruptedException {
-        return Commands.run(QUICK, runInGuestCommand(vmx, user, password, program, arguments));
-    }
-
-    /**
      * Runs PowerShell {@code script} in the guest, without a desktop, and waits up to {@code timeout} for it.
      * The result is the script's exit code and what it printed; a failure of vmrun itself, or the timeout, is
      * vmrun's. The script goes into the guest as a file and its output comes back as one: PowerShell started
@@ -242,13 +232,6 @@ public record VmwareWorkstation(Path folder) {
 
     List<String> stopCommand(Path vmx, boolean hard) {
         return List.of(vmrun().toString(), "-T", "ws", "stop", vmx.toString(), hard ? "hard" : "soft");
-    }
-
-    List<String> runInGuestCommand(Path vmx, String user, String password, String program, String arguments) {
-        List<String> command = new ArrayList<>(List.of(vmrun().toString(), "-T", "ws", "-gu", user, "-gp", password,
-                "runProgramInGuest", vmx.toString(), "-noWait", "-activeWindow", "-interactive", program));
-        if (arguments != null && !arguments.isBlank()) command.add(arguments);
-        return List.copyOf(command);
     }
 
     /** {@code -a lsilogic}: the tool knows no NVMe, and says to pass lsilogic for any other adapter. */

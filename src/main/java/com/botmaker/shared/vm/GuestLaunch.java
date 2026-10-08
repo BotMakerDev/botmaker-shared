@@ -40,10 +40,12 @@ public final class GuestLaunch {
 
     /**
      * {@code command} as the launch script's bytes: a UTF-8 batch file, which switches cmd to UTF-8 so a path
-     * outside ASCII survives. {@code %VAR%} expands, as it does in VMware's {@code cmd /c}, so a command reads the
-     * same under both hypervisors.
+     * outside ASCII survives, and {@code %VAR%} expands. Its last line deletes
+     * {@value GuestUnattend#LAUNCH_PENDING}, to say the command ran, and exits on the same line: cmd reads a batch
+     * file as it goes, and the next launch may already be writing this one.
      */
     static byte[] script(String command) {
-        return ("@echo off\r\nchcp 65001 >nul\r\n" + command + "\r\n").getBytes(StandardCharsets.UTF_8);
+        return ("@echo off\r\nchcp 65001 >nul\r\n" + command + "\r\ndel \"" + GuestUnattend.LAUNCH_PENDING
+                + "\" & exit /b\r\n").getBytes(StandardCharsets.UTF_8);
     }
 }

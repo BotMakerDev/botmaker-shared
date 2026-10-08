@@ -32,7 +32,8 @@ class GuestLaunchTest {
 
     @Test
     void theScriptExpandsVariablesAsCmdDoesAndReadsUtf8() {
-        assertEquals("@echo off\r\nchcp 65001 >nul\r\nstart \"\" \"%ProgramFiles%\\é.exe\"\r\n",
+        assertEquals("@echo off\r\nchcp 65001 >nul\r\nstart \"\" \"%ProgramFiles%\\é.exe\"\r\n"
+                        + "del \"C:\\BotMaker\\launch.pending\" & exit /b\r\n",
                 new String(GuestLaunch.script("start \"\" \"%ProgramFiles%\\é.exe\""), StandardCharsets.UTF_8));
     }
 }

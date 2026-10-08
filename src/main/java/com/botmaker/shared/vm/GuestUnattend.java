@@ -27,6 +27,8 @@ public final class GuestUnattend {
     public static final String GUEST_FOLDER = "C:\\BotMaker";
     /** What the {@value #LAUNCH_TASK} task runs; the host writes the game's command into it. */
     public static final String LAUNCH_SCRIPT = GUEST_FOLDER + "\\launch.cmd";
+    /** Written before the launch task starts, and deleted by {@value #LAUNCH_SCRIPT} once it ran its command. */
+    public static final String LAUNCH_PENDING = GUEST_FOLDER + "\\launch.pending";
     /** Written by the last first-sign-in command. */
     public static final String READY_FILE = GUEST_FOLDER + "\\ready";
     /** A scheduled task that runs {@value #LAUNCH_SCRIPT} in the signed-in user's session when started. */
@@ -163,10 +165,28 @@ public final class GuestUnattend {
             case UNKNOWN -> { }
         }
         c.add("cmd /c echo rem the host writes the game's command here> " + LAUNCH_SCRIPT);
-        c.add("schtasks /Create /TN \"" + LAUNCH_TASK + "\" /TR \"" + LAUNCH_SCRIPT + "\" /SC ONCE /ST 00:00"
-                + " /IT /RL HIGHEST /F");
+        c.add(createLaunchTask());
         c.add("cmd /c echo ready> " + READY_FILE);
         return List.copyOf(c);
+    }
+
+    /** The {@value #LAUNCH_TASK} task as the first sign-in creates it, for the signed-in user. */
+    private static String createLaunchTask() {
+        return "schtasks /Create /TN \"" + LAUNCH_TASK + "\" /TR \"" + LAUNCH_SCRIPT + "\" /SC ONCE /ST 00:00"
+                + " /IT /RL HIGHEST /F";
+    }
+
+    /**
+     * PowerShell, run as the guest's user, that starts the {@value #LAUNCH_TASK} task, creating it first in a VM
+     * whose first sign-in didn't (one set up by hand), with {@value #LAUNCH_PENDING} written first; exits with
+     * {@code schtasks}' code.
+     */
+    public static String launchTaskScript() {
+        return "schtasks /Query /TN '" + LAUNCH_TASK + "' *> $null\n"
+                + "if ($LASTEXITCODE -ne 0) { " + createLaunchTask() + " | Out-Null }\n"
+                + "Set-Content -Path '" + LAUNCH_PENDING + "' -Value ''\n"
+                + "schtasks /Run /TN '" + LAUNCH_TASK + "'\n"
+                + "exit $LASTEXITCODE\n";
     }
 
     private static String locales(String language) {

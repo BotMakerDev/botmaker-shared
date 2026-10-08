@@ -514,7 +514,7 @@ public final class VmSetup {
             case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
         }
         VncController screen = VncController.connect("127.0.0.1", vm.vncPort(), credentials.vnc(),
-                Keysyms.NativeKeys.VIRTUAL_KEY, vm.name(), 30_000);
+                Keysyms.NativeKeys.VIRTUAL_KEY, vm.name(), GuestWindows.reader(vm, credentials), 30_000);
         return new Running(vm, screen, started);
     }
 
@@ -597,28 +597,84 @@ public final class VmSetup {
 
     /**
      * Runs {@code command}, a Windows command line ({@link GuestLaunch#command}), on the guest's signed-in desktop
-     * and returns without waiting for it. QEMU: the guest agent writes it into the launch script and starts the
-     * launch task. VMware: {@code vmrun runProgramInGuest -interactive}.
+     * and returns without waiting for it. Both write it into the launch script, and start the launch task, which
+     * runs it on the desktop. QEMU through the guest agent; VMware through vmrun, which also creates the task in a
+     * VM that lacks it ({@link GuestUnattend#launchTaskScript}). Two VMware ways that failed live: the command on
+     * vmrun's own command line came out with its quotes mangled ({@code start "" x} opened a console titled
+     * {@code x}), and a program {@code runProgramInGuest -interactive} starts is ended with everything it started
+     * once it exits, so whatever {@code start} handed off was gone at once.
+     *
+     * <p>It returns once the script has run its command: the script's last act deletes
+     * {@value GuestUnattend#LAUNCH_PENDING}, which is written before the task starts. A second command written
+     * before then took the first one's place, live (the task reads the script when it gets to it). One command at a
+     * time per JVM.
+     *
+     * @throws IOException when the desktop hasn't run it within {@link #LAUNCH_RAN}, as before the user's desktop
+     *                     is up
      */
     public static void runOnDesktop(VmRecord vm, VmCredentials credentials, String command)
             throws IOException, InterruptedException {
-        switch (vm.hypervisor()) {
-            case QEMU -> {
-                try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
-                    agent.writeFile(GuestUnattend.LAUNCH_SCRIPT, GuestLaunch.script(command));
-                    agent.runLaunchTask();
+        synchronized (LAUNCHING) {
+            switch (vm.hypervisor()) {
+                case QEMU -> {
+                    try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
+                        agent.writeFile(GuestUnattend.LAUNCH_PENDING, new byte[0]);
+                        agent.writeFile(GuestUnattend.LAUNCH_SCRIPT, GuestLaunch.script(command));
+                        agent.runLaunchTask();
+                        awaitLaunched(() -> agent.fileExists(GuestUnattend.LAUNCH_PENDING));
+                    }
                 }
+                case VMWARE -> runOnVmwareDesktop(vm, credentials, command);
+                case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
             }
-            case VMWARE -> {
-                VmwareWorkstation ws = VmwareWorkstation.find()
-                        .orElseThrow(() -> new IOException("VMware Workstation isn't installed."));
-                Commands.require(ws.runInGuest(vm.vmx(), GUEST_USER, credentials.guest(), "C:\\Windows\\System32\\cmd.exe",
-                        "/c " + command), "VMware couldn't start the game in the VM");
-            }
-            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
         }
     }
 
+    /** One launch at a time: they share the guest's launch script. */
+    private static final Object LAUNCHING = new Object();
+    /** How long the guest's desktop gets to run a launch script once its task is started. */
+    static final Duration LAUNCH_RAN = Duration.ofSeconds(20);
+
+    private interface Pending {
+        boolean still() throws IOException, InterruptedException;
+    }
+
+    private static void awaitLaunched(Pending pending) throws IOException, InterruptedException {
+        long until = System.nanoTime() + LAUNCH_RAN.toNanos();
+        while (pending.still()) {
+            if (System.nanoTime() > until) {
+                throw new IOException("The VM's desktop didn't run the launch within " + LAUNCH_RAN.toSeconds()
+                        + " s: is Windows signed in there?");
+            }
+            Thread.sleep(250);
+        }
+    }
+
+    /** {@link #runOnDesktop} for VMware: the launch task's script marks the launch pending, then starts it. */
+    private static void runOnVmwareDesktop(VmRecord vm, VmCredentials credentials, String command)
+            throws IOException, InterruptedException {
+        VmwareWorkstation ws = VmwareWorkstation.find()
+                .orElseThrow(() -> new IOException("VMware Workstation isn't installed."));
+        Path script = Files.createTempFile("botmaker-launch", ".cmd");
+        try {
+            Files.write(script, GuestLaunch.script(command));
+            Commands.require(ws.copyToGuest(vm.vmx(), GUEST_USER, credentials.guest(), script,
+                    GuestUnattend.LAUNCH_SCRIPT), "VMware couldn't put the launch script in the VM");
+        } finally {
+            Files.deleteIfExists(script);
+        }
+        Spawn.Completed ran = ws.runPowerShell(vm.vmx(), GUEST_USER, credentials.guest(),
+                GuestUnattend.launchTaskScript(), LAUNCH_TASK_RUN);
+        if (!ran.ok()) {
+            throw new IOException("VMware couldn't start the game in the VM (exit code " + ran.exitCode() + ")"
+                    + (ran.output().isBlank() ? "." : ": " + lastLines(ran.output(), 2)));
+        }
+        awaitLaunched(() -> ws.fileExistsInGuest(vm.vmx(), GUEST_USER, credentials.guest(),
+                GuestUnattend.LAUNCH_PENDING));
+    }
+
+    /** How long starting the launch task through vmrun may take: a script copied in, run, and its log fetched. */
+    private static final Duration LAUNCH_TASK_RUN = Duration.ofMinutes(1);
     /** How long a launcher's download and silent install may take in the guest. */
     private static final Duration LAUNCHER_INSTALL = Duration.ofMinutes(15);
     /** {@code msiexec}'s "done, a restart finishes it": installed, as far as a launcher cares. */

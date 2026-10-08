@@ -65,6 +65,18 @@ class GuestUnattendTest {
     }
 
     @Test
+    void vmwareStartsTheLaunchTaskAndCreatesItInAVmThatLacksIt() {
+        assertEquals("""
+                schtasks /Query /TN 'BotMaker launch' *> $null
+                if ($LASTEXITCODE -ne 0) { schtasks /Create /TN "BotMaker launch" /TR "C:\\BotMaker\\launch.cmd" /SC ONCE \
+                /ST 00:00 /IT /RL HIGHEST /F | Out-Null }
+                Set-Content -Path 'C:\\BotMaker\\launch.pending' -Value ''
+                schtasks /Run /TN 'BotMaker launch'
+                exit $LASTEXITCODE
+                """, GuestUnattend.launchTaskScript());
+    }
+
+    @Test
     void namesWindowsWouldRefuseAreRefusedHere() {
         assertThrows(IllegalArgumentException.class,
                 () -> GuestUnattend.xml("bot maker", "p", "VM", "en-US", Hypervisor.QEMU));

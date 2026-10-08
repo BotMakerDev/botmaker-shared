@@ -59,9 +59,6 @@ class QemuTest {
         VmwareWorkstation ws = new VmwareWorkstation(Path.of("ws"));
         Path vmx = Path.of("C:\\VMs\\game\\game.vmx");
         assertEquals(List.of(ws.vmrun().toString(), "-T", "ws", "start", vmx.toString(), "nogui"), ws.startCommand(vmx));
-        assertEquals(List.of(ws.vmrun().toString(), "-T", "ws", "-gu", "botmaker", "-gp", "pw", "runProgramInGuest",
-                        vmx.toString(), "-noWait", "-activeWindow", "-interactive", "C:\\Game\\game.exe", "-windowed"),
-                ws.runInGuestCommand(vmx, "botmaker", "pw", "C:\\Game\\game.exe", "-windowed"));
         assertEquals(List.of(ws.vmrun().toString(), "-T", "ws", "-gu", "botmaker", "-gp", "pw", "fileExistsInGuest",
                 vmx.toString(), "C:\\BotMaker\\ready"), ws.fileExistsCommand(vmx, "botmaker", "pw", "C:\\BotMaker\\ready"));
         // PowerShell started straight by vmrun exits 1 at once: cmd starts it, its output into a file.
