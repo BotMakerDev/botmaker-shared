@@ -350,12 +350,14 @@ public final class VmSetup {
                 listener.step("Pressing the key the Windows disc waits for.");
                 // VMware's firmware takes a key during its start-up screen as a call for its Boot Manager, where
                 // the VM then stays: there, the keys wait for the disc's prompt itself.
-                if (installing.hypervisor() == Hypervisor.VMWARE) awaitBootPrompt(screen);
+                PromptKeys keys = new PromptKeys();
+                if (installing.hypervisor() == Hypervisor.VMWARE) awaitBootPrompt(screen, keys);
                 long keysUntil = System.nanoTime() + BOOT_KEYS.toNanos();
                 while (System.nanoTime() < keysUntil) {
                     screen.keyDown(SPACE);
                     screen.keyUp(SPACE);
                     Thread.sleep(500);
+                    if (keys.done(screen.captureScreen())) break;
                 }
             }
             if (first) {
@@ -413,14 +415,36 @@ public final class VmSetup {
 
     /**
      * Waits until {@code screen} shows the Windows disc's "Press any key to boot from CD or DVD" or
-     * {@link #BOOT_PROMPT} has passed; the keys go either way.
+     * {@link #BOOT_PROMPT} has passed; the keys go either way. {@code keys} learns it showed: the first key can
+     * take it off the screen before the key loop looks.
      */
-    private static void awaitBootPrompt(VncController screen) throws InterruptedException {
+    private static void awaitBootPrompt(VncController screen, PromptKeys keys) throws InterruptedException {
         long until = System.nanoTime() + BOOT_PROMPT.toNanos();
         while (System.nanoTime() < until && screen.alive()) {
-            BufferedImage frame = screen.captureScreen();
-            if (frame != null && looksLikeBootPrompt(frame)) return;
+            keys.done(screen.captureScreen());
+            if (keys.seen) return;
             Thread.sleep(250);
+        }
+    }
+
+    /**
+     * When the keys that boot the Windows disc end: once its prompt has shown and then been gone for two frames
+     * running, the disc took one. Setup's first screen follows within seconds with Cancel focused, and a key
+     * there ends Setup, live on VMware. One frame without the prompt may be the firmware redrawing it.
+     */
+    static final class PromptKeys {
+        private boolean seen;
+        private int gone;
+
+        /** Whether the keys end, given the screen now; {@code null} (no frame yet) changes nothing. */
+        boolean done(BufferedImage frame) {
+            if (frame == null) return false;
+            if (looksLikeBootPrompt(frame)) {
+                seen = true;
+                gone = 0;
+                return false;
+            }
+            return seen && ++gone >= 2;
         }
     }
 

@@ -138,6 +138,23 @@ class VmSetupTest {
         assertFalse(VmSetup.looksLikeBootPrompt(screen()), "a black screen says nothing yet");
     }
 
+    @Test
+    void theKeysEndOnceThePromptHasBeenGoneForTwoFrames() {
+        BufferedImage prompt = screen();
+        paint(prompt, 32, 18, 480, 16);
+        BufferedImage black = screen();
+
+        VmSetup.PromptKeys keys = new VmSetup.PromptKeys();
+        assertFalse(keys.done(black), "before the prompt, the keys go on");
+        assertFalse(keys.done(null));
+        assertFalse(keys.done(prompt));
+        assertFalse(keys.done(black), "one frame without it may be a redraw");
+        assertFalse(keys.done(prompt));
+        assertFalse(keys.done(black));
+        assertFalse(keys.done(null), "no frame counts for nothing");
+        assertTrue(keys.done(black), "Setup's screen would come next, with Cancel focused");
+    }
+
     private static BufferedImage screen() {
         return new BufferedImage(1024, 768, BufferedImage.TYPE_INT_RGB);
     }

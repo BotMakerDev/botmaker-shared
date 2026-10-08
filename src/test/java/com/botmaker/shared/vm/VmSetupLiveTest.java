@@ -1,5 +1,6 @@
 package com.botmaker.shared.vm;
 
+import com.botmaker.shared.vnc.GuestWindow;
 import com.botmaker.shared.vnc.VncController;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -12,6 +13,7 @@ import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -96,7 +98,25 @@ class VmSetupLiveTest {
             Files.write(vm.folder().resolve("live-results.txt"), results);
             assertTrue(keyChange > 0.005, "the Windows key opened nothing");
             assertTrue(clickChange > 0.001, "the right-click opened nothing");
+
+            // The window list a bot's window(title) reads, started as a session starts it. A new desktop has no
+            // titled window: Notepad gives it one, found by its process, whatever the guest's language.
+            GuestWindows.start(vm, credentials);
+            VmSetup.runOnDesktop(vm, credentials, "start \"\" notepad.exe");
+            Supplier<List<GuestWindow>> listed = GuestWindows.reader(vm, credentials);
+            List<GuestWindow> windows = List.of();
+            for (int tries = 0; tries < 30 && windows.stream().noneMatch(VmSetupLiveTest::notepad); tries++) {
+                Thread.sleep(2_000);
+                windows = listed.get();
+            }
+            say(results, "the guest's windows: " + windows.stream().map(w -> w.process() + " " + w.title()).toList());
+            Files.write(vm.folder().resolve("live-results.txt"), results);
+            assertTrue(windows.stream().anyMatch(VmSetupLiveTest::notepad), "Notepad isn't in the guest's windows");
         }
+    }
+
+    private static boolean notepad(GuestWindow window) {
+        return window.process().equalsIgnoreCase("notepad");
     }
 
     private static void say(List<String> results, String line) {

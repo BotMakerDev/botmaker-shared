@@ -215,6 +215,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **A new VMware game VM installs Windows unattended.** `VmSetup.install` pressed Space for 45 s to boot the
+  Windows disc; on VMware, Setup's first screen shows within that time with Cancel focused, so a later key
+  ended Setup and the VM restarted to its Boot Manager, live. Once the disc's prompt has shown, the keys now stop
+  when it has been gone for two frames in a row (`VmSetup.PromptKeys`), on QEMU too.
 - **A download that takes over 30 s no longer fails.** `Downloads.fetch` set the request's 30 s timeout, and
   the JDK closes the response body when that runs out, even mid-download: Ubuntu's 4 GB disc stopped at 1.8 GB,
   live. That limit now covers only the server's answer; the body then reads for as long as it takes, and fails
