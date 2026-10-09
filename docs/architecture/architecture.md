@@ -41,7 +41,7 @@ Package map:
   OpenCV loader (see below).
 - `config/` — `CacheDirs` alone since 2026-09-27. `ProjectProperties`, `ProjectFile` and `CaptureSourceKind`
   (the `botmaker-project.properties` keys, its readers, and the `capture.source` grammar) are **deleted**: a
-  bot's tuning is the SDK's `@Managed("settings")` value in its own Java, what it launches on this machine is
+  bot's tuning is the SDK's `@SdkValue(SdkValue.Id.SETTINGS)` value in its own Java, what it launches on this machine is
   the `botmaker.launch.target` system property Studio passes to the run, and the capture source has been
   `Sdk.captureSource()` since 2026-09-22. Nothing reads an old project's file; nothing deletes it either.
 - `launch/` — the launch stack: `LaunchKind`/`LaunchSpec` (the `launch.target` grammar), `GameLauncher`,
