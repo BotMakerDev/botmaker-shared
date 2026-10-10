@@ -14,7 +14,7 @@
     -->
     <groupId>com.github.BotMakerDev</groupId>
     <artifactId>botmaker-shared</artifactId>
-    <version>0.2.2-SNAPSHOT</version>
+    <version>0.2.2</version>
 
     <!--
       Cross-platform native window plumbing (enumerate / capture / focus / move / resize / input)
