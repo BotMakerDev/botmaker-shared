@@ -12,6 +12,15 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+No source changes since v0.2.0. v0.2.0 and v0.2.1 never built on JitPack: its JDK download failed, and a tag
+that built `Error` stays broken. This is the first of the three that resolves.
+
+### Changed
+
+- JitPack builds with a Temurin 25 the build downloads itself, not JitPack's SDKMan JDK.
+
 ## [0.2.1] — 2026-10-10
 
 No source changes since v0.2.0; re-released for updated upstream pins.
