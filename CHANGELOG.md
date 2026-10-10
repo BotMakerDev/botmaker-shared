@@ -12,6 +12,17 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+No source changes since v0.2.3; re-released for updated upstream pins.
+
+### Changed
+
+- JitPack's Temurin download retries in a shell loop: one builder image has a curl too old for
+  `--retry-all-errors`, which v0.2.2's `jitpack.yml` used.
+- JitPack builds with a Maven 3.9.9 the build downloads itself as well: a broken builder's Maven could not
+  start.
+
 ## [0.2.3] — 2026-10-10
 
 ### Changed
