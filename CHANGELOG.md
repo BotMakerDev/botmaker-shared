@@ -12,6 +12,303 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+No source changes since v0.2.0; re-released for updated upstream pins.
+
+### Added
+
+- **A screen of its own for each bot in a Linux game VM: `vm.LinuxDisplay`.** `open(vm, title)` gives the bot
+  an X display of its own in the guest, so several bots share the VM, each with its own pointer, keyboard and
+  windows.
+  - In the guest, each display is two systemd units run as the VM's user. `botmaker-display-N` runs Xvnc with
+    the display's own VNC password, Openbox, and a loop that lists its windows and its game's processes into
+    files each second. `botmaker-game-N` runs the game, whose control group holds every process the launch
+    started, so a stop ends them all.
+  - From the host, the display is reached through a loopback port QEMU forwards while the VM runs
+    (`hostfwd_add`). Its password goes into the guest as a file, never a command line, which the guest agent
+    logs.
+  - `launch(spec)` starts the game there (`GuestLaunch.linuxCommand`): `steam -applaunch`, `legendary launch`,
+    a Windows program through Wine, a path or a command line.
+  - `game(stop)` reads the listed processes, or ends them. `screen()` is the display's `VncController`, whose
+    windows are the display's own, framed as Windows lists them.
+  - `close()` ends the display and its game. Xvnc also ends by itself a minute after its last viewer left.
+  - Two displays at once worked live: each listed its own window and game, and a click or a stop on one
+    reached that one alone.
+  - The scripts are written at each `open`, so a VM set up before them gets them.
+  - Each display's game has a Wine prefix of its own (`~/.wine-display-N`): one prefix's `wineserver` would
+    be the first game's, and stopping it would end the others'. A stop kills what is left after 15 s, as
+    Wine's services ignore SIGTERM.
+- **A Linux guest's store launchers are found where its setup put them** (`GuestLauncher.linuxExecutable`,
+  `VmSetup.guestHas`).
+- **`GameCopy` copies into a Linux game VM on QEMU** (`LinuxGameCopy`). The guest fetches the game with `curl`
+  from the same loopback `FolderServer`, skipping files already there whole.
+  - A Steam game goes into `~/.steam/steam/steamapps/common` with this PC's `.acf`.
+  - An Epic game goes into `~/Games`, then `legendary import` once Legendary is signed in.
+  - `copy` returns an `Outcome`, whose `said(game)` tells the user what to do next.
+  - Firestone, 754 MB, was copied live in 70 s. On a bot's display it ran under Wine, in software, up to its
+    sign-in.
+- **`Legendary` signs a Linux VM's Legendary in to Epic.** `SIGN_IN_PAGE` opens in this PC's browser, and
+  `code(pasted)` reads the one-time code the page shows. `signIn(vm, code)` hands that code to the guest as a
+  file, never a command line, and `signedIn(vm)` answers only yes or no.
+- **A Linux game VM installs Wine at its setup**; a VM set up before that gets it at its first Epic copy.
+- **A Linux game VM, set up unattended (QEMU).** `VmSetup.prepare` takes a `vm.GuestOs`, `WINDOWS` or
+  `LINUX`. `VmSpec` and `VmRecord` carry it, and a record without it reads as Windows. For Linux:
+  - Studio downloads Ubuntu Server 24.04.5 itself, checked against Canonical's SHA-256
+    (`LinuxAutoinstall.UBUNTU`, 4 GB, cached once). It tries the current releases' folder, then the archive
+    the disc moves to once the next point release replaces it.
+  - The answer is a cloud-init `CIDATA` disc with an autoinstall. It creates the account, and installs the
+    guest agent (or open-vm-tools), TigerVNC, Openbox, `xdotool` and `wmctrl`.
+  - Ubuntu's installer asks before it writes the disk unless `autoinstall` is on the kernel's command line. QEMU
+    therefore boots the disc's own kernel (`Qemu.Kernel`, copied off the disc by `IsoFiles`); no key is
+    pressed. It does so until the installer has restarted the VM (`installer-done`), so a start that ended
+    halfway installs again from the start.
+  - The first start installs Steam (with its i386 libraries and its licence answered) and Legendary 0.21.1,
+    checked against its SHA-256. A unit of its own then waits for cloud-init to finish, deletes the copies
+    of the answer (cloud-init's, and `/var/log/installer`; they hold the password), turns cloud-init off, and
+    writes `/var/lib/botmaker/ready`.
+  - Live on QEMU: the install took 9 minutes after the download. Steam, Legendary, Xvnc, Openbox, `xdotool`
+    and `wmctrl` were there, and no file or log in the guest held the password.
+  - QEMU keeps a Linux guest's clock in UTC, and a `.vmx` names it `ubuntu-64`. A Linux VM on VMware is
+    refused for now, since VMware can't put `autoinstall` on the installer's command line.
+  - A Linux VM's desktop launches, store launchers, game processes, window list and game copies are refused
+    with a sentence (`VmSetup.requireWindows`) until its displays exist.
+- **A game's processes inside a game VM.** `VmSetup.game(vm, credentials, spec, stop)` runs a PowerShell
+  check in a Windows guest, through the guest agent or vmrun. It returns the target's processes (`vm.GuestGame`)
+  and, with `stop`, ends each one's process tree first (`taskkill /F /T`).
+  - A Steam or Epic game is every process whose program lies in its install folder, as the guest's launcher
+    records it (`appmanifest_<id>.acf` in each Steam library, Epic's `.item` by `AppName`).
+  - An `exe:` target is every process in its program's folder, so a stub that starts the game beside it
+    counts. A folder of Windows', a folder right under a drive, and a bare name use the program's file name
+    instead, as a packaged app (Notepad) runs from elsewhere.
+  - A command line, or a game its launcher has no record of, is `RunState.UNKNOWN`.
+  - A process that outlives the stop is reported: the call fails rather than say it stopped.
+  - `VmSetup.installInGuest` and `game` share one guest PowerShell runner, which also reads vmrun's timeout.
+  - A check takes 2–4 s through QEMU's agent and about 5 s through vmrun.
+- **`launch.RunState`** (`RUNNING`, `STOPPED`, `UNKNOWN`): whether a target runs where it was launched.
+- **The windows inside a game VM.** `vm.GuestWindows` writes a hidden PowerShell loop into a Windows guest and
+  starts it on the signed-in desktop. Each second it lists the guest's visible top-level windows (handle,
+  process, visible frame, title, which one has the focus) into `C:\BotMaker\windows.tsv`. The host reads that
+  file through the guest tools, once a second in the background. A read takes about 7 ms through QEMU's agent
+  and 0.6 s through vmrun, so no capture waits on it. A list that can't be read for 10 s is dropped. A named mutex
+  keeps one loop running, so starting it at every connection is harmless. `VncController.connect` takes the
+  list (`vnc.GuestWindow`). `getAllWindows` returns the guest's windows, each captured as its part of the
+  screen and clicked relative to it. `getForegroundWindow` is the guest's, and `focusWindow` clicks a window's
+  title bar. A guest that lists nothing still shows the whole screen as one window. `VmSetup.start` passes the
+  list. Live on `vmw` (VMware) and `live` (QEMU): Notepad listed at its frame and captured as it is.
+- **A game of this PC copied into a game VM.** `vm.GameCopy.onThisPc()` lists the Steam and Epic games here;
+  `GameCopy.copy` has the guest copy one's folder into the folder its launcher installs to, skipping files
+  already there whole, then writes the launcher's record (Steam's `.acf`; Epic's `.item` and
+  `LauncherInstalled.dat` entry) so it checks rather than downloads. No account on this PC. A QEMU guest
+  fetches the folder from a loopback `FolderServer` (token, read-only, at `10.0.2.2`); a VMware guest reads it
+  from a VMware shared folder, read-only, shared with that VM for the copy's length only
+  (`VmwareWorkstation.shareFolder`), and writes its progress in the guest for this PC to read. Measured:
+  Firestone, 754 MB, in 47 s (QEMU) and 26 s (VMware). `GuestAgent.readFile`; `SteamLibraryScanner.manifestOf`,
+  `EpicLibraryScanner.manifestOf`.
+- **A VM's screen as a `NativeController`.** `vnc.VncController` connects to the VNC server a hypervisor
+  serves for a virtual machine on this computer. It captures the screen and sends clicks, drags, the wheel,
+  keys and text as VNC messages, so this computer's cursor and keyboard are never touched. The protocol is
+  `vnc.RfbClient`'s (RFB 3.3–3.8, None or VNC Authentication, Raw and CopyRect). It decodes pixels in the
+  format the server sends: VMware's server ignores a client's SetPixelFormat, and the library used before
+  showed white as magenta there. `Keysyms` turns the Windows
+  virtual-key codes a bot passes into the X keysyms VNC sends. Once the server is gone, it degrades rather
+  than throws.
+
+- **The parts of a game VM, for VMware Workstation and QEMU** (`vm`). `Hypervisor.detect()` picks VMware
+  when it is installed, else QEMU. `VmwareWorkstation` drives `vmrun` and `vmware-vdiskmanager`. `Qemu`
+  installs from winget and builds a headless command line: the Windows Hypervisor Platform, UEFI, NVMe, a USB
+  tablet, and VNC and QMP on loopback. `QmpClient` speaks QMP. `VmxFile` edits a `.vmx` in place, in its own
+  encoding. `GuestUnattend` writes the `autounattend.xml` that installs Windows 11 with nobody at the keyboard:
+  - it skips the TPM and Secure Boot checks;
+  - it creates a local account that signs in automatically;
+  - at first sign-in it installs the guest tools and creates a launch task.
+
+  `IsoImage` writes the ISO 9660 + Joliet disc that carries that file. `VmCredentials` keeps the guest and
+  VNC passwords encrypted with DPAPI.
+
+- **Setting a game VM up, end to end** (`vm.VmSetup`). `problems()` names what stops it: no hypervisor, the
+  Windows Hypervisor Platform off for QEMU (`enableHypervisorPlatform()` turns it on), too little disk or
+  memory, no Windows disc. `prepare()` makes the VM's folder under `UserDirs.config()/vm`:
+  - its passwords;
+  - its answer disc, in the Windows disc's own language, carrying virtio-win's guest tools for QEMU;
+  - its disk and configuration.
+
+  `install()` starts the VM, presses the key the Windows disc waits for, and follows Setup over VNC until the
+  guest says the first sign-in is done. It resumes after a restart of the host, and ejects and deletes the
+  answer disc at the end. QEMU runs with `-no-reboot` on the Hypervisor Platform's own interrupt controller:
+  a restart inside it hangs the firmware or stops the processor, so `install()` starts QEMU again each time
+  Windows restarts, and when QEMU pauses the VM (umbrella doc 44 §4b.2.1). Under VMware the firmware waits
+  10 s and boots the discs first, and the key is pressed only once the disc's prompt is on screen: a key
+  pressed earlier opens VMware's Boot Manager. The Tools disc is found by its `VMwareToolsUpgrader.exe`, and
+  its installer is `setup64.exe` on older discs, `setup.exe` on current ones. A VM's disk is 64 GB by default,
+  Windows 11's minimum, and takes only what Windows writes.
+  `start()` starts a VM and connects to its screen, choosing new ports for any that were taken since.
+  `VmRecord` keeps each VM's record and `VmInventory` lists them (`find(name)` reads one). `GuestAgent` reads,
+  writes and runs inside a QEMU guest. `guestReady()` says whether a guest has signed in and its tools
+  answer, and `runOnDesktop()` runs a command on the guest's desktop: it writes the launch script and starts
+  the launch task, through the guest agent under QEMU and through vmrun under VMware, which creates the task in
+  a VM that lacks it. It returns once the script has run its command (the script deletes
+  `C:\BotMaker\launch.pending`), one launch at a time. Live, a second launch written sooner took the first one's
+  place, and `vmrun -interactive` was no way to launch. It mangled the command's quotes, and it ended whatever
+  `start` handed off once its own program exited. `GuestLaunch` turns a launch target into that
+  command: a path, a command line, Steam or Epic, each handed off with `start ""`.
+- **A game VM's store launchers** (`vm.GuestLauncher`, Steam and Epic). `VmSetup.guestHas()` says whether the
+  guest has one, and `installInGuest()` downloads its installer in the guest and runs it silently, waiting for
+  it (both installed on the `live` VM; Steam's bootstrapper took 5 s; Epic on the VMware VM in 102 s). Epic's
+  installer of 2026-10 puts it under `Program Files`, older ones under `Program Files (x86)`: both are looked
+  for. `GuestAgent.run()` waits for a program and hands back its exit code and output.
+  `VmwareWorkstation.runPowerShell()` does the same under VMware: PowerShell started straight by `vmrun` has
+  no output to write to and exits 1 at once, so the script goes into the guest as a file and `cmd` runs it with
+  its output sent to another, which comes back.
+- **Shutting a game VM down, and knowing why one stopped.** `VmSetup.shutDown()` presses the VM's power
+  button (QEMU's `system_powerdown`, VMware's `stop soft`), waits for Windows, and powers it off after three
+  minutes. A QEMU VM has a second QMP port (`VmRecord.eventsPort`, given to an older record at its next
+  start): `QmpEvents` listens there and says why QEMU ended (a Windows restart, a shutdown, ended from
+  outside). `VmAutoStop` keeps a VM's own settings in its folder: shut down when Studio closes, which a
+  PowerShell process watching Studio's process does even after a crash, and after some minutes with no VNC
+  client (`QmpClient.vncClients()`, QEMU only).
+
+- **Installing a game on an emulator, and making a new instance.** `PlayStoreSearch` finds an app on Google
+  Play by name from this computer. `EmulatorInstall` starts the instance if needed, then either opens the app's
+  Google Play page there and waits for the install, or installs an `.apk`, `.xapk` or `.apks` file (splits
+  and OBB data included, `ApkFile`). `Platforms.newInstances()` lists how each installed product adds an
+  instance: the LDPlayer, MEmu and MuMu consoles create one; BlueStacks and GameLoop open their own manager.
+  `EmulatorReadiness.bringUp` is the start-and-wait step that installing and app launches now share.
+
+- **Phones found on the network, and QR pairing.** `AdbTools.mdnsServices()` reads what a running adb server
+  has heard announced (`host:mdns:services`, over its socket, so it starts nothing), and `unconnected` keeps the
+  phones announcing a debugging port that adb isn't connected to. `AdbTools.pairByQr` pairs the phone that
+  scans a `QrPairing` code: it waits for the phone to announce the code's pairing port, runs `adb pair`, then
+  connects to the port the phone announces next.
+
+- **`WindowsLiveInputTest`: the Windows input and capture paths against a real window.** Opt-in
+  (`-Dbotmaker.live=true`, Windows only), since the take-over part moves the real cursor and types. It uses a
+  bare Win32 stand-in with a title bar that records what its window procedure receives. It checks every
+  button, a drag, the wheel, keys, Alt+Enter and text in the background, and that the cursor never moves there.
+  It checks the click through a covering window, the capture's size, and that no title bar or covering window
+  ends up in it. It checks the ignored-click warning (once for a window that never repaints, never for one
+  that does), WGC on a covered window and across a resize, and take-over clicks, drags, the wheel, relative
+  moves, AltGr `@` and a character with no key on the layout. It also lists the installed launchers' games. A
+  fullscreen stand-in checks the screen-sized capture and a click through a click-through overlay box, and
+  that an overlay excluded from capture (`WDA_EXCLUDEFROMCAPTURE`) stays out of the game's frame.
+
+- **Lutris and the app menu are launch targets.**
+  - `lutris:<id>` starts a Lutris game the way its own shortcut does (`lutris lutris:rungameid/<id>`, then the
+    Flatpak). `LutrisLibrary` lists the installed games through `lutris -l -o -j`, cached for a minute, and a
+    running one is found by the title its `lutris-wrapper` carries.
+  - `desktop:<id>` starts a menu entry with `gtk-launch`. `DesktopEntries` reads the XDG `applications/` folders
+    the way a menu does. It recognises the shortcuts Steam, Faugus, Lutris, Heroic and Waydroid write for their
+    games, so each game is that launcher's target, not a second entry.
+- **More game libraries:** `LutrisLibraryScanner`, `DesktopEntryScanner` and, on Windows, `GogLibraryScanner`,
+  which reads GOG's registry key and lists each game as an `exe:` target.
+- `FaugusEntries` adds a Windows program to Faugus Launcher's `games.json` with Faugus's own default prefix and
+  runner, and gives the Flathub command that installs Faugus.
+- **Windows: every gesture runs in the background.** Right and middle clicks, the side buttons, moves, drags,
+  the wheel and keys are now posted to the game window, the way left clicks already were. The cursor and the
+  keyboard stay the user's. Before, all of them moved the real pointer or pressed the real keys. A key carries its
+  scan code, and Alt, F10 and Alt-held keys go as `WM_SYSKEY*`. A click on a window reaches it even when it is
+  covered.
+- **Windows: background clicks that change nothing are reported.** The first three background clicks of a run
+  are checked against the window before and after. If none changed it, the run warns once and names "Take over
+  the mouse and keyboard" (`IgnoredClickWatch`). `Diag.warn` prints such a line whether debug output is on or off.
+- **Windows: Windows.Graphics.Capture, opt-in.** `-Dbotmaker.windows.capture=wgc` reads a window through the
+  compositor, which covers a DirectX game and a covered window. It has not run on Windows yet, so it is off by
+  default.
+
+### Fixed
+
+- **A new VMware game VM installs Windows unattended.** `VmSetup.install` pressed Space for 45 s to boot the
+  Windows disc; on VMware, Setup's first screen shows within that time with Cancel focused, so a later key
+  ended Setup and the VM restarted to its Boot Manager, live. Once the disc's prompt has shown, the keys now stop
+  when it has been gone for two frames in a row (`VmSetup.PromptKeys`), on QEMU too.
+- **A download that takes over 30 s no longer fails.** `Downloads.fetch` set the request's 30 s timeout, and
+  the JDK closes the response body when that runs out, even mid-download: Ubuntu's 4 GB disc stopped at 1.8 GB,
+  live. That limit now covers only the server's answer; the body then reads for as long as it takes, and fails
+  only when no byte arrives for 30 s.
+- **An emulator app has its name, not its package.** `AdbDevice.appLabel` reads `<application android:label>` out
+  of the installed APK's binary manifest and follows it into `resources.arsc` (default language, then English),
+  over the same ranged reads as the icon (`ApkZip`), so "Clash of Clans" instead of `com.supercell.clashofclans`.
+  `EmulatorProbe` lists apps with their names, reading each once and remembering it, and `EmulatorProbe.refresh`
+  keeps an instance's apps, names and icons in `EmulatorAppCache` (`iconPath` gives the picture as a file).
+  A BlueStacks or GameLoop with no engine process running anywhere is stopped, so MuMu, which also answers on
+  5555, no longer passes for it.
+
+- **Emulator discovery finds current LDPlayer, MEmu, MuMu, MSI App Player and GameLoop installs.** Each was
+  looked for under a registry key its current version no longer writes; a product is now also found by its
+  *Apps & features* entry and default folder, and every BlueStacks edition is read. Instances carry the names
+  the product's own console shows (`ldconsole list2`, `memuc listvms`, `MuMuManager info`), MuMu's port is the
+  one its config forwards, and two products asking for the same port are both listed instead of one hiding the
+  other. A GameLoop with no Android engine yet says so. Registry reads no longer spawn `reg.exe`.
+
+- **An emulator is running when its product says so, not when its port answers.** BlueStacks, LDPlayer's
+  first instance and GameLoop share `127.0.0.1:5555`, so one running made all of them look running, and a launch
+  aimed at a stopped LDPlayer drove BlueStacks. Each instance now carries the `EmulatorState` its console tool
+  or engine process reports, and `EmulatorLiveness` combines it with the port: a stopped instance whose port
+  answers names who holds it ("port 5555 is in use by BlueStacks: Pie64"), two products both up on one address
+  are both refused, and a product up with its port
+  closed has its ADB off and says where to turn it on (LDPlayer 14 ships that way). `EmulatorProbe.isRunning`,
+  `EmulatorReadiness.isReady` and `EmulatorAppLauncher` use it.
+
+- **Game covers: Steam's are found again, and an Epic game has one.** A newer Steam client keeps each library
+  picture one folder down, under a content hash (`librarycache/<appid>/<hash>/library_capsule.jpg`), so
+  `SteamLibraryScanner` found no cover for a game it had cached that way; both levels are looked at now, the
+  portrait capsule first. Epic keeps no cover on disk, so an Epic game's `artwork()` is its program's own icon,
+  read from the program's icon resource at 256 px into the cache's `game-icons/` (Windows only). A game Epic
+  launches through its online-services bootstrapper, whose icon is Epic's logo on every game, gets the icon of
+  its own program beside it.
+- **Windows: an arrow key is an arrow, not number-pad 4.** Windows 11 maps `VK_LEFT` to a bare `0x4B`, with
+  no extended prefix. So a background arrow arrived without the extended bit, and a take-over arrow arrived as
+  `VK_NUMPAD4`, typing a `4`. Every key with an `E0` scan code is now always sent extended, on both paths:
+  arrows, Insert, Delete, Home, End, Page Up/Down, Win, the menu key, and the media keys
+  (`WindowMessages.ScanCode.of(vk, vscEx)`).
+
+- **Windows: clicks on a windowed game no longer land a title bar too high.** A window's rect was its outer
+  rect, while the capture was its client area. `PrintWindow` also drew the title bar into the client-sized frame.
+  The rect is now the client area, `PrintWindow` draws the client area only, and `moveWindow`/`resizeWindow` place
+  and size the client area.
+- **Windows: scaled screens.** Every coordinate call runs per-monitor DPI aware, and the process asks for
+  per-monitor v2 at start-up, so the window rect, the capture and the click agree at 125% and 150%. A screen copy
+  is taken in device pixels.
+- **Windows: a covered window is never captured as the window on top of it.** A screen copy is taken only when
+  the window is on top at its own rect. A black frame is detected on a fixed grid, not 10 random pixels.
+- **Windows: take-over input uses `SendInput` with scan codes**, extended keys included, in place of
+  `mouse_event`/`keybd_event`. Before, the arrow keys arrived as the numeric keypad's. A character with no key on
+  the layout is typed as Unicode, and one behind AltGr (an AZERTY `@`) gets its Ctrl+Alt. Relative motion, for mouselook, is a real relative event.
+
+- **A scaled desktop is read in device pixels.** Under `GDK_SCALE=2` (KDE's 200% on X11), AWT reported a
+  1920×1080 screen as 960×540 and Robot grabbed it at that size, while XTEST clicks in 1920×1080, so a match was
+  clicked at half its distance from the corner. `ScreenCapture` (`getVirtualScreenBounds`, `monitorBounds`,
+  `screens`) and `RobotCapture` now answer in device pixels, through the new `ScreenGeometry`, which multiplies
+  each screen's logical rectangle by that screen's own scale. `RobotCapture.capture(robot, rect)` grabs any
+  device rectangle at full resolution.
+- **The window capture's composite rung works.** It reads a pixmap, whose image Xlib returns with every colour
+  mask 0, and decoding masked with 0 gave pure black. So every capture fell through to the rungs that miss covered
+  pixels, and inside gamescope the frame was black.
+- **Clicks inside gamescope land on the pixel.** The focus-relative warp correction now uses the focused window's
+  top-level. Before, it used the input-focus window itself, and AWT keeps focus on a 1×1 child at (-1,-1), so
+  every click on such a game landed 1 px right and down.
+
+### Changed
+
+- `launch.LaunchIsolation` and `capture.GamescopeHost` moved to botmaker-session (`session.launch`,
+  `session.display`): the isolation policy is the session module's, and nothing here used either.
+- Steam's own tools are no longer listed as games: Proton, the Steam Linux Runtimes and the Steamworks
+  redistributables (`SteamLibraryScanner.isTool`).
+
+- The pom carries a real version, `-SNAPSHOT` on `main` and the release version on a tag, instead of the
+  cosmetic `0.0.0-SNAPSHOT` (umbrella `docs/refactor/43-real-versions.md`).
+- Published as `com.github.BotMakerDev:botmaker-shared` (was `com.github.LiQiyeDev`). Tags already built
+  under the old groupId still resolve under it.
+
+### Added
+
+- **Click-through windows.** `NativeController.makeInputTransparent(title)` gives a shown window an empty
+  input region (X11 Shape extension, libXext), so every click, the user's and the bot's own, reaches the
+  window beneath; it answers false where it cannot (Windows, Wayland, no libXext). For an overlay drawn over a
+  running bot.
+- **Where the bot is in its program.** `TelemetryEvent.Step(activity, action, line)`, tag 8. An older host
+  skips the new tag, as it does any tag it does not know.
+
 ## [0.2.0] — 2026-10-10
 
 ### Added
