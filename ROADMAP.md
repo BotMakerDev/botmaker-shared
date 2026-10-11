@@ -19,6 +19,14 @@ also holds `botmaker-session`'s history before 2026-07-30).
 - **macOS: overlays.** `promoteOverlayAboveFullscreen` and `makeInputTransparent` keep their no-op defaults:
   an `NSWindow`'s level and `ignoresMouseEvents` need AppKit, on its main thread (`objc_msgSend` through JNA).
   Until then the SDK's run overlay can catch a take-over click aimed at the game beneath it.
+- **macOS: Tart game VMs have never run** (umbrella doc 45 §3 lists the checks: the download, the clone, the
+  VNC address and its auth, Metal frames over VNC, `tart exec`'s user, a guest restart).
+- **macOS: Linux guests on Tart** (macOS port phase 6b). `LinuxDisplay`, `LinuxGameCopy` and the window list
+  speak QEMU's guest agent and QMP `hostfwd`; under Tart they need `tart exec` and the guest's own address
+  (`tart ip`), and a setup that installs Xvnc, Openbox, Steam and Wine on Cirrus Labs' Ubuntu server image.
+- **macOS guest: what is still missing.** A window list, so `window("…")` finds more than the whole screen.
+  Steam and Epic games' processes (`GuestGame.macScript` answers `UNKNOWN`). APFS growing into the disk
+  `tart set --disk-size` enlarged. Auto-stop: Studio's watcher is PowerShell, and Tart reports no VNC clients.
 
 - **`WindowsControllerTest.childEnumerationOfANonWindowIsEmptyRatherThanThrowing` fails on Windows.**
   `EnumChildWindows` on a null parent enumerates the desktop's windows, so `WindowFinder.getChildWindows(new

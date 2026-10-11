@@ -3,11 +3,13 @@ package com.botmaker.shared.vm;
 /**
  * The system a game VM runs. Windows plays 3D and DirectX games, one game at a time on its one desktop; Linux gives
  * each bot a display of its own, so several games and bots share the VM, and plays 2D games (neither hypervisor
- * gives a Linux guest Vulkan here, so Proton draws in software).
+ * gives a Linux guest Vulkan here, so Proton draws in software). macOS runs under {@link Hypervisor#TART} on an Apple
+ * Silicon Mac, with a Metal GPU, one game at a time like Windows.
  */
 public enum GuestOs {
     WINDOWS("windows", "Windows"),
     LINUX("linux", "Linux"),
+    MACOS("macos", "macOS"),
     UNKNOWN("unknown", "Unknown");
 
     private final String id;

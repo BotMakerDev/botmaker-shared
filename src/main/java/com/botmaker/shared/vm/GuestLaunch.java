@@ -11,7 +11,8 @@ import java.util.regex.Pattern;
  * The Windows command line that starts a launch target inside a game VM, on the guest's desktop. The game is the
  * guest's: a path names a file in the guest, and Steam or Epic is the guest's own launcher, signed in through the
  * VM's screen. {@code start ""} hands each one off, so the command returns at once and the launch task is free
- * for the next launch.
+ * for the next launch. A Linux guest's and a macOS guest's commands are {@link #linuxCommand} and
+ * {@link #macCommand}.
  */
 public final class GuestLaunch {
 
@@ -57,6 +58,29 @@ public final class GuestLaunch {
             case EXE -> Optional.of((token.toLowerCase(Locale.ROOT).endsWith(".exe") ? "wine " : "")
                     + shellQuoted(token));
             case CLI -> Optional.of(token);
+            default -> Optional.empty();
+        };
+    }
+
+    /**
+     * The shell command that starts {@code spec} on a macOS guest's desktop, handing it off so the command returns at
+     * once; empty for a kind it can't start or a token that would break the line. Steam and Epic through the URLs
+     * their Mac launchers register, an app ({@code desktop:} or an {@code exe:} naming a {@code .app}) through
+     * {@code open -a}, any other program as itself.
+     */
+    public static Optional<String> macCommand(LaunchSpec spec) {
+        String token = spec.token().trim();
+        if (token.isEmpty() || token.contains("\n") || token.contains("\r")) return Optional.empty();
+        return switch (spec.kind()) {
+            case STEAM -> STEAM_ID.matcher(token).matches()
+                    ? Optional.of("open " + shellQuoted("steam://rungameid/" + token)) : Optional.empty();
+            case EPIC -> EPIC_ID.matcher(token).matches()
+                    ? Optional.of("open " + shellQuoted("com.epicgames.launcher://apps/" + token
+                    + "?action=launch&silent=true")) : Optional.empty();
+            case DESKTOP -> Optional.of("open -a " + shellQuoted(token));
+            case EXE -> Optional.of(token.replaceAll("/+$", "").endsWith(".app") ? "open -a " + shellQuoted(token)
+                    : "nohup " + shellQuoted(token) + " >/dev/null 2>&1 &");
+            case CLI -> Optional.of("nohup /bin/sh -c " + shellQuoted(token) + " >/dev/null 2>&1 &");
             default -> Optional.empty();
         };
     }

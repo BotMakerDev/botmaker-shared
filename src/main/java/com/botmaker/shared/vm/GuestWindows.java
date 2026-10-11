@@ -149,7 +149,7 @@ public final class GuestWindows {
                     Files.deleteIfExists(file);
                 }
             }
-            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+            case TART, UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
         }
         VmSetup.runOnDesktop(vm, credentials, startCommand());
     }
@@ -183,7 +183,7 @@ public final class GuestWindows {
                         Files.deleteIfExists(file);
                     }
                 }
-                case UNKNOWN -> null;
+                case TART, UNKNOWN -> null;
             };
         } catch (IOException e) {
             return null;

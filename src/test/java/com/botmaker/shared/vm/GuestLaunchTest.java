@@ -23,6 +23,21 @@ class GuestLaunchTest {
     }
 
     @Test
+    void eachMacKindIsHandedOffOnTheGuestsDesktop() {
+        assertEquals(Optional.of("open 'steam://rungameid/570'"), GuestLaunch.macCommand(LaunchSpec.parse("steam:570")));
+        assertEquals(Optional.of("open -a '/Applications/Hades.app'"),
+                GuestLaunch.macCommand(LaunchSpec.parse("desktop:/Applications/Hades.app")));
+        assertEquals(Optional.of("open -a '/Applications/Hades.app/'"),
+                GuestLaunch.macCommand(LaunchSpec.parse("exe:/Applications/Hades.app/")));
+        assertEquals(Optional.of("nohup '/Users/admin/game' >/dev/null 2>&1 &"),
+                GuestLaunch.macCommand(LaunchSpec.parse("exe:/Users/admin/game")));
+        assertEquals(Optional.of("nohup /bin/sh -c 'say it'\\''s on' >/dev/null 2>&1 &"),
+                GuestLaunch.macCommand(LaunchSpec.parse("cli:say it's on")));
+        assertEquals(Optional.empty(), GuestLaunch.macCommand(LaunchSpec.parse("steam:570; rm x")));
+        assertEquals(Optional.empty(), GuestLaunch.macCommand(LaunchSpec.parse("heroic:abc")));
+    }
+
+    @Test
     void whatAWindowsGuestCantStartOrWouldBreakTheLineIsEmpty() {
         assertEquals(Optional.empty(), GuestLaunch.command(LaunchSpec.parse("heroic:abc")));
         assertEquals(Optional.empty(), GuestLaunch.command(LaunchSpec.parse("steam:570 & del x")));

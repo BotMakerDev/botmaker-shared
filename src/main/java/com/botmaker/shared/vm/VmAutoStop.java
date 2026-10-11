@@ -135,7 +135,8 @@ public record VmAutoStop(boolean withStudio, int idleMinutes) {
                         + vm.vmx().toString().replace("'", "''") + "'";
                 return wait + vmrun + " soft\nif ($LASTEXITCODE -ne 0) { " + vmrun + " hard }\n";
             });
-            case UNKNOWN -> Optional.empty();
+            // The watcher is PowerShell, Windows'; a Mac's VM isn't watched yet.
+            case TART, UNKNOWN -> Optional.empty();
         };
     }
 

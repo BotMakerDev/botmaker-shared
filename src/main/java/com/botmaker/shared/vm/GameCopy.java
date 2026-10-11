@@ -174,7 +174,7 @@ public final class GameCopy {
         Guest guest = switch (vm.hypervisor()) {
             case QEMU -> new QemuGuest(vm.agentPort());
             case VMWARE -> VmwareGuest.of(vm, credentials);
-            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+            case TART, UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
         };
         String into = game.guestFolder(gamesFolder(guest, game.launcher()).orElseThrow(() -> new IOException(
                 game.launcher().displayName() + " isn't installed in the game VM " + vm.name()

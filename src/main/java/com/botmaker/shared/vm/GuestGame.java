@@ -3,13 +3,16 @@ package com.botmaker.shared.vm;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.launch.RunState;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
 /**
- * A launch target's processes inside a Windows game VM, found and stopped by a PowerShell script run in the guest.
+ * A launch target's processes inside a Windows game VM, found and stopped by a PowerShell script run in the guest
+ * (a macOS guest's, by a shell script: {@link #macScript}).
  * A game is every process whose program lies in its install folder, so its helper programs count and its store
  * launcher doesn't:
  * <ul>
@@ -38,6 +41,38 @@ public final class GuestGame {
     public record Found(RunState state, List<String> processes, List<String> survived) {
 
         public static final Found UNKNOWN = new Found(RunState.UNKNOWN, List.of(), List.of());
+    }
+
+    /**
+     * {@link #script}'s counterpart for a macOS guest, in {@code sh}, printing the same lines. An app (a
+     * {@code desktop:} target, or an {@code exe:} naming a {@code .app}) is every process whose program lies in its
+     * bundle; another {@code exe:} is its own program. Steam and Epic games are empty: where their Mac launchers
+     * install a game isn't read yet. With {@code stop}, a process still there 3 s after {@code TERM} is killed.
+     */
+    static Optional<String> macScript(LaunchSpec spec, boolean stop) {
+        String token = spec.token().trim().replaceAll("/+$", "");
+        if (token.isEmpty() || token.contains("\n") || token.contains("\r")) return Optional.empty();
+        boolean app = token.endsWith(".app");
+        String suffix = switch (spec.kind()) {
+            case DESKTOP -> app ? "/Contents/MacOS/" : null;
+            case EXE -> app ? "/Contents/MacOS/" : "";
+            default -> null;
+        };
+        if (suffix == null) return Optional.empty();
+        // The path goes in encoded: the script is the shell's own command line, and pgrep -f would find it there.
+        String encoded = Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
+        String list = "for pid in $(pgrep -f -- \"$P\"); do printf '%s\\t%s\\n' \"$pid\" "
+                + "\"$(basename \"$(ps -o comm= -p \"$pid\")\")\"; done";
+        // pgrep and pkill read a regular expression: each of its special characters in the path is escaped.
+        return Optional.of("T=\"$(printf '%s' " + encoded + " | base64 -D)\"\n"
+                + "P=\"$(printf '%s' \"$T" + suffix + "\" | sed -e 's/[]\\.*^$+?(){}|[]/\\\\&/g')\"\n"
+                + "[ -e \"$T\" ] || { echo " + NOT_INSTALLED + "; exit 0; }\n"
+                + list + "\n"
+                + (stop ? "if pgrep -f -- \"$P\" >/dev/null; then\n"
+                        + "  pkill -f -- \"$P\"; sleep 3; pkill -9 -f -- \"$P\"; sleep 1\n"
+                        + "  " + list.replace("printf '%s\\t%s\\n'", "printf '" + SURVIVED + "\\t%s\\t%s\\n'") + "\n"
+                        + "fi\n" : "")
+                + "exit 0\n");
     }
 
     /**

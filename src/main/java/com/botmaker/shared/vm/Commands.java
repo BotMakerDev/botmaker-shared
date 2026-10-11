@@ -17,7 +17,13 @@ final class Commands {
     static Spawn.Completed run(Duration timeout, List<String> command) throws IOException, InterruptedException {
         Spawn.Completed done = Spawn.run(timeout, command);
         return done != null ? done : new Spawn.Completed(TIMED_OUT,
-                command.getFirst() + " didn't finish within " + timeout.toSeconds() + " s.");
+                program(command) + " didn't finish within " + timeout.toSeconds() + " s.");
+    }
+
+    /** The program {@code command} runs: past {@code env} and its {@code NAME=value} settings, as {@link Tart} runs. */
+    static String program(List<String> command) {
+        if (!command.getFirst().endsWith("/env")) return command.getFirst();
+        return command.stream().skip(1).filter(arg -> !arg.contains("=")).findFirst().orElse(command.getFirst());
     }
 
     static Spawn.Completed run(Duration timeout, String... command) throws IOException, InterruptedException {

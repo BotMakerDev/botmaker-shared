@@ -89,6 +89,12 @@ public final class VmSetup {
      */
     public static List<String> problems(GuestOs guestOs, Hypervisor hypervisor, Path windowsIso, VmSize size) {
         List<String> problems = new ArrayList<>();
+        if (hypervisor == Hypervisor.TART) {
+            problems.addAll(TartSetup.problems(guestOs));
+            problems.addAll(roomFor(size));
+            return problems;
+        }
+        if (guestOs == GuestOs.MACOS) problems.add("A macOS game VM runs on a Mac.");
         if (guestOs == GuestOs.LINUX && hypervisor == Hypervisor.VMWARE) {
             // Its installer needs "autoinstall" on its kernel's command line, which only QEMU gives a disc's kernel.
             problems.add("A Linux game VM runs on QEMU for now.");
@@ -104,11 +110,19 @@ public final class VmSetup {
                     problems.add("The Windows Hypervisor Platform is off: turn it on, then restart Windows.");
                 }
             }
+            case TART -> { } // answered above
             case UNKNOWN -> problems.add("Neither VMware Workstation nor QEMU is installed.");
         }
         if (guestOs == GuestOs.WINDOWS && (windowsIso == null || !Files.isRegularFile(windowsIso))) {
             problems.add("Pick the Windows disc image (.iso).");
         }
+        problems.addAll(roomFor(size));
+        return problems;
+    }
+
+    /** Whether this computer has the disk and memory a VM of {@code size} needs; empty when it has. */
+    private static List<String> roomFor(VmSize size) {
+        List<String> problems = new ArrayList<>();
         try {
             Path root = VmInventory.root();
             Files.createDirectories(root);
@@ -168,6 +182,7 @@ public final class VmSetup {
         Path folder = VmInventory.folder(name);
         if (Files.exists(folder.resolve(VmRecord.FILE))) throw new IOException("There is already a VM named " + name + ".");
         Files.createDirectories(folder);
+        if (hypervisor == Hypervisor.TART) return TartSetup.prepare(folder, name, guestOs, size, listener);
 
         Path iso;
         String language;
@@ -225,7 +240,7 @@ public final class VmSetup {
                 VmxFile.create(vm.spec(List.of(ws.toolsIso())), vm.disk().getFileName().toString(), credentials.vnc())
                         .write(vm.vmx());
             }
-            case UNKNOWN -> throw new IOException("Neither VMware Workstation nor QEMU is installed.");
+            case TART, UNKNOWN -> throw new IOException("Neither VMware Workstation nor QEMU is installed.");
         }
         vm.save();
         return vm;
@@ -295,6 +310,7 @@ public final class VmSetup {
     public static VmRecord install(VmRecord vm, Listener listener, Duration timeout)
             throws IOException, InterruptedException {
         if (vm.stage() == VmRecord.Stage.READY) return vm;
+        if (vm.hypervisor() == Hypervisor.TART) return TartSetup.install(vm, listener, timeout);
         VmCredentials credentials = VmCredentials.load(vm.folder())
                 .orElseThrow(() -> new IOException("The VM's passwords are missing; set it up again."));
         long deadline = System.nanoTime() + timeout.toNanos();
@@ -593,6 +609,7 @@ public final class VmSetup {
      * </ul>
      */
     public static Running start(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
+        if (vm.hypervisor() == Hypervisor.TART) return TartSetup.start(vm);
         Optional<Process> started = Optional.empty();
         switch (vm.hypervisor()) {
             case QEMU -> {
@@ -636,7 +653,7 @@ public final class VmSetup {
                     Commands.require(ws.start(vm.vmx()), "VMware couldn't start the VM");
                 }
             }
-            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+            case TART, UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
         }
         VncController screen = VncController.connect("127.0.0.1", vm.vncPort(), credentials.vnc(),
                 Keysyms.NativeKeys.VIRTUAL_KEY, vm.name(),
@@ -672,6 +689,7 @@ public final class VmSetup {
      * @return whether Windows shut down by itself; {@code false} when it had to be powered off
      */
     public static boolean shutDown(VmRecord vm) throws IOException, InterruptedException {
+        if (vm.hypervisor() == Hypervisor.TART) return TartSetup.shutDown(vm);
         if (!VmInventory.running(vm)) return true;
         switch (vm.hypervisor()) {
             case QEMU -> {
@@ -740,6 +758,10 @@ public final class VmSetup {
      */
     public static void runOnDesktop(VmRecord vm, VmCredentials credentials, String command)
             throws IOException, InterruptedException {
+        if (vm.hypervisor() == Hypervisor.TART) {
+            TartSetup.runOnDesktop(vm, command);
+            return;
+        }
         requireWindows(vm);
         synchronized (LAUNCHING) {
             switch (vm.hypervisor()) {
@@ -752,7 +774,7 @@ public final class VmSetup {
                     }
                 }
                 case VMWARE -> runOnVmwareDesktop(vm, credentials, command);
-                case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+                case TART, UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
             }
         }
     }
@@ -809,6 +831,7 @@ public final class VmSetup {
      */
     public static GuestGame.Found game(VmRecord vm, VmCredentials credentials, LaunchSpec spec, boolean stop)
             throws IOException, InterruptedException {
+        if (vm.hypervisor() == Hypervisor.TART) return TartSetup.game(vm, spec, stop);
         requireWindows(vm);
         Optional<String> script = GuestGame.script(spec, stop);
         if (script.isEmpty()) return GuestGame.Found.UNKNOWN;
@@ -851,7 +874,7 @@ public final class VmSetup {
                         .runPowerShell(vm.vmx(), GUEST_USER, credentials.guest(), script, timeout);
                 yield new GuestAgent.Ran(done.exitCode(), done.output());
             }
-            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+            case TART, UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
         };
     }
 
@@ -877,6 +900,7 @@ public final class VmSetup {
     public static boolean guestHas(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
             throws IOException, InterruptedException {
         if (launcher == GuestLauncher.UNKNOWN) return true;
+        if (vm.hypervisor() == Hypervisor.TART) return TartSetup.guestHas(vm, launcher);
         if (vm.guestOs() == GuestOs.LINUX) {
             LinuxDisplay.requireLinuxOnQemu(vm);
             try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
@@ -902,7 +926,7 @@ public final class VmSetup {
                     if (ws.fileExistsInGuest(vm.vmx(), GUEST_USER, credentials.guest(), path)) return true;
                 }
             }
-            case UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
+            case TART, UNKNOWN -> throw new IOException("This VM's hypervisor is unknown.");
         }
         return false;
     }
@@ -953,6 +977,7 @@ public final class VmSetup {
 
     /** Whether the guest tools answer and the answer file's last command has run. */
     public static boolean guestReady(VmRecord vm, VmCredentials credentials) throws IOException, InterruptedException {
+        if (vm.hypervisor() == Hypervisor.TART) return TartSetup.guestReady(vm);
         String ready = vm.guestOs() == GuestOs.LINUX ? LinuxAutoinstall.READY_FILE : GuestUnattend.READY_FILE;
         return switch (vm.hypervisor()) {
             case QEMU -> {
@@ -967,7 +992,7 @@ public final class VmSetup {
                 yield ws != null && ws.toolsRunning(vm.vmx())
                         && ws.fileExistsInGuest(vm.vmx(), GUEST_USER, credentials.guest(), ready);
             }
-            case UNKNOWN -> false;
+            case TART, UNKNOWN -> false;
         };
     }
 

@@ -69,6 +69,7 @@ public final class VmInventory {
                     return false;
                 }
             }).orElse(false);
+            case TART -> TartSetup.running(vm);
             case UNKNOWN -> false;
         };
     }

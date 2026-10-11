@@ -17,15 +17,25 @@ import java.util.Properties;
  * {@link VmCredentials}.
  *
  * @param installIso the system's disc it was installed from; kept as {@code windowsIso}, the key a record has had
- *                   since before Linux VMs
- * @param qmpPort    QEMU's control port; {@code 0} for VMware
- * @param agentPort  QEMU's guest-agent port; {@code 0} for VMware
- * @param eventsPort QEMU's second QMP port, for {@link QmpEvents}; {@code 0} for VMware, and for a VM recorded
- *                   before it had one until its next start
+ *                   since before Linux VMs; empty for a {@link Hypervisor#TART} VM, which installs nothing
+ * @param vncPort    the loopback VNC port; {@code 0} for Tart, whose VNC server takes a new port each run
+ * @param qmpPort    QEMU's control port; {@code 0} for VMware and Tart
+ * @param agentPort  QEMU's guest-agent port; {@code 0} for VMware and Tart
+ * @param eventsPort QEMU's second QMP port, for {@link QmpEvents}; {@code 0} for VMware and Tart, and for a VM
+ *                   recorded before it had one until its next start
  * @param guestOs    {@link GuestOs#WINDOWS} for a record made before Linux VMs
+ * @param image      the OCI image a Tart VM was cloned from ({@link Tart#image}); blank for the others
  */
 public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage stage, VmSize size, Path installIso,
-                       String language, int vncPort, int qmpPort, int agentPort, int eventsPort, GuestOs guestOs) {
+                       String language, int vncPort, int qmpPort, int agentPort, int eventsPort, GuestOs guestOs,
+                       String image) {
+
+    /** A VM installed from a disc: QEMU or VMware, with no image. */
+    public VmRecord(Path folder, String name, Hypervisor hypervisor, Stage stage, VmSize size, Path installIso,
+                    String language, int vncPort, int qmpPort, int agentPort, int eventsPort, GuestOs guestOs) {
+        this(folder, name, hypervisor, stage, size, installIso, language, vncPort, qmpPort, agentPort, eventsPort,
+                guestOs, "");
+    }
 
     static final String FILE = "vm.properties";
     static final String ANSWER_ISO = "answer.iso";
@@ -66,12 +76,12 @@ public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage st
 
     public VmRecord withStage(Stage next) {
         return new VmRecord(folder, name, hypervisor, next, size, installIso, language, vncPort, qmpPort, agentPort,
-                eventsPort, guestOs);
+                eventsPort, guestOs, image);
     }
 
     public VmRecord withPorts(int vnc, int qmp, int agent, int events) {
         return new VmRecord(folder, name, hypervisor, stage, size, installIso, language, vnc, qmp, agent, events,
-                guestOs);
+                guestOs, image);
     }
 
     public Path disk() {
@@ -119,6 +129,7 @@ public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage st
         p.setProperty("qmpPort", Integer.toString(qmpPort));
         p.setProperty("agentPort", Integer.toString(agentPort));
         p.setProperty("eventsPort", Integer.toString(eventsPort));
+        if (!image.isBlank()) p.setProperty("image", image);
         Path tmp = folder.resolve(FILE + ".tmp");
         try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
             p.store(w, "A BotMaker game VM");
@@ -141,7 +152,7 @@ public record VmRecord(Path folder, String name, Hypervisor hypervisor, Stage st
                     Integer.parseInt(p.getProperty("vncPort")), Integer.parseInt(p.getProperty("qmpPort", "0")),
                     Integer.parseInt(p.getProperty("agentPort", "0")),
                     Integer.parseInt(p.getProperty("eventsPort", "0")),
-                    GuestOs.fromId(p.getProperty("guestOs", GuestOs.WINDOWS.id())));
+                    GuestOs.fromId(p.getProperty("guestOs", GuestOs.WINDOWS.id())), p.getProperty("image", ""));
         } catch (RuntimeException e) {
             throw new IOException("The VM record in " + folder + " is damaged.", e);
         }

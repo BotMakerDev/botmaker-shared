@@ -4,6 +4,7 @@ import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * A store launcher a game needs inside a game VM: the VM is a Windows of its own, so a Steam or Epic game
@@ -47,6 +48,15 @@ public enum GuestLauncher {
     /** Where it can be once installed, in the guest, likeliest first. */
     public List<String> executables() {
         return executables;
+    }
+
+    /** Where a macOS guest has its app once the user installed it; empty for {@link #UNKNOWN}. */
+    public Optional<String> macApp() {
+        return switch (this) {
+            case STEAM -> Optional.of("/Applications/Steam.app");
+            case EPIC -> Optional.of("/Applications/Epic Games Launcher.app");
+            case UNKNOWN -> Optional.empty();
+        };
     }
 
     /** Where a Linux guest has it, from its setup ({@link LinuxAutoinstall}); empty for {@link #UNKNOWN}. */

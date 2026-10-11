@@ -40,6 +40,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   `LSApplicationCategoryType` files games under Game. An `exe:` target naming a `.app` runs the bundle's own
   executable, in every start path (`LaunchCommands.program`), so the process handle is the game's. Untried on
   a Mac.
+- **Game VMs on an Apple Silicon Mac: `Hypervisor.TART`, `GuestOs.MACOS`** (umbrella doc 45). `vm.Tart`
+  downloads Tart 2.38.0 itself (pinned SHA-256, unpacked into the cache, VMs under `<config>/vm/.tart`).
+  `vm.TartSetup` clones Cirrus Labs' macOS `-base` image for the host's release, sizes it, and boots it until
+  its guest agent answers. A start runs `tart run --no-graphics --vnc-experimental`, the Virtualization
+  framework's own VNC server; its per-run address and password are read from `tart.log` (mode 600) in the VM's
+  folder. Launches (`GuestLaunch.macCommand`, `open` as the signed-in user) and game processes
+  (`GuestGame.macScript`) go through `tart exec`. `VmSetup`'s entry points hand a Tart VM to `TartSetup`;
+  `VmRecord` gains `image`. Linux guests on Tart, a macOS guest's window list and auto-stop are open
+  (`ROADMAP.md`). Untried on a Mac.
 - `input.KeyNames`: X's names for function and editing keys (`Pause`, `F12`, `Scroll Lock`) where there is no
   libX11; a character is named by itself.
 
