@@ -1,6 +1,7 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.emulator.WaydroidResolution;
+import com.botmaker.shared.platform.Os;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -26,6 +27,14 @@ class LaunchCommandsTest {
                 List.of("flatpak", "run", "com.heroicgameslauncher.hgl",
                         "--no-gui", "--no-sandbox", "heroic://launch/AbC123")),
             LaunchCommands.heroic("AbC123"));
+    }
+
+    @Test
+    void anAppStartsThroughGtkLaunchOrOnAMacThroughOpen() {
+        assertEquals(List.of(List.of("gtk-launch", "org.gnome.Chess")),
+            LaunchCommands.desktop("org.gnome.Chess", Os.LINUX));
+        assertEquals(List.of(List.of("open", "-a", "/Applications/Hades.app")),
+            LaunchCommands.desktop("/Applications/Hades.app", Os.MAC));
     }
 
     @Test

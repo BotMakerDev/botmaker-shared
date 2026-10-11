@@ -33,6 +33,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   spawn the path they get back; `find`, `onPath` and `exists` still search `PATH` only, so their yes is a
   spawn by name that works. `AdbTools` uses `locate`, and also looks in Android Studio's
   `~/Library/Android/sdk` when `ANDROID_HOME` is unset or blank.
+- **A Mac's apps are `desktop:` targets.** `DesktopEntries` lists the `.app` bundles in `/Applications`,
+  `~/Applications` and `/System/Applications`, one folder deep, so a GOG or native Mac game reaches the
+  picker. The id is the bundle's path, started with `open -a`, whose refusal (a moved app) fails the launch. A
+  running copy is known by its executable's whole path, never the app's bare name, and
+  `LSApplicationCategoryType` files games under Game. An `exe:` target naming a `.app` runs the bundle's own
+  executable, in every start path (`LaunchCommands.program`), so the process handle is the game's. Untried on
+  a Mac.
 - `input.KeyNames`: X's names for function and editing keys (`Pause`, `F12`, `Scroll Lock`) where there is no
   libX11; a character is named by itself.
 

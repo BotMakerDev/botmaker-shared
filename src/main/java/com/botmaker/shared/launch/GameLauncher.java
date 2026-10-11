@@ -4,6 +4,7 @@ import com.botmaker.shared.Diag;
 import com.botmaker.shared.Spawn;
 import com.botmaker.shared.platform.Os;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -45,7 +46,7 @@ public final class GameLauncher {
             throw new IllegalArgumentException("executablePath must not be empty");
         }
         List<String> command = new ArrayList<>();
-        command.add(executablePath);
+        command.add(LaunchCommands.program(executablePath));
         if (args != null) {
             for (String arg : args) {
                 if (arg != null) command.add(arg);
@@ -178,18 +179,47 @@ public final class GameLauncher {
     }
 
     /**
-     * Starts an installed app by its desktop-entry id, the way the application menu does ({@code gtk-launch}).
+     * Starts an installed app by its desktop-entry id, the way the application menu does ({@code gtk-launch}); on
+     * macOS by its bundle's path, the way Finder does ({@code open -a}).
      *
      * @throws IllegalArgumentException if {@code desktopId} is null/blank
-     * @throws RuntimeException         if {@code gtk-launch} could not be run
+     * @throws RuntimeException         if {@code gtk-launch} (or {@code open}) could not be run
      */
     public static void desktop(String desktopId) {
         String id = require(desktopId, "desktopId");
         Diag.log("[Game] launchDesktop " + id);
+        if (Os.current().isMac()) {
+            openApp(id);
+            return;
+        }
         if (runFirst(LaunchCommands.desktop(id))) {
             return;
         }
         throw new RuntimeException("Couldn't start " + id + ": gtk-launch isn't installed (it ships with GTK 3).");
+    }
+
+    /**
+     * {@code open -a}, waited for: it returns once Launch Services has the app starting, and its exit status is
+     * the only word on an app that was moved or deleted ("Unable to find application named …").
+     */
+    private static void openApp(String id) {
+        List<String> command = LaunchCommands.desktop(id).get(0);
+        try {
+            Spawn.Completed open = Spawn.run(PROBE_TIMEOUT, command);
+            if (open == null) {
+                Diag.log("[Game] open did not answer in " + PROBE_TIMEOUT + "; the app may still be starting");
+                return;
+            }
+            if (!open.ok()) {
+                throw new RuntimeException("Couldn't start " + id + ": " + open.output().strip());
+            }
+            Diag.log("[Game] ran: " + String.join(" ", command));
+        } catch (IOException e) {
+            throw new RuntimeException("Couldn't start " + id + ": open couldn't be run (" + e.getMessage() + ")", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Couldn't start " + id + ": interrupted", e);
+        }
     }
 
     /**

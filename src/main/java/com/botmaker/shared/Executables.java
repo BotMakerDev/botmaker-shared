@@ -89,9 +89,9 @@ public final class Executables {
      * The package managers' bin directories a macOS app is not told about. An app opened from Finder or the
      * Dock gets launchd's {@code PATH} ({@code /usr/bin:/bin:/usr/sbin:/sbin}), not the shell's, so a
      * Homebrew {@code adb} or {@code cloudflared} the user can run in Terminal would read as missing.
-     * Apple Silicon Homebrew, Intel Homebrew, MacPorts.
+     * Apple Silicon Homebrew, Intel Homebrew, MacPorts. Public for a host that searches its own directories too.
      */
-    static final List<String> MAC_EXTRA_DIRS = List.of("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin");
+    public static final List<String> MAC_EXTRA_DIRS = List.of("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin");
 
     /** The directories searched, in order: {@code PATH}'s, then with {@code macDirs} the ones it leaves out. */
     static List<String> searchDirs(String path, boolean macDirs) {

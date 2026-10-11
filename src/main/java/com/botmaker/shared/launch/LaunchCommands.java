@@ -5,6 +5,7 @@ import com.botmaker.shared.emulator.WaydroidApps;
 import com.botmaker.shared.emulator.WaydroidPlatform;
 import com.botmaker.shared.emulator.WaydroidResolution;
 import com.botmaker.shared.emulator.WaydroidStatus;
+import com.botmaker.shared.platform.Os;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,10 +74,26 @@ public final class LaunchCommands {
     /**
      * An installed app by its desktop-entry id: {@code gtk-launch}, which runs the entry's {@code Exec} line
      * with our environment — so a private {@code DISPLAY} reaches it, except for an app that asks D-Bus to start
-     * it ({@code DBusActivatable=true}), which the session bus starts on the desktop.
+     * it ({@code DBusActivatable=true}), which the session bus starts on the desktop. On macOS the id is an
+     * {@code .app} bundle's path, which {@code open -a} starts the way Finder does.
      */
     public static List<List<String>> desktop(String desktopId) {
-        return List.of(List.of("gtk-launch", require(desktopId)));
+        return desktop(desktopId, Os.current());
+    }
+
+    /**
+     * What an {@code exe:} target spawns: on macOS an {@code .app} bundle's own executable, since a bundle is a
+     * folder and a folder does not run (running it rather than {@code open -a} keeps the process the game's);
+     * otherwise the path as given. Every start of an {@code exe:} target goes through here.
+     */
+    public static String program(String path) {
+        return Os.current().isMac() ? MacApps.program(path) : path;
+    }
+
+    /** {@link #desktop(String)} on {@code os}, for the tests. */
+    static List<List<String>> desktop(String desktopId, Os os) {
+        String id = require(desktopId);
+        return List.of(os.isMac() ? List.of("open", "-a", id) : List.of("gtk-launch", id));
     }
 
     /**
@@ -126,7 +143,7 @@ public final class LaunchCommands {
             return emulatorApp(spec, width, height);
         }
         return switch (spec.kind()) {
-            case EXE -> spec.token().isBlank() ? List.of() : List.of(List.of(spec.token()));
+            case EXE -> spec.token().isBlank() ? List.of() : List.of(List.of(program(spec.token())));
             case CLI -> {
                 String[] tokens = spec.commandTokens();
                 yield tokens.length == 0 ? List.of() : List.of(List.of(tokens));

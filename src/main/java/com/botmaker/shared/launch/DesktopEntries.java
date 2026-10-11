@@ -1,6 +1,7 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.emulator.WaydroidPlatform;
+import com.botmaker.shared.platform.Os;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,7 +27,8 @@ import java.util.stream.Stream;
  * {@code waydroid app launch com.x}. {@link Entry#shortcutFor()} recognises those as that launcher's target, so
  * a picker can show the game once, under its launcher, and launch it the launcher's way.
  *
- * <p>Linux only in practice: elsewhere no directory exists and the list is empty.
+ * <p>On macOS the menu is the {@code .app} bundles instead ({@link MacApps}): an entry's id is the bundle's path.
+ * On Windows no directory exists and the list is empty.
  */
 public final class DesktopEntries {
 
@@ -77,7 +79,8 @@ public final class DesktopEntries {
     }
 
     /**
-     * Every entry the menu would show, data-home first; empty off Linux. Reads files: not on a UI thread. Cached
+     * Every entry the menu would show, data-home first; a Mac's apps; empty on Windows. Reads files: not on a UI
+     * thread. Cached
      * for a minute, because "is it running?" asks on every poll.
      */
     public static List<Entry> list() {
@@ -102,6 +105,11 @@ public final class DesktopEntries {
             "mono", "node", "electron", "umu-run", "proton", "bwrap", "pkexec", "sudo", "kioclient", "kde-open");
 
     private static List<Entry> read() {
+        if (Os.current().isMac()) {
+            List<Entry> apps = new ArrayList<>(MacApps.list());
+            apps.sort((a, b) -> a.name().compareToIgnoreCase(b.name()));
+            return List.copyOf(apps);
+        }
         Map<String, Entry> byId = new LinkedHashMap<>();
         for (Path dataDir : dataDirs()) {
             Path applications = dataDir.resolve("applications");
@@ -129,6 +137,8 @@ public final class DesktopEntries {
     public static Optional<Entry> find(String id) {
         if (id == null || id.isBlank()) return Optional.empty();
         String needle = id.trim();
+        // A Mac id is the bundle's path: read that one bundle, not every app's Info.plist.
+        if (Os.current().isMac()) return MacApps.entry(Path.of(needle));
         return list().stream().filter(e -> e.id().equals(needle)).findFirst();
     }
 
@@ -145,6 +155,9 @@ public final class DesktopEntries {
     /** {@link #runningTokens} for one entry. Package-private and pure for the tests. */
     static List<String> tokensOf(Entry entry) {
         if (!entry.flatpakId().isBlank()) return List.of(entry.flatpakId());
+        // A Mac bundle's program is named after the app ("Chess"): its whole path is the token that says it runs.
+        String path = programPathOf(entry.exec());
+        if (path.contains(".app/Contents/MacOS/")) return List.of(path);
         String program = programOf(entry.exec());
         return program.isBlank() || GENERIC_PROGRAMS.contains(program.toLowerCase(java.util.Locale.ROOT))
                 ? List.of() : List.of(program);
@@ -229,6 +242,13 @@ public final class DesktopEntries {
      * Package-private and pure for the tests.
      */
     static String programOf(String exec) {
+        String program = programPathOf(exec);
+        int slash = program.lastIndexOf('/');
+        return slash >= 0 ? program.substring(slash + 1) : program;
+    }
+
+    /** The program an {@code Exec} line runs, as written there: a path or a bare name. */
+    private static String programPathOf(String exec) {
         if (exec == null) return "";
         String rest = exec.strip();
         if (rest.startsWith("env ")) {
@@ -246,8 +266,7 @@ public final class DesktopEntries {
         } else {
             program = rest.split("\\s+", 2)[0];
         }
-        int slash = program.lastIndexOf('/');
-        return slash >= 0 ? program.substring(slash + 1) : program;
+        return program;
     }
 
     /** {@code $XDG_DATA_HOME} then {@code $XDG_DATA_DIRS}, with the Flatpak export dirs a bare session lacks. */
