@@ -3,6 +3,7 @@ package com.botmaker.shared;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,6 +16,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * a nonsense name is nobody's executable, and whatever is found is a file that could actually be run.
  */
 class ExecutablesTest {
+
+    /**
+     * A Mac app opened from Finder has launchd's short {@code PATH}: {@code locate} adds Homebrew's and
+     * MacPorts' dirs after it.
+     */
+    @Test
+    void locateOnAMacAlsoSearchesThePackageManagersBinDirectories() {
+        String launchd = String.join(File.pathSeparator, "/usr/bin", "/bin", "/usr/sbin", "/sbin");
+        assertEquals(List.of("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/opt/homebrew/bin", "/usr/local/bin",
+                "/opt/local/bin"), Executables.searchDirs(launchd, true));
+        assertEquals(List.of("/usr/local/bin", "/opt/homebrew/bin", "/opt/local/bin"),
+                Executables.searchDirs("/usr/local/bin", true), "a directory PATH has is not searched twice");
+        assertEquals(Executables.MAC_EXTRA_DIRS, Executables.searchDirs(null, true));
+    }
+
+    /** {@code find} searches exactly what a spawn by bare name does, so its yes is a spawn that works. */
+    @Test
+    void findSearchesOnlyPath() {
+        assertEquals(List.of("/usr/bin", "/bin"),
+                Executables.searchDirs("/usr/bin" + File.pathSeparator + File.pathSeparator + "/bin", false));
+        assertEquals(List.of(), Executables.searchDirs(null, false));
+    }
 
     /** {@code onPath} is now {@code find}, discarded — so they must never disagree. */
     @Test

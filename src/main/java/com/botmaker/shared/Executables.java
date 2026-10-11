@@ -1,8 +1,12 @@
 package com.botmaker.shared;
 
+import com.botmaker.shared.platform.Os;
+
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -56,16 +60,60 @@ public final class Executables {
      *
      * <p>Directories are excluded explicitly: a directory is "executable" in the POSIX sense (it can be
      * traversed), so a {@code bin/adb/} would otherwise be returned as the {@code adb} to run.
+     *
+     * <p>{@code PATH} only, exactly what a spawn by bare name searches, so a yes here is a spawn that works. A
+     * caller that runs the file it gets back may look further with {@link #locate}.
      */
     public static Optional<File> find(String binary) {
+        return find(binary, searchDirs(System.getenv("PATH"), false));
+    }
+
+    /**
+     * Like {@link #find}, and on macOS also in the package managers' bin directories ({@link #MAC_EXTRA_DIRS})
+     * that a Mac app's {@code PATH} leaves out. Only for a caller that spawns the returned file itself: the
+     * bare name of something found there does not run.
+     */
+    public static Optional<File> locate(String binary) {
+        return find(binary, searchDirs(System.getenv("PATH"), Os.current().isMac()));
+    }
+
+    /**
+     * The argv[0] to run {@code binary} with: where {@link #locate} found it, else the bare name, so a spawn
+     * that fails says what it looked for.
+     */
+    public static String resolve(String binary) {
+        return locate(binary).map(File::getPath).orElse(binary);
+    }
+
+    /**
+     * The package managers' bin directories a macOS app is not told about. An app opened from Finder or the
+     * Dock gets launchd's {@code PATH} ({@code /usr/bin:/bin:/usr/sbin:/sbin}), not the shell's, so a
+     * Homebrew {@code adb} or {@code cloudflared} the user can run in Terminal would read as missing.
+     * Apple Silicon Homebrew, Intel Homebrew, MacPorts.
+     */
+    static final List<String> MAC_EXTRA_DIRS = List.of("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin");
+
+    /** The directories searched, in order: {@code PATH}'s, then with {@code macDirs} the ones it leaves out. */
+    static List<String> searchDirs(String path, boolean macDirs) {
+        List<String> dirs = new ArrayList<>();
+        if (path != null) {
+            for (String dir : path.split(File.pathSeparator)) {
+                if (!dir.isBlank()) dirs.add(dir);
+            }
+        }
+        if (macDirs) {
+            for (String extra : MAC_EXTRA_DIRS) {
+                if (!dirs.contains(extra)) dirs.add(extra);
+            }
+        }
+        return dirs;
+    }
+
+    static Optional<File> find(String binary, List<String> dirs) {
         if (binary == null || binary.isBlank()) {
             return Optional.empty();
         }
-        String path = System.getenv("PATH");
-        if (path == null || path.isBlank()) {
-            return Optional.empty();
-        }
-        for (String dir : path.split(File.pathSeparator)) {
+        for (String dir : dirs) {
             if (dir.isBlank()) {
                 continue;
             }

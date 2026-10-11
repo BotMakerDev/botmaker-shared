@@ -2,6 +2,7 @@ package com.botmaker.shared.emulator;
 
 import com.botmaker.shared.Executables;
 import com.botmaker.shared.Spawn;
+import com.botmaker.shared.platform.Os;
 import com.botmaker.shared.tools.ManagedTools;
 
 import java.io.File;
@@ -211,9 +212,11 @@ public final class AdbTools {
      * The {@code adb} binary, if one can be found, in the order they should win:
      *
      * <ol>
-     *   <li>{@code PATH},</li>
+     *   <li>{@code PATH} ({@link Executables#locate}, which on macOS adds Homebrew's and MacPorts' bin; the
+     *       file found is what runs, never its bare name),</li>
      *   <li>{@code $ANDROID_HOME}/{@code $ANDROID_SDK_ROOT}{@code /platform-tools} — the same two places dadb's
-     *       own {@code AdbBinary} looks, single-sourced here so the availability answer and the hint agree,</li>
+     *       own {@code AdbBinary} looks, single-sourced here so the availability answer and the hint agree;
+     *       on macOS with neither set, Android Studio's {@code ~/Library/Android/sdk},</li>
      *   <li>{@link ManagedTools#adb()}, the copy BotMaker downloaded for itself.</li>
      * </ol>
      *
@@ -223,13 +226,17 @@ public final class AdbTools {
      * failure than the one this fallback fixes.
      */
     public static Optional<File> binary() {
-        Optional<File> onPath = Executables.find(binaryName());
+        Optional<File> onPath = Executables.locate(binaryName());
         if (onPath.isPresent()) {
             return onPath;
         }
         String home = System.getenv("ANDROID_HOME") != null
                 ? System.getenv("ANDROID_HOME")
                 : System.getenv("ANDROID_SDK_ROOT");
+        if ((home == null || home.isBlank()) && Os.current().isMac()) {
+            // Android Studio's own SDK folder: a Mac app gets no shell profile, so ANDROID_HOME is rarely set.
+            home = new File(System.getProperty("user.home", ""), "Library/Android/sdk").getPath();
+        }
         if (home != null && !home.isBlank()) {
             File candidate = new File(new File(home, "platform-tools"), binaryName());
             if (candidate.isFile()) {
@@ -252,7 +259,7 @@ public final class AdbTools {
     }
 
     private static String binaryName() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "adb.exe" : "adb";
+        return Os.current().isWindows() ? "adb.exe" : "adb";
     }
 
     /**

@@ -28,6 +28,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   so `InputListenerFactory.isSupported()` is true on a Mac. Events read as Linux's: pixels, X button numbers,
   and X keysyms that follow the keyboard layout and Shift. It refuses to start without Input Monitoring,
   naming the pane (`MacPermission.INPUT_MONITORING`). Untried on a Mac.
+- `Executables.locate` and `resolve`: on macOS they also search `/opt/homebrew/bin`, `/usr/local/bin` and
+  `/opt/local/bin`, since an app opened from Finder gets launchd's short `PATH`. They are for callers that
+  spawn the path they get back; `find`, `onPath` and `exists` still search `PATH` only, so their yes is a
+  spawn by name that works. `AdbTools` uses `locate`, and also looks in Android Studio's
+  `~/Library/Android/sdk` when `ANDROID_HOME` is unset or blank.
 - `input.KeyNames`: X's names for function and editing keys (`Pause`, `F12`, `Scroll Lock`) where there is no
   libX11; a character is named by itself.
 
