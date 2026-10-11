@@ -21,9 +21,11 @@ import java.util.Map;
  * ends by itself a minute after its last viewer left ({@code -MaxDisconnectionTime}), so a bot that died without
  * closing leaves nothing running for long.
  *
- * <p>From here it is reached through a loopback port that QEMU forwards to the display's port in the guest, added
- * while the VM runs ({@code hostfwd_add}). It has a VNC password of its own, which goes into the guest as a file
- * (the guest agent logs the command lines it runs, never a file's contents). QEMU only: a Linux VM runs there.
+ * <p>On QEMU it is reached through a loopback port that QEMU forwards to the display's port in the guest, added
+ * while the VM runs ({@code hostfwd_add}). On {@link Tart}, at the guest's own address on the Mac's NAT network
+ * ({@link Tart#ip}), which only the Mac and its other VMs reach, and its keys go as X keysyms, as a bot on a Mac sends
+ * them. It has a VNC password of its own, which goes into the guest as a file (the guest agent logs the command
+ * lines it runs, never a file's contents). The guest is reached through its agent ({@link GuestShell}).
  */
 public final class LinuxDisplay implements AutoCloseable {
 
@@ -56,14 +58,14 @@ public final class LinuxDisplay implements AutoCloseable {
      * connected; {@code title} names the screen's window. Nothing is left in the guest when it fails.
      */
     public static LinuxDisplay open(VmRecord vm, String title) throws IOException, InterruptedException {
-        requireLinuxOnQemu(vm);
+        requireDisplays(vm);
         String password = VmCredentials.randomText(8);
         String token = VmCredentials.randomText(12);
         int number;
-        try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), AGENT_TIMEOUT_MS)) {
-            install(agent);
-            agent.writeFile(FOLDER + "/new-" + token + ".pass", (password + "\n").getBytes(StandardCharsets.UTF_8));
-            GuestAgent.Ran made = agent.run(NEW_SCRIPT, List.of(token, Integer.toString(WIDTH), Integer.toString(HEIGHT)),
+        try (GuestShell guest = GuestShell.open(vm, AGENT_TIMEOUT_MS)) {
+            install(guest);
+            guest.writeFile(FOLDER + "/new-" + token + ".pass", (password + "\n").getBytes(StandardCharsets.UTF_8));
+            GuestAgent.Ran made = guest.run(NEW_SCRIPT, List.of(token, Integer.toString(WIDTH), Integer.toString(HEIGHT)),
                     GUEST_COMMAND);
             String said = made.output().strip();
             if (made.exitCode() != 0 || !said.matches("\\d+")) {
@@ -74,10 +76,22 @@ public final class LinuxDisplay implements AutoCloseable {
         }
         int hostPort = 0;
         try {
-            hostPort = VmSetup.freePort(List.of(vm.vncPort(), vm.qmpPort(), vm.agentPort(), vm.eventsPort()));
-            monitor(vm, "hostfwd_add " + NETDEV + " tcp:127.0.0.1:" + hostPort + "-:" + (5900 + number));
-            VncController screen = VncController.connect("127.0.0.1", hostPort, password, Keysyms.NativeKeys.VIRTUAL_KEY,
-                    title, new GuestWindows.Cached(() -> readText(vm, folder(number) + "/windows.tsv")), FIRST_FRAME_MS);
+            String host;
+            int port;
+            Keysyms.NativeKeys keys;
+            if (vm.hypervisor() == Hypervisor.TART) {
+                host = Tart.required().ip(vm.name()).getHostAddress();
+                port = 5900 + number;
+                keys = Keysyms.NativeKeys.KEYSYM;
+            } else {
+                hostPort = VmSetup.freePort(List.of(vm.vncPort(), vm.qmpPort(), vm.agentPort(), vm.eventsPort()));
+                monitor(vm, "hostfwd_add " + NETDEV + " tcp:127.0.0.1:" + hostPort + "-:" + (5900 + number));
+                host = "127.0.0.1";
+                port = hostPort;
+                keys = Keysyms.NativeKeys.VIRTUAL_KEY;
+            }
+            VncController screen = VncController.connect(host, port, password, keys, title,
+                    new GuestWindows.Cached(() -> readText(vm, folder(number) + "/windows.tsv")), FIRST_FRAME_MS);
             return new LinuxDisplay(vm, number, hostPort, screen);
         } catch (IOException | RuntimeException e) {
             end(vm, number, hostPort);
@@ -105,12 +119,10 @@ public final class LinuxDisplay implements AutoCloseable {
     public void launch(LaunchSpec spec) throws IOException, InterruptedException {
         String command = GuestLaunch.linuxCommand(spec).orElseThrow(() -> new IllegalArgumentException(
                 "A Linux game VM can't start " + spec.describe() + "."));
-        try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), AGENT_TIMEOUT_MS)) {
+        try (GuestShell guest = GuestShell.open(vm, AGENT_TIMEOUT_MS)) {
             // A file, not a command line: the agent logs its command lines, and a file needs no quoting.
-            agent.writeFile(folder(number) + "/launch.sh", ("#!/bin/sh\n"
-                    + "export PATH=/usr/local/bin:/usr/bin:/bin:/usr/games\n"
-                    + command + "\n").getBytes(StandardCharsets.UTF_8));
-            GuestAgent.Ran ran = agent.run("/bin/sh", List.of("-c", launchCommand(number)), GUEST_COMMAND);
+            guest.writeFile(folder(number) + "/launch.sh", launchScript(command).getBytes(StandardCharsets.UTF_8));
+            GuestAgent.Ran ran = guest.run("/bin/sh", List.of("-c", launchCommand(number)), GUEST_COMMAND);
             if (ran.exitCode() != 0) {
                 throw new IOException("The VM couldn't start " + spec.describe() + " (exit code " + ran.exitCode() + "): "
                         + ran.output().strip());
@@ -129,8 +141,8 @@ public final class LinuxDisplay implements AutoCloseable {
             String listed = readText(vm, folder(number) + "/game.tsv");
             return listed == null ? GuestGame.Found.UNKNOWN : GuestGame.parse(listed);
         }
-        try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), AGENT_TIMEOUT_MS)) {
-            GuestAgent.Ran ran = agent.run("/bin/sh", List.of("-c", stopCommand(number)), GUEST_COMMAND);
+        try (GuestShell guest = GuestShell.open(vm, AGENT_TIMEOUT_MS)) {
+            GuestAgent.Ran ran = guest.run("/bin/sh", List.of("-c", stopCommand(number)), GUEST_COMMAND);
             GuestGame.Found found = GuestGame.parse(ran.output());
             if (!found.survived().isEmpty()) {
                 throw new IOException("The VM couldn't end " + String.join(", ", found.survived()) + ".");
@@ -159,17 +171,20 @@ public final class LinuxDisplay implements AutoCloseable {
                 // QEMU has ended, and its forwards with it
             }
         }
-        try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), 5_000)) {
-            agent.exec("/bin/systemctl", List.of("stop", "botmaker-game-" + number, "botmaker-display-" + number));
+        try (GuestShell guest = GuestShell.open(vm, 5_000)) {
+            guest.start("/bin/systemctl", List.of("stop", "botmaker-game-" + number, "botmaker-display-" + number));
         } catch (IOException e) {
             // the guest is gone; Xvnc would end by itself anyway
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
-    /** Throws unless {@code vm} is a Linux VM on QEMU, the one place a display is made. */
-    static void requireLinuxOnQemu(VmRecord vm) throws IOException {
-        if (vm.guestOs() != GuestOs.LINUX || vm.hypervisor() != Hypervisor.QEMU) {
-            throw new IOException("The game VM " + vm.name() + " isn't a Linux VM on QEMU, which gives each bot a screen.");
+    /** Throws unless {@code vm} is a Linux VM on QEMU or Tart, the places a display is made. */
+    static void requireDisplays(VmRecord vm) throws IOException {
+        if (vm.guestOs() != GuestOs.LINUX || (vm.hypervisor() != Hypervisor.QEMU && vm.hypervisor() != Hypervisor.TART)) {
+            throw new IOException("The game VM " + vm.name() + " isn't a Linux VM on QEMU or Tart, which gives each bot "
+                    + "a screen.");
         }
     }
 
@@ -178,15 +193,26 @@ public final class LinuxDisplay implements AutoCloseable {
     }
 
     /** Writes the guest's scripts, each time: a VM set up by an older BotMaker gets the current ones. */
-    private static void install(GuestAgent agent) throws IOException, InterruptedException {
-        GuestAgent.Ran ran = agent.run("/bin/sh", List.of("-c", "mkdir -p " + FOLDER + " && chmod 755 " + FOLDER),
+    private static void install(GuestShell guest) throws IOException, InterruptedException {
+        GuestAgent.Ran ran = guest.run("/bin/sh", List.of("-c", "mkdir -p " + FOLDER + " && chmod 755 " + FOLDER),
                 GUEST_COMMAND);
         if (ran.exitCode() != 0) throw new IOException("The VM couldn't make " + FOLDER + ": " + ran.output().strip());
         for (Map.Entry<String, String> script : Map.of(DISPLAY_SCRIPT, displayScript(), NEW_SCRIPT, newScript(),
                 LIST_SCRIPT, listScript()).entrySet()) {
-            agent.writeFile(script.getKey(), script.getValue().getBytes(StandardCharsets.UTF_8));
+            guest.writeFile(script.getKey(), script.getValue().getBytes(StandardCharsets.UTF_8));
         }
-        agent.run("/bin/chmod", List.of("755", DISPLAY_SCRIPT, NEW_SCRIPT, LIST_SCRIPT), GUEST_COMMAND);
+        guest.run("/bin/chmod", List.of("755", DISPLAY_SCRIPT, NEW_SCRIPT, LIST_SCRIPT), GUEST_COMMAND);
+    }
+
+    /**
+     * {@code launch.sh}: {@code command} with the programs' folders on its path, snaps' among them (a Mac's guest
+     * has Steam as one), and the user's runtime folder when there is one, which a snap wants.
+     */
+    static String launchScript(String command) {
+        return "#!/bin/sh\n"
+                + "export PATH=/usr/local/bin:/usr/bin:/bin:/usr/games:/snap/bin\n"
+                + "[ -d \"/run/user/$(id -u)\" ] && export XDG_RUNTIME_DIR=\"/run/user/$(id -u)\"\n"
+                + command + "\n";
     }
 
     /**
@@ -315,9 +341,12 @@ public final class LinuxDisplay implements AutoCloseable {
 
     /** A guest file's text, or {@code null} when it can't be read. */
     private static String readText(VmRecord vm, String path) {
-        try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), 3_000)) {
-            return agent.readFile(path).map(b -> new String(b, StandardCharsets.UTF_8)).orElse(null);
+        try (GuestShell guest = GuestShell.open(vm, 3_000)) {
+            return guest.readFile(path).map(b -> new String(b, StandardCharsets.UTF_8)).orElse(null);
         } catch (IOException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return null;
         }
     }

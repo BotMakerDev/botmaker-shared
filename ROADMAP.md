@@ -21,9 +21,12 @@ also holds `botmaker-session`'s history before 2026-07-30).
   Until then the SDK's run overlay can catch a take-over click aimed at the game beneath it.
 - **macOS: Tart game VMs have never run** (umbrella doc 45 §3 lists the checks: the download, the clone, the
   VNC address and its auth, Metal frames over VNC, `tart exec`'s user, a guest restart).
-- **macOS: Linux guests on Tart** (macOS port phase 6b). `LinuxDisplay`, `LinuxGameCopy` and the window list
-  speak QEMU's guest agent and QMP `hostfwd`; under Tart they need `tart exec` and the guest's own address
-  (`tart ip`), and a setup that installs Xvnc, Openbox, Steam and Wine on Cirrus Labs' Ubuntu server image.
+- **macOS: Linux guests on Tart have never run** (doc 45 §3, the `Linux:` rows). The most likely gap: snapd
+  may move Steam out of the display's `botmaker-game-N` unit into a scope of its own, and then a game stop
+  misses it. Also: each display's window list is read by a `tart exec` of its own, about once a second (QEMU
+  reuses a socket); with several bots, one long-lived reader per VM would be cheaper.
+- **macOS guest: the published `admin`/`admin` password, with Remote Login on.** Its automatic sign-in stores
+  the password, so it can't change as a Linux guest's does. Only the Mac and its VMs reach the guest.
 - **macOS guest: what is still missing.** A window list, so `window("…")` finds more than the whole screen.
   Steam and Epic games' processes (`GuestGame.macScript` answers `UNKNOWN`). APFS growing into the disk
   `tart set --disk-size` enlarged. Auto-stop: Studio's watcher is PowerShell, and Tart reports no VNC clients.

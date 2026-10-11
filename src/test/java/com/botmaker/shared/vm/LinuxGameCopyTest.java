@@ -14,7 +14,7 @@ class LinuxGameCopyTest {
 
     @Test
     void theGuestFetchesEachFileFromThisPcSkipsWholeOnesAndRefusesWithoutRoom() {
-        String script = LinuxGameCopy.copyScript(5123, "tok", "/home/botmaker/Games/It's Here");
+        String script = LinuxGameCopy.copyScript(LinuxGameCopy.QEMU_HOST, 5123, "tok", "/home/botmaker/Games/It's Here");
         assertTrue(script.contains("base='http://10.0.2.2:5123/tok'"), script);
         assertTrue(script.contains("dest='/home/botmaker/Games/It'\\''s Here'"), script);
         assertTrue(script.contains("tab=$(printf '\\t')"), script);
@@ -27,6 +27,26 @@ class LinuxGameCopyTest {
         assertTrue(script.contains("runuser -u botmaker -- mkdir -p \"$dest\""), "the folders are the user's");
         assertTrue(script.contains("chown -R botmaker:botmaker \"$dest\""), script);
         assertFalse(script.contains("%%"), script);
+    }
+
+    @Test
+    void aMacsGuestFetchesFromTheMacsAddressOnItsNetworkAndKeepsSteamInTheSnap() {
+        String script = LinuxGameCopy.copyScript("192.168.64.1", 5123, "tok", "/x");
+        assertTrue(script.contains("base='http://192.168.64.1:5123/tok'"), script);
+        assertEquals("/home/botmaker/snap/steam/common/.local/share/Steam/steamapps",
+                LinuxGameCopy.steamLibrary(Hypervisor.TART));
+        assertEquals("/home/botmaker/.steam/steam/steamapps", LinuxGameCopy.steamLibrary(Hypervisor.QEMU));
+        assertEquals("/snap/bin/steam", GuestLauncher.STEAM.linuxExecutable(Hypervisor.TART));
+        assertEquals("/usr/games/steam", GuestLauncher.STEAM.linuxExecutable(Hypervisor.QEMU));
+    }
+
+    @Test
+    void epicIsRefusedOnAMacsArm64Guest() throws Exception {
+        VmRecord vm = new VmRecord(Path.of("/vm"), "Game VM", Hypervisor.TART, VmRecord.Stage.READY,
+                new VmSize(4, 8192, 80), Path.of(""), "en-US", 0, 0, 0, 0, GuestOs.LINUX, Tart.LINUX_IMAGE);
+        java.io.IOException refused = org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class,
+                () -> Legendary.signedIn(vm));
+        assertTrue(refused.getMessage().contains("arm64"), refused.getMessage());
     }
 
     @Test

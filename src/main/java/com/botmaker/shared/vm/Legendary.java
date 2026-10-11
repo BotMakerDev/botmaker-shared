@@ -37,6 +37,7 @@ public final class Legendary {
 
     /** Whether {@code vm}'s Legendary is signed in. */
     public static boolean signedIn(VmRecord vm) throws IOException {
+        requireQemu(vm);
         try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), AGENT_TIMEOUT_MS)) {
             return agent.fileExists(USER_FILE);
         }
@@ -49,6 +50,7 @@ public final class Legendary {
      */
     public static void signIn(VmRecord vm, String code) throws IOException, InterruptedException {
         if (!CODE.matcher(code).matches()) throw new IllegalArgumentException("Not a sign-in code.");
+        requireQemu(vm);
         String token = VmCredentials.randomText(12);
         String file = LinuxDisplay.FOLDER + "/legendary-" + token + ".code";
         String script = LinuxDisplay.FOLDER + "/legendary-sign-in-" + token + ".sh";
@@ -82,10 +84,18 @@ public final class Legendary {
                 + "exec /usr/sbin/runuser " + String.join(" ", asUser("auth", "--code")) + " \"$code\"\n";
     }
 
+    /** Throws for a Linux VM on a Mac: Legendary and Wine are x86 programs, and its guest is arm64. */
+    static void requireQemu(VmRecord vm) throws IOException {
+        if (vm.hypervisor() != Hypervisor.QEMU) {
+            throw new IOException("Epic games don't run in a Linux VM on a Mac: Legendary and Wine are x86 programs, "
+                    + "and the VM is arm64.");
+        }
+    }
+
     /** {@code runuser}'s arguments that run Legendary with {@code arguments} as the VM's user. */
     static List<String> asUser(String... arguments) {
         List<String> all = new ArrayList<>(List.of("-u", VmSetup.GUEST_USER, "--", "/usr/bin/env",
-                "HOME=" + LinuxGameCopy.HOME, GuestLauncher.EPIC.linuxExecutable()));
+                "HOME=" + LinuxGameCopy.HOME, GuestLauncher.EPIC.linuxExecutable(Hypervisor.QEMU)));
         all.addAll(List.of(arguments));
         return all;
     }

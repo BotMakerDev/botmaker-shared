@@ -47,8 +47,16 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   framework's own VNC server; its per-run address and password are read from `tart.log` (mode 600) in the VM's
   folder. Launches (`GuestLaunch.macCommand`, `open` as the signed-in user) and game processes
   (`GuestGame.macScript`) go through `tart exec`. `VmSetup`'s entry points hand a Tart VM to `TartSetup`;
-  `VmRecord` gains `image`. Linux guests on Tart, a macOS guest's window list and auto-stop are open
-  (`ROADMAP.md`). Untried on a Mac.
+  `VmRecord` gains `image`. A macOS guest's window list and auto-stop are open (`ROADMAP.md`). Untried on a Mac.
+- **Linux game VMs on a Mac** (doc 45 §2.3). `Tart.image(LINUX)` is Cirrus Labs' Ubuntu 24.04 (arm64); after its
+  agent answers, setup runs `LinuxAutoinstall.tartSetupScript` once: the `botmaker` account, the display packages,
+  Canonical's arm64 Steam snap (x86 through FEX), the image's published `admin` password replaced and SSH off.
+  No Wine or Legendary (x86): `Legendary` refuses a Tart VM. The guest channel is a new `GuestShell`, implemented
+  by `GuestAgent` and by `TartGuest` (`tart exec … sudo -n`, files on standard input). `LinuxDisplay`,
+  `LinuxGameCopy` and `VmSetup.guestHas` use it. On Tart a display is reached at `Tart.ip` (port 5900+N, keysyms),
+  and a copy is served on the Mac's address on the VM's network (`Tart.hostSide`,
+  `FolderServer.serve(folder, address)`). `GuestLauncher.linuxExecutable` takes the hypervisor (the snap's
+  `/snap/bin/steam`), and `LinuxDisplay.requireLinuxOnQemu` is now `requireDisplays`. Untried on a Mac.
 - `input.KeyNames`: X's names for function and editing keys (`Pause`, `F12`, `Scroll Lock`) where there is no
   libX11; a character is named by itself.
 

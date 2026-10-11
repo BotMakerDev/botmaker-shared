@@ -59,10 +59,13 @@ public enum GuestLauncher {
         };
     }
 
-    /** Where a Linux guest has it, from its setup ({@link LinuxAutoinstall}); empty for {@link #UNKNOWN}. */
-    public String linuxExecutable() {
+    /**
+     * Where a Linux guest on {@code hypervisor} has it, from its setup ({@link LinuxAutoinstall}); empty for
+     * {@link #UNKNOWN}. A Mac's (Tart) has Steam as Canonical's snap, and no Legendary: the path is never there.
+     */
+    public String linuxExecutable(Hypervisor hypervisor) {
         return switch (this) {
-            case STEAM -> "/usr/games/steam";
+            case STEAM -> hypervisor == Hypervisor.TART ? "/snap/bin/steam" : "/usr/games/steam";
             case EPIC -> "/usr/local/bin/legendary";
             case UNKNOWN -> "";
         };

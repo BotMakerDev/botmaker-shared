@@ -25,7 +25,8 @@ import java.util.stream.Stream;
 /**
  * Serves one folder of this PC, read-only, to a QEMU guest while a game is copied into it: QEMU's user network
  * hands the guest's connections to {@code 10.0.2.2} to this PC's loopback, so the server listens on
- * {@code 127.0.0.1} alone and no other computer reaches it. Every request names a random token; {@code GET
+ * {@code 127.0.0.1} alone and no other computer reaches it (a Mac's Linux guest: see {@link #serve(Path, InetAddress)}).
+ * Every request names a random token; {@code GET
  * /<token>/list} answers one {@code <size>\t<relative path>} line per file, and {@code GET
  * /<token>/file?p=<path>} a file of that list, nothing else.
  *
@@ -55,6 +56,14 @@ final class FolderServer implements AutoCloseable {
 
     /** Lists {@code folder}'s files and starts serving them on a free loopback port. */
     static FolderServer serve(Path folder) throws IOException {
+        return serve(folder, InetAddress.getLoopbackAddress());
+    }
+
+    /**
+     * Lists {@code folder}'s files and starts serving them on a free port of {@code address}: a Mac's own address on
+     * Tart's NAT network, which a Linux guest there reaches and no other computer does ({@link Tart#hostSide}).
+     */
+    static FolderServer serve(Path folder, InetAddress address) throws IOException {
         SortedMap<String, Path> files = new TreeMap<>();
         Map<String, Long> sizes = new HashMap<>();
         try (Stream<Path> walk = Files.walk(folder)) {
@@ -66,7 +75,7 @@ final class FolderServer implements AutoCloseable {
         }
         byte[] random = new byte[16];
         RANDOM.nextBytes(random);
-        ServerSocket socket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+        ServerSocket socket = new ServerSocket(0, 50, address);
         FolderServer server = new FolderServer(socket, HexFormat.of().formatHex(random),
                 Collections.unmodifiableSortedMap(files), Map.copyOf(sizes));
         Thread.ofVirtual().name("folder-server-" + socket.getLocalPort()).start(server::accept);

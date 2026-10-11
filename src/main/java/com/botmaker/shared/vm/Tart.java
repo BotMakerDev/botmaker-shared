@@ -6,12 +6,18 @@ import com.botmaker.shared.tools.Downloads;
 import com.botmaker.shared.tools.UserDirs;
 
 import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -43,7 +49,13 @@ public final class Tart {
     /** The line {@code tart run --vnc-experimental} prints once its VNC server listens, before the URL. */
     static final String VNC_LINE = "VNC server is running at ";
 
+    /** Cirrus Labs' Ubuntu 24.04, the arm64 build on a Mac; a tag of its own, so a later LTS doesn't replace it. */
+    static final String LINUX_IMAGE = "ghcr.io/cirruslabs/ubuntu:24.04";
+
     private static final Pattern MAJOR = Pattern.compile("^(\\d+)");
+    private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
+    /** How long {@link #ip} waits for a guest still starting to have an address. */
+    private static final int IP_WAIT_SECONDS = 60;
     private static final Duration QUICK = Duration.ofSeconds(30);
 
     private final Path binary;
@@ -75,6 +87,16 @@ public final class Tart {
     public static Optional<Tart> find() {
         Path binary = folder().resolve("tart.app/Contents/MacOS/tart");
         return Files.isExecutable(binary) ? Optional.of(new Tart(binary)) : Optional.empty();
+    }
+
+    /** A Tart at {@code binary}: a stand-in, for the tests. */
+    static Tart at(Path binary) {
+        return new Tart(binary);
+    }
+
+    /** The pinned Tart, which a VM made with it needs: refused with a sentence when it isn't here any more. */
+    static Tart required() throws IOException {
+        return find().orElseThrow(() -> new IOException("Tart isn't here; set the VM up again."));
     }
 
     /**
@@ -146,12 +168,56 @@ public final class Tart {
     }
 
     /**
-     * The Cirrus Labs macOS image a Mac on {@code hostVersion} can run: a macOS guest may not be newer than its
-     * host, so the host's own release. The {@code -base} images carry Tart's guest agent; the {@code -vanilla} ones
-     * don't.
+     * The running VM {@code name}'s address on Tart's shared network, from the Mac's DHCP leases, waiting up to a
+     * minute for a guest still starting. This Mac reaches the guest's ports there directly, as no other computer
+     * does: the network is behind the Mac's NAT.
+     */
+    public InetAddress ip(String name) throws IOException, InterruptedException {
+        Spawn.Completed said = run(Duration.ofSeconds(IP_WAIT_SECONDS + 30), "ip", name, "--wait",
+                Integer.toString(IP_WAIT_SECONDS));
+        String ip = said.output().strip();
+        if (!said.ok() || !IPV4.matcher(ip).matches()) {
+            throw new IOException("Tart didn't give the VM's address: " + ip);
+        }
+        return InetAddress.getByName(ip); // a literal: no lookup
+    }
+
+    /**
+     * This Mac's own address on the network {@code guest} is on (the bridge Tart's NAT made): where the guest
+     * reaches the Mac. Empty when no interface here is on that network.
+     */
+    public static Optional<InetAddress> hostSide(InetAddress guest) throws IOException {
+        for (NetworkInterface nic : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+            if (!nic.isUp() || nic.isLoopback()) continue;
+            for (InterfaceAddress address : nic.getInterfaceAddresses()) {
+                InetAddress mine = address.getAddress();
+                if (mine instanceof Inet4Address && !mine.equals(guest)
+                        && onNetwork(mine, guest, address.getNetworkPrefixLength())) {
+                    return Optional.of(mine);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Whether {@code a} and {@code b}, both IPv4, share their first {@code prefix} bits. Pure, for the tests. */
+    static boolean onNetwork(InetAddress a, InetAddress b, int prefix) {
+        byte[] x = a.getAddress();
+        byte[] y = b.getAddress();
+        if (x.length != 4 || y.length != 4 || prefix <= 0 || prefix > 32) return false;
+        int mask = -1 << (32 - prefix);
+        return (ByteBuffer.wrap(x).getInt() & mask) == (ByteBuffer.wrap(y).getInt() & mask);
+    }
+
+    /**
+     * The Cirrus Labs image for {@code guest}. macOS: the one a Mac on {@code hostVersion} can run, as a macOS guest
+     * may not be newer than its host, so the host's own release; the {@code -base} images carry Tart's guest agent,
+     * the {@code -vanilla} ones don't. Linux: Ubuntu 24.04 for arm64 ({@value #LINUX_IMAGE}), a server with the
+     * agent, which {@link LinuxAutoinstall#tartSetupScript} gives the rest.
      */
     public static String image(GuestOs guest, String hostVersion) {
-        if (guest != GuestOs.MACOS) throw new IllegalArgumentException("Tart VMs run macOS for now: " + guest);
+        if (guest == GuestOs.LINUX) return LINUX_IMAGE;
+        if (guest != GuestOs.MACOS) throw new IllegalArgumentException("Tart VMs run macOS or Linux: " + guest);
         int major = macosMajor(hostVersion);
         String release = major >= 26 ? "tahoe" : major == 15 ? "sequoia" : "sonoma";
         return "ghcr.io/cirruslabs/macos-" + release + "-base:latest";

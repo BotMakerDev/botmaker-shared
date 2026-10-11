@@ -56,9 +56,14 @@ class LinuxDisplayTest {
     }
 
     @Test
-    void onlyALinuxVmOnQemuHasDisplays() {
+    void onlyALinuxVmOnQemuOrTartHasDisplays() throws Exception {
         VmRecord windows = new VmRecord(Path.of("vm"), "g", Hypervisor.QEMU, VmRecord.Stage.READY,
                 new VmSize(2, 4096, 64), Path.of("w.iso"), "en-US", 5900, 40001, 40002, 40003, GuestOs.WINDOWS);
-        assertThrows(java.io.IOException.class, () -> LinuxDisplay.requireLinuxOnQemu(windows));
+        assertThrows(java.io.IOException.class, () -> LinuxDisplay.requireDisplays(windows));
+        VmRecord onVmware = new VmRecord(Path.of("vm"), "g", Hypervisor.VMWARE, VmRecord.Stage.READY,
+                new VmSize(2, 4096, 64), Path.of("u.iso"), "en-US", 5900, 0, 0, 0, GuestOs.LINUX);
+        assertThrows(java.io.IOException.class, () -> LinuxDisplay.requireDisplays(onVmware));
+        LinuxDisplay.requireDisplays(new VmRecord(Path.of("vm"), "g", Hypervisor.TART, VmRecord.Stage.READY,
+                new VmSize(2, 4096, 64), Path.of(""), "en-US", 0, 0, 0, 0, GuestOs.LINUX, Tart.LINUX_IMAGE));
     }
 }

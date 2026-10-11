@@ -17,7 +17,7 @@ import java.util.Map;
  * random number with it ({@code guest-sync}): no answer within its timeout means no agent yet. The same trade
  * skips a reply a timed-out earlier caller left behind.
  */
-public final class GuestAgent implements AutoCloseable {
+public final class GuestAgent implements GuestShell {
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int CHUNK = 48 * 1024;
@@ -114,6 +114,11 @@ public final class GuestAgent implements AutoCloseable {
         JsonNode started = channel.execute("guest-exec", Map.of("path", program, "arg", arguments,
                 "capture-output", false));
         return started.path("pid").asLong();
+    }
+
+    @Override
+    public void start(String program, List<String> arguments) throws IOException {
+        exec(program, arguments);
     }
 
     /** How a program run in the guest ended: its exit code, and what it printed (standard output, then error). */

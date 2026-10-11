@@ -758,7 +758,7 @@ public final class VmSetup {
      */
     public static void runOnDesktop(VmRecord vm, VmCredentials credentials, String command)
             throws IOException, InterruptedException {
-        if (vm.hypervisor() == Hypervisor.TART) {
+        if (macOnTart(vm)) {
             TartSetup.runOnDesktop(vm, command);
             return;
         }
@@ -831,7 +831,7 @@ public final class VmSetup {
      */
     public static GuestGame.Found game(VmRecord vm, VmCredentials credentials, LaunchSpec spec, boolean stop)
             throws IOException, InterruptedException {
-        if (vm.hypervisor() == Hypervisor.TART) return TartSetup.game(vm, spec, stop);
+        if (macOnTart(vm)) return TartSetup.game(vm, spec, stop);
         requireWindows(vm);
         Optional<String> script = GuestGame.script(spec, stop);
         if (script.isEmpty()) return GuestGame.Found.UNKNOWN;
@@ -900,13 +900,13 @@ public final class VmSetup {
     public static boolean guestHas(VmRecord vm, VmCredentials credentials, GuestLauncher launcher)
             throws IOException, InterruptedException {
         if (launcher == GuestLauncher.UNKNOWN) return true;
-        if (vm.hypervisor() == Hypervisor.TART) return TartSetup.guestHas(vm, launcher);
         if (vm.guestOs() == GuestOs.LINUX) {
-            LinuxDisplay.requireLinuxOnQemu(vm);
-            try (GuestAgent agent = GuestAgent.connect(vm.agentPort(), LAUNCH_TIMEOUT_MS)) {
-                return agent.fileExists(launcher.linuxExecutable());
+            LinuxDisplay.requireDisplays(vm);
+            try (GuestShell guest = GuestShell.open(vm, LAUNCH_TIMEOUT_MS)) {
+                return guest.fileExists(launcher.linuxExecutable(vm.hypervisor()));
             }
         }
+        if (macOnTart(vm)) return TartSetup.guestHas(vm, launcher);
         requireWindows(vm);
         switch (vm.hypervisor()) {
             case QEMU -> {
@@ -962,6 +962,11 @@ public final class VmSetup {
     private static String lastLines(String text, int n) {
         List<String> lines = text.lines().map(String::strip).filter(l -> !l.isEmpty()).toList();
         return String.join(" ", lines.subList(Math.max(0, lines.size() - n), lines.size()));
+    }
+
+    /** Whether {@code vm} is a macOS VM on Tart, whose desktop's launches and game processes {@link TartSetup} has. */
+    private static boolean macOnTart(VmRecord vm) {
+        return vm.hypervisor() == Hypervisor.TART && vm.guestOs() == GuestOs.MACOS;
     }
 
     /**

@@ -23,13 +23,16 @@ import java.util.Optional;
  * A game VM on an Apple Silicon Mac, run by {@link Tart}: what {@link VmSetup} does for QEMU and VMware, for a VM
  * that is cloned rather than installed. {@link VmSetup}'s public entry points hand a {@link Hypervisor#TART} VM here.
  * <ul>
- *   <li><b>Setup</b> downloads Tart, clones Cirrus Labs' macOS image (about 25 GB, shared by every VM made from
- *       it), sizes the clone, and boots it once until its guest agent answers.</li>
+ *   <li><b>Setup</b> downloads Tart, clones Cirrus Labs' image (macOS about 25 GB, Ubuntu a few, shared by every VM
+ *       made from it), sizes the clone, and boots it once until its guest agent answers; a Linux guest is then given
+ *       what its displays and Steam need.</li>
  *   <li><b>A start</b> runs {@code tart run --no-graphics --vnc-experimental}: the Virtualization framework's own
  *       VNC server, on the host, which delivers input through the VM's virtual keyboard and pointer as QEMU's does.
  *       Its address and its password are new each run and printed by Tart, so its output goes to
  *       {@value #LOG} in the VM's folder (readable by the user only), where a second process finds them.</li>
- *   <li><b>The guest</b> is reached through {@code tart exec}, Tart's guest agent: no network, no password.</li>
+ *   <li><b>The guest</b> is reached through {@code tart exec}, Tart's guest agent: no network, no password. A macOS
+ *       guest's desktop runs the game here; a Linux guest's bots each have a display of their own
+ *       ({@link LinuxDisplay}, through {@link TartGuest}).</li>
  * </ul>
  */
 final class TartSetup {
@@ -43,6 +46,8 @@ final class TartSetup {
     private static final Duration GAME_CHECK = Duration.ofMinutes(1);
     private static final Duration SHUT_DOWN = Duration.ofMinutes(3);
     private static final Duration READY_POLL = Duration.ofSeconds(5);
+    /** A Linux guest's one setup: the display packages and the Steam snap, downloaded in the guest. */
+    private static final Duration LINUX_SETUP = Duration.ofMinutes(45);
     private static final long FIRST_FRAME_MS = 30_000;
 
     private TartSetup() {}
@@ -51,7 +56,7 @@ final class TartSetup {
     static List<String> problems(GuestOs guestOs) {
         List<String> problems = new ArrayList<>();
         if (!Tart.supported()) problems.add("A game VM on a Mac needs Apple Silicon and macOS 14 or later.");
-        if (guestOs != GuestOs.MACOS) problems.add("A game VM on a Mac runs macOS for now.");
+        if (guestOs != GuestOs.MACOS && guestOs != GuestOs.LINUX) problems.add("A game VM on a Mac runs macOS or Linux.");
         return problems;
     }
 
@@ -71,14 +76,17 @@ final class TartSetup {
 
     /**
      * Clones the image (once; a setup that stopped goes on), sizes the clone, starts it and waits until its guest
-     * agent answers, following its screen. Records {@link VmRecord.Stage#READY}.
+     * agent answers, following its screen; a Linux guest is then set up once ({@link #setUpLinux}). Records
+     * {@link VmRecord.Stage#READY}.
      */
     static VmRecord install(VmRecord vm, VmSetup.Listener listener, Duration timeout)
             throws IOException, InterruptedException {
         Tart tart = Tart.install((bytes, total) -> { });
         long deadline = System.nanoTime() + timeout.toNanos();
+        String os = vm.guestOs().displayName();
         if (!exists(tart, vm.name())) {
-            listener.step("Downloading macOS for the VM (about 25 GB, once for every VM made from it)…");
+            listener.step("Downloading " + os + " for the VM (" + (vm.guestOs() == GuestOs.LINUX ? "a few GB"
+                    : "about 25 GB") + ", once for every VM made from it)…");
             clone(tart, vm, listener, deadline);
         }
         if (vm.stage() == VmRecord.Stage.PREPARED) {
@@ -89,18 +97,55 @@ final class TartSetup {
             vm = vm.withStage(VmRecord.Stage.INSTALLING);
             vm.save();
         }
-        listener.step("Starting macOS in the VM for the first time…");
+        listener.step("Starting " + os + " in the VM for the first time…");
         try (VmSetup.Running running = start(vm)) {
-            while (!guestReady(vm)) {
-                if (System.nanoTime() > deadline) throw new IOException("macOS in the VM didn't answer in time.");
+            while (!agentAnswers(vm)) {
+                if (System.nanoTime() > deadline) throw new IOException(os + " in the VM didn't answer in time.");
                 BufferedImage frame = running.screen().captureScreen();
                 if (frame != null) listener.frame(frame);
                 Thread.sleep(READY_POLL.toMillis());
             }
+            if (vm.guestOs() == GuestOs.LINUX) setUpLinux(vm, listener, deadline);
         }
         VmRecord ready = vm.withStage(VmRecord.Stage.READY);
         ready.save();
         return ready;
+    }
+
+    /**
+     * Gives a Linux guest what its displays and Steam need ({@link LinuxAutoinstall#tartSetupScript}), once: a guest
+     * already set up is left as it is. The VM's password goes in as a file the script deletes.
+     */
+    private static void setUpLinux(VmRecord vm, VmSetup.Listener listener, long deadline)
+            throws IOException, InterruptedException {
+        try (TartGuest guest = TartGuest.of(vm)) {
+            if (guest.fileExists(LinuxAutoinstall.READY_FILE)) return;
+            listener.step("Installing the bots' screens and Steam in Linux (10–20 minutes)…");
+            VmCredentials credentials = VmCredentials.load(vm.folder())
+                    .orElseThrow(() -> new IOException("The VM has lost its passwords."));
+            String password = LinuxDisplay.FOLDER + "/setup.pass";
+            String script = LinuxDisplay.FOLDER + "/setup.sh";
+            GuestAgent.Ran made = guest.run("/bin/mkdir", List.of("-p", LinuxDisplay.FOLDER), EXEC);
+            if (made.exitCode() != 0) throw new IOException("The VM couldn't make " + LinuxDisplay.FOLDER + ".");
+            Duration left = Duration.ofNanos(Math.max(0, deadline - System.nanoTime()));
+            Duration wait = left.compareTo(LINUX_SETUP) < 0 ? left : LINUX_SETUP;
+            if (wait.isZero()) throw new IOException("The setup ran out of time before Linux's own setup. Set up again "
+                    + "to go on.");
+            GuestAgent.Ran ran;
+            try {
+                guest.writeFile(password, (credentials.guest() + "\n").getBytes(StandardCharsets.UTF_8));
+                guest.writeFile(script, LinuxAutoinstall.tartSetupScript().getBytes(StandardCharsets.UTF_8));
+                ran = guest.run("/bin/sh", List.of(script, password), wait);
+            } catch (IOException | InterruptedException e) {
+                // The script deletes it when it runs; it may not have.
+                guest.start("/bin/rm", List.of("-f", password));
+                throw e;
+            }
+            if (ran.exitCode() != 0 || !guest.fileExists(LinuxAutoinstall.READY_FILE)) {
+                throw new IOException("Linux in the VM didn't finish setting up (exit code " + ran.exitCode() + "); "
+                        + "its log is " + LinuxAutoinstall.SETUP_LOG + " there. Set up again to go on.");
+            }
+        }
     }
 
     /** Whether Tart has a VM named {@code name}. */
@@ -261,8 +306,21 @@ final class TartSetup {
         return tart.run(timeout, "exec", vm.name(), "/bin/sh", "-c", script);
     }
 
-    /** Whether the guest agent answers, which it does once macOS has started and signed in. */
+    /**
+     * Whether the guest is ready for a bot: its agent answers, which a macOS guest's does once it has started and
+     * signed in, and a Linux guest has been set up ({@value LinuxAutoinstall#READY_FILE}).
+     */
     static boolean guestReady(VmRecord vm) throws InterruptedException {
+        if (vm.guestOs() != GuestOs.LINUX) return agentAnswers(vm);
+        try (TartGuest guest = TartGuest.of(vm)) {
+            return guest.fileExists(LinuxAutoinstall.READY_FILE);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** Whether the guest agent answers. */
+    private static boolean agentAnswers(VmRecord vm) throws InterruptedException {
         try {
             return exec(vm, "true", Duration.ofSeconds(10)).ok();
         } catch (IOException e) {

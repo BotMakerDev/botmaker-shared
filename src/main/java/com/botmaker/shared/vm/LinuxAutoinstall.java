@@ -3,6 +3,7 @@ package com.botmaker.shared.vm;
 import com.botmaker.shared.tools.Downloads;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -71,8 +72,9 @@ public final class LinuxAutoinstall {
         if (!password.matches("[A-Za-z0-9]+") || !user.matches("[a-z][a-z0-9-]*") || !hostname.matches("[a-z0-9-]+")) {
             throw new IllegalArgumentException("A user, password and host name of plain letters and digits.");
         }
-        List<String> packages = List.of(hypervisor == Hypervisor.VMWARE ? "open-vm-tools" : "qemu-guest-agent",
-                "tigervnc-standalone-server", "openbox", "xdotool", "wmctrl", "x11-utils", "curl");
+        List<String> packages = new ArrayList<>(List.of(hypervisor == Hypervisor.VMWARE ? "open-vm-tools"
+                : "qemu-guest-agent"));
+        packages.addAll(DISPLAY_PACKAGES);
         return "#cloud-config\n"
                 + "autoinstall:\n"
                 + "  version: 1\n"
@@ -152,6 +154,49 @@ public final class LinuxAutoinstall {
                 + "rm -f /etc/cloud/cloud.cfg.d/99-installer.cfg\n"
                 + "rm -rf /var/log/installer /var/lib/cloud/instances /var/lib/cloud/instance /var/lib/cloud/seed\n"
                 + "touch /etc/cloud/cloud-init.disabled\n"
+                + "mkdir -p " + READY_FILE.substring(0, READY_FILE.lastIndexOf('/')) + "\n"
+                + "touch " + READY_FILE + "\n";
+    }
+
+    /** The packages a bot's display needs ({@link LinuxDisplay}), on either hypervisor's guest. */
+    static final List<String> DISPLAY_PACKAGES = List.of("tigervnc-standalone-server", "openbox", "xdotool", "wmctrl",
+            "x11-utils", "curl");
+
+    /**
+     * What a Linux VM on a Mac runs once, as root, in place of an installer: Cirrus Labs' Ubuntu server
+     * ({@link Tart#image}) comes installed, with their user {@value Tart#GUEST_USER} and Tart's guest agent. It
+     * makes the account {@link VmSetup#GUEST_USER} the displays run as, changes {@value Tart#GUEST_USER}'s published
+     * password to the VM's own (in {@code $1}, a file it deletes) and turns SSH off, which took that password,
+     * installs what the displays need, then Canonical's arm64 Steam snap, which runs Valve's x86 client through
+     * FEX-Emu. No Wine or Legendary: they are x86 programs, and an arm64 guest runs neither. Writes
+     * {@value #READY_FILE} last; a Steam that didn't install is in the log, and the VM is ready without it. Run
+     * again after a failure, it picks up where it stopped.
+     */
+    static String tartSetupScript() {
+        String user = VmSetup.GUEST_USER;
+        return "#!/bin/sh\n"
+                + "exec >>" + SETUP_LOG + " 2>&1\n"
+                + "set -x\n"
+                + "export DEBIAN_FRONTEND=noninteractive\n"
+                + "trap 'rm -f \"$1\"' EXIT\n"
+                // One at a time: a setup given up on goes on in the guest, and a second would fight it for apt's lock.
+                + "exec 9>" + LinuxDisplay.FOLDER + "/setup.lock\n"
+                + "flock 9\n"
+                // Untraced: the trace would write the password into the log.
+                + "{ set +x; } 2>/dev/null\n"
+                + "if [ -s \"$1\" ]; then\n"
+                + "  sed 's/^/" + Tart.GUEST_USER + ":/' \"$1\" | chpasswd || exit 1\n"
+                + "fi\n"
+                + "set -x\n"
+                + "rm -f \"$1\"\n"
+                + "systemctl disable --now ssh.socket ssh.service || true\n"
+                + "id " + user + " >/dev/null 2>&1 || useradd -m -s /bin/bash " + user + " || exit 1\n"
+                // A runtime folder of its own, which a snap wants, without anyone signing in.
+                + "loginctl enable-linger " + user + " || true\n"
+                + "for try in 1 2 3; do apt-get update -q && apt-get install -y -q -o DPkg::Lock::Timeout=600 "
+                + String.join(" ", DISPLAY_PACKAGES) + " && break; sleep 10; done\n"
+                + "command -v Xvnc >/dev/null || exit 1\n"
+                + "snap list steam >/dev/null 2>&1 || snap install steam || echo \"BotMaker: Steam didn't install\"\n"
                 + "mkdir -p " + READY_FILE.substring(0, READY_FILE.lastIndexOf('/')) + "\n"
                 + "touch " + READY_FILE + "\n";
     }
