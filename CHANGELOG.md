@@ -14,6 +14,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- `ResolutionScaler` scales a template by the smaller axis' ratio when the live frame has another aspect ratio
+  than the one it was cut from (a game fits its art and gives the rest to the edges); the mean otherwise.
+
 ### Added
 
 - A manual `macos` CI job (Actions tab) runs the suite on Apple Silicon, the first step of the macOS port.
