@@ -5,6 +5,19 @@ also holds `botmaker-session`'s history before 2026-07-30).
 
 ## Open
 
+- **macOS: `MacController` has never run on a Mac** (written 2026-10-11 without one). Owed on a real Mac or a
+  macOS VM: the Screen Recording and Accessibility prompts and their one-time hints; a window list with titles;
+  a covered window's capture at 2× and 1×, and the frame lining up with the rect; background clicks
+  (`CGEventPostToPid`) on a Cocoa app and on a game, and the ignored-click hint; take-over clicks, drags, wheel,
+  keys with Shift held, `typeText` of non-ASCII; focus, move and resize through AX; a second display at another
+  scale.
+- **macOS: `CGWindowListCreateImage` is deprecated** (macOS 14) in favour of ScreenCaptureKit, which has only
+  an Objective-C/Swift async API. When a macOS release stops answering it, capture needs an SCK bridge (a
+  small helper binary, or the Objective-C runtime through JNA).
+- **macOS: overlays.** `promoteOverlayAboveFullscreen` and `makeInputTransparent` keep their no-op defaults:
+  an `NSWindow`'s level and `ignoresMouseEvents` need AppKit, on its main thread (`objc_msgSend` through JNA).
+  Until then the SDK's run overlay can catch a take-over click aimed at the game beneath it.
+
 - **`WindowsControllerTest.childEnumerationOfANonWindowIsEmptyRatherThanThrowing` fails on Windows.**
   `EnumChildWindows` on a null parent enumerates the desktop's windows, so `WindowFinder.getChildWindows(new
   HWND())` is not empty. Decide which is wrong: the test, or the finder's missing null guard.

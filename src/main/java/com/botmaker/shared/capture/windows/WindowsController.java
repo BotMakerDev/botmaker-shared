@@ -2,6 +2,7 @@ package com.botmaker.shared.capture.windows;
 
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.GenericWindow;
+import com.botmaker.shared.capture.IgnoredClickWatch;
 import com.botmaker.shared.capture.NativeController;
 import com.sun.jna.Native;
 import com.sun.jna.platform.win32.WinDef.HWND;

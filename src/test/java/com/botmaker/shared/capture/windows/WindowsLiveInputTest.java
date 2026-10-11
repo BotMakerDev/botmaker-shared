@@ -2,6 +2,7 @@ package com.botmaker.shared.capture.windows;
 
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.capture.GenericWindow;
+import com.botmaker.shared.capture.IgnoredClickWatch;
 import com.botmaker.shared.game.GameLibraries;
 import com.botmaker.shared.game.GameLibraryProvider;
 import com.botmaker.shared.game.InstalledGame;

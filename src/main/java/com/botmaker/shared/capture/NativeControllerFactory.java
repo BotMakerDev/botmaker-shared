@@ -1,6 +1,7 @@
 package com.botmaker.shared.capture;
 
 import com.botmaker.shared.capture.linux.LinuxController;
+import com.botmaker.shared.capture.mac.MacController;
 import com.botmaker.shared.capture.windows.WindowsController;
 import com.botmaker.shared.platform.Os;
 
@@ -22,7 +23,8 @@ public class NativeControllerFactory {
             instance = switch (os) {
                 case WINDOWS -> new WindowsController();
                 case LINUX -> new LinuxController();
-                case MAC, UNKNOWN ->
+                case MAC -> new MacController();
+                case UNKNOWN ->
                         throw new UnsupportedOperationException(os.displayName() + " is not yet supported.");
             };
         }

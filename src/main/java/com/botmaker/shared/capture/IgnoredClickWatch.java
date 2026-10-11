@@ -1,4 +1,4 @@
-package com.botmaker.shared.capture.windows;
+package com.botmaker.shared.capture;
 
 import java.awt.image.BufferedImage;
 import java.util.function.BiConsumer;
@@ -7,6 +7,9 @@ import java.util.function.Function;
 
 /**
  * Notices when background clicks do nothing, and says what to do about it.
+ *
+ * <p>Plumbing shared by the two background paths, Windows' posted messages and macOS's events posted to a
+ * process; {@code public} only so both packages reach it.
  *
  * <p>A posted click is invisible to a game that reads raw input or DirectInput: no error, no exception, the bot
  * just clicks and nothing happens. The first {@value #CLICKS} background clicks of the process are therefore
@@ -21,10 +24,10 @@ import java.util.function.Function;
  *
  * @param <W> the window, as the caller captures it
  */
-final class IgnoredClickWatch<W> {
+public final class IgnoredClickWatch<W> {
 
-    static final int CLICKS = 3;
-    static final long SETTLE_MS = 400;
+    public static final int CLICKS = 3;
+    public static final long SETTLE_MS = 400;
     /** A channel difference below this is compression or dithering noise, not a change. */
     private static final int NOISE = 24;
 
@@ -42,19 +45,19 @@ final class IgnoredClickWatch<W> {
      * @param hint    told once, when every watched click changed nothing
      * @param later   runs the runnable after the given number of milliseconds, off the clicking thread
      */
-    IgnoredClickWatch(Function<W, BufferedImage> capture, Consumer<String> hint, BiConsumer<Runnable, Long> later) {
+    public IgnoredClickWatch(Function<W, BufferedImage> capture, Consumer<String> hint, BiConsumer<Runnable, Long> later) {
         this.capture = capture;
         this.hint = hint;
         this.later = later;
     }
 
     /** Whether the next click is still worth watching; asked first, so a finished watch costs no capture. */
-    synchronized boolean watching() {
+    public synchronized boolean watching() {
         return !done;
     }
 
     /** Run {@code click} on {@code window} (named {@code title} in the hint), watching it while the watch lasts. */
-    void around(W window, String title, Runnable click) {
+    public void around(W window, String title, Runnable click) {
         if (window == null || !begin()) {
             click.run();
             return;
@@ -97,7 +100,7 @@ final class IgnoredClickWatch<W> {
     }
 
     /** Whether {@code after} differs from {@code before} beyond noise; {@code null} when there is no after. */
-    static Boolean changed(BufferedImage before, BufferedImage after) {
+    public static Boolean changed(BufferedImage before, BufferedImage after) {
         if (after == null) {
             return null;
         }

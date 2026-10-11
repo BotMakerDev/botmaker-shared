@@ -14,14 +14,20 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
-No source changes since v0.2.3; re-released for updated upstream pins.
-
 ### Added
 
 - A manual `macos` CI job (Actions tab) runs the suite on Apple Silicon, the first step of the macOS port.
+- **macOS window plumbing (`capture.mac.MacController`)**, through C APIs only. Windows are listed from
+  CoreGraphics, captured with `CGWindowListCreateImage` (works on covered windows), and raised, moved and
+  resized through Accessibility. Input has the two Windows paths. Background (the default) posts events into
+  the app's own queue (`CGEventPostToPid`), so the cursor never moves. Take over posts real input at the HID
+  tap. Coordinates are pixels (Retina 2×), and a window's rect is its frame, title bar included. Keys arrive
+  as X keysyms and are translated to Mac key codes (Alt is Option, Meta is Command). A missing Screen
+  Recording or Accessibility grant is named once, with its System Settings pane. Untried on a Mac.
 
 ### Changed
 
+- `IgnoredClickWatch` moved from `capture.windows` to `capture`, since macOS's background path uses it too.
 - JitPack's Temurin download retries in a shell loop: one builder image has a curl too old for
   `--retry-all-errors`, which v0.2.2's `jitpack.yml` used.
 - JitPack builds with a Maven 3.9.9 the build downloads itself as well: a broken builder's Maven could not

@@ -1,5 +1,6 @@
 package com.botmaker.shared.capture.windows;
 
+import com.botmaker.shared.capture.IgnoredClickWatch;
 import com.botmaker.shared.capture.windows.WindowMessages.ScanCode;
 import com.sun.jna.Memory;
 import org.junit.jupiter.api.Test;

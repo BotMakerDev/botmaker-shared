@@ -22,20 +22,29 @@ prefers the XComposite pixmap, and falls back to a root-window crop if the frame
 2026-07-10 `ROADMAP.md` entry (and the deferred portal/PipeWire path) for the full rationale and the manual
 KWin `WindowsBlockCompositing=false` / borderless-windowed workaround for true exclusive-fullscreen games.
 
-`capture.NativeControllerFactory.get()` picks the implementation by OS (JNA `Platform`): `WindowsController`
-or `LinuxController` (macOS throws `UnsupportedOperationException`). `setForTesting(...)` injects a fake for
-tests. Key codes crossing the interface are **per-OS native codes** (X keysym on Linux, virtual-key code on
-Windows); consumers resolve them from their own platform-neutral key enums.
+`capture.NativeControllerFactory.get()` picks the implementation by OS (JNA `Platform`): `WindowsController`,
+`LinuxController` or `MacController` (any other OS throws `UnsupportedOperationException`).
+`setForTesting(...)` injects a fake for tests. Key codes crossing the interface are **per-OS native codes**
+(X keysym on Linux, virtual-key code on Windows); consumers resolve them from their own platform-neutral key
+enums. macOS takes the X keysym too and translates it itself (`MacKeyCodes`), so the SDK's `Key` needs no
+third column.
 
 Package map:
 - `capture/` — the cross-platform surface: `NativeController`, `NativeControllerFactory`, `GenericWindow`,
-  plus full-desktop capture (`ScreenCapture`, `CaptureBackend`, `RobotCapture`, `ToolCapture`).
+  plus full-desktop capture (`ScreenCapture`, `CaptureBackend`, `RobotCapture`, `ToolCapture`), and
+  `IgnoredClickWatch`, which both background paths (Windows, macOS) run their first clicks through.
 - `capture/windows/` — JNA Windows backend: `User32`/`GDI32`/`Dwmapi` bindings, `WindowsController`,
   `WindowFinder`, `WindowInfo`. Input: `PostedInput` (background messages, encoded by `WindowMessages`),
-  `SendInputs` (take-over), `IgnoredClickWatch`. Capture: `WindowCapture` (the ladder), `WindowFrames`, and
+  `SendInputs` (take-over). Capture: `WindowCapture` (the ladder), `WindowFrames`, and
   the opt-in `WgcCapture` over `Com` (vtable calls). `WindowsDpi` keeps every coordinate physical. A
   window's rect is its client area. See `../../docs/display-pipeline.md` §8.
 - `capture/linux/` — JNA Linux/X11 backend: `X11`/`XTest` bindings, `X11Utils`, `LinuxController`.
+- `capture/mac/` — JNA macOS backend, C APIs only (no Objective-C): `CoreGraphics` and `Accessibility`
+  bindings, `MacController`. Windows: `MacWindows` (the CG window list), `MacAx` (raise, move, resize).
+  Input: `MacInput` — background is `CGEventPostToPid` into the app's queue, take-over is `CGEventPost` at the
+  HID tap. Capture: `MacCapture` (`CGWindowListCreateImage`, deprecated since macOS 14 but still answering).
+  `MacDisplays` keeps every coordinate in pixels (Retina is 2×). `MacPermission` says once, by name, when
+  Screen Recording or Accessibility is missing. A window's rect is its frame, title bar included.
 - `opencv/` — matching engines: `OpencvManager` (template matching), `ColorMatcher` (CIELAB ΔE clusters),
   `ResolutionScaler`, the raw results `RawMatch`/`RawColorMatch`, and `OpenCvNative` — **the** process-wide
   OpenCV loader (see below).
