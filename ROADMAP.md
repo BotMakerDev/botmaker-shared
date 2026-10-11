@@ -10,7 +10,9 @@ also holds `botmaker-session`'s history before 2026-07-30).
   a covered window's capture at 2× and 1×, and the frame lining up with the rect; background clicks
   (`CGEventPostToPid`) on a Cocoa app and on a game, and the ignored-click hint; take-over clicks, drags, wheel,
   keys with Shift held, `typeText` of non-ASCII; focus, move and resize through AX; a second display at another
-  scale.
+  scale. `MacInputListener` likewise: the Input Monitoring prompt; keys under a non-US layout and with Shift;
+  F12 seen with fn held; clicks and drags at the right pixels on a Retina display; the tap surviving a timeout
+  (re-enabled); whether a background (`CGEventPostToPid`) key passes the session tap.
 - **macOS: `CGWindowListCreateImage` is deprecated** (macOS 14) in favour of ScreenCaptureKit, which has only
   an Objective-C/Swift async API. When a macOS release stops answering it, capture needs an SCK bridge (a
   small helper binary, or the Objective-C runtime through JNA).

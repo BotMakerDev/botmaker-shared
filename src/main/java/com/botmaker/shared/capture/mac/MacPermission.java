@@ -5,11 +5,13 @@ import com.botmaker.shared.Diag;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * The two macOS privacy grants the controller needs, and what to tell the user when one is missing.
+ * The macOS privacy grants BotMaker needs, and what to tell the user when one is missing: Screen Recording and
+ * Accessibility for the controller, Input Monitoring for the global input listener.
  *
  * <p>macOS never fails these calls: without Screen Recording a window image shows the desktop instead of the
- * window, and without Accessibility a posted event simply vanishes. So the controller asks first, and when the
- * answer is no it says so once, by name, with the pane that grants it, and asks macOS for its own prompt.
+ * window, without Accessibility a posted event simply vanishes, and without Input Monitoring an event tap sees
+ * the mouse but no key. So the caller asks first, and when the answer is no it says so once, by name, with the
+ * pane that grants it, and asks macOS for its own prompt.
  *
  * <p>A grant belongs to the app that launched the process: BotMaker Studio for a bot it runs, the terminal for
  * a bot started from one. A grant takes effect when that app is restarted.
@@ -17,7 +19,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public enum MacPermission {
 
     SCREEN_RECORDING("Screen Recording", "Privacy_ScreenCapture"),
-    ACCESSIBILITY("Accessibility", "Privacy_Accessibility");
+    ACCESSIBILITY("Accessibility", "Privacy_Accessibility"),
+    INPUT_MONITORING("Input Monitoring", "Privacy_ListenEvent");
 
     private final String displayName;
     private final String pane;
@@ -44,6 +47,7 @@ public enum MacPermission {
         return switch (this) {
             case SCREEN_RECORDING -> CoreGraphics.INSTANCE.CGPreflightScreenCaptureAccess() != 0;
             case ACCESSIBILITY -> Accessibility.INSTANCE.AXIsProcessTrusted() != 0;
+            case INPUT_MONITORING -> CoreGraphics.INSTANCE.CGPreflightListenEventAccess() != 0;
         };
     }
 
@@ -51,7 +55,7 @@ public enum MacPermission {
      * Whether it is granted; when it is not, says so once per process and asks macOS to prompt. Callers then go
      * ahead or give up as their contract says (a capture answers {@code null}).
      */
-    boolean check() {
+    public boolean check() {
         // A grant held a moment ago still holds: every posted event checks, and each check is a call into TCC.
         long now = System.currentTimeMillis();
         if (now - grantedAt < GRANT_FRESH_MS) {
@@ -68,7 +72,7 @@ public enum MacPermission {
         return false;
     }
 
-    String hint() {
+    public String hint() {
         return "BotMaker needs the " + displayName + " permission: System Settings › Privacy & Security › "
                 + displayName + ", turn on the app that started this run (BotMaker Studio, or your terminal), "
                 + "then restart that app.";
@@ -78,6 +82,7 @@ public enum MacPermission {
         switch (this) {
             case SCREEN_RECORDING -> CoreGraphics.INSTANCE.CGRequestScreenCaptureAccess();
             case ACCESSIBILITY -> MacAx.promptForTrust();
+            case INPUT_MONITORING -> CoreGraphics.INSTANCE.CGRequestListenEventAccess();
         }
     }
 }

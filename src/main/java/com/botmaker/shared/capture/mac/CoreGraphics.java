@@ -1,11 +1,13 @@
 package com.botmaker.shared.capture.mac;
 
+import com.sun.jna.Callback;
 import com.sun.jna.Library;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 import com.sun.jna.platform.mac.CoreFoundation.CFArrayRef;
 import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.LongByReference;
 
 /**
  * The slice of CoreGraphics the macOS controller calls: the window list, window images, displays, and events.
@@ -16,8 +18,11 @@ import com.sun.jna.ptr.IntByReference;
  *
  * <p>Coordinates are CoreGraphics' global <b>points</b>, top-left origin at the main display's corner. The
  * controller speaks pixels; {@link MacDisplays} converts.
+ *
+ * <p>Public for {@code input.mac.MacInputListener}, which reads events off a tap with the same calls; one
+ * binding per library, so a mapping fixed here is fixed for both.
  */
-interface CoreGraphics extends Library {
+public interface CoreGraphics extends Library {
 
     CoreGraphics INSTANCE = Native.load("CoreGraphics", CoreGraphics.class);
 
@@ -186,9 +191,54 @@ interface CoreGraphics extends Library {
     /** Into one process's event queue: the cursor stays put and the app need not be in front. */
     void CGEventPostToPid(int pid, Pointer event);
 
+    // --- Event taps (the input listener) ---
+
+    /** The session tap: every event of the user's login session, after the window server routes it. */
+    int kCGSessionEventTap = 1;
+    int kCGHeadInsertEventTap = 0;
+    /** Observes only: the tap can neither change nor swallow an event. */
+    int kCGEventTapOptionListenOnly = 1;
+    /** Pseudo-events a tap gets when macOS turned it off; it is turned back on. */
+    int kCGEventTapDisabledByTimeout = 0xFFFFFFFE;
+    int kCGEventTapDisabledByUserInput = 0xFFFFFFFF;
+
+    int kCGEventKeyDown = 10;
+    int kCGEventKeyUp = 11;
+    int kCGEventScrollWheel = 22;
+
+    int kCGMouseEventButtonNumber = 3;
+    int kCGKeyboardEventKeycode = 9;
+    int kCGScrollWheelEventDeltaAxis1 = 11;
+    /** 1 for a trackpad or Magic Mouse scroll, which comes as many small pixel steps instead of lines. */
+    int kCGScrollWheelEventIsContinuous = 88;
+    int kCGScrollWheelEventPointDeltaAxis1 = 96;
+    /** Non-zero while a scroll coasts on after the fingers left the trackpad. */
+    int kCGScrollWheelEventMomentumPhase = 123;
+
+    interface TapCallback extends Callback {
+        /** Answers the event; a listen-only tap's answer is ignored, but it must not be null. */
+        Pointer invoke(Pointer proxy, int type, Pointer event, Pointer userInfo);
+    }
+
+    Pointer CGEventTapCreate(int tap, int place, int options, long eventsOfInterest, TapCallback callback,
+                             Pointer userInfo);
+
+    void CGEventTapEnable(Pointer tap, boolean enable);
+
+    long CGEventGetIntegerValueField(Pointer event, int field);
+
+    /** {@code UniCharCount} is {@code long}; the buffer is {@code short[]}, as for the setter. */
+    void CGEventKeyboardGetUnicodeString(Pointer event, long maxLength, LongByReference actualLength,
+                                         short[] buffer);
+
     // --- Permissions (macOS 10.15+) ---
 
     byte CGPreflightScreenCaptureAccess();
 
     byte CGRequestScreenCaptureAccess();
+
+    /** Input Monitoring: what a listen-only event tap needs to see key presses. */
+    byte CGPreflightListenEventAccess();
+
+    byte CGRequestListenEventAccess();
 }

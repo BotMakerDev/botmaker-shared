@@ -44,7 +44,14 @@ Package map:
   Input: `MacInput` — background is `CGEventPostToPid` into the app's queue, take-over is `CGEventPost` at the
   HID tap. Capture: `MacCapture` (`CGWindowListCreateImage`, deprecated since macOS 14 but still answering).
   `MacDisplays` keeps every coordinate in pixels (Retina is 2×). `MacPermission` says once, by name, when
-  Screen Recording or Accessibility is missing. A window's rect is its frame, title bar included.
+  Screen Recording, Accessibility or Input Monitoring is missing. A window's rect is its frame, title bar
+  included.
+- `input/` — the global input listener (`InputListener`, `InputEvent`, `InputListenerFactory`), passive, for
+  the Studio recorder and stop key. `input/linux/X11InputListener` over XRecord; `input/mac/MacInputListener`
+  over a listen-only CoreGraphics event tap (the `capture.mac.CoreGraphics` binding) on its own run-loop
+  thread (`RunLoops`). Both report pixels, X
+  button numbers and X keysyms (a Mac key reads back through `MacKeyCodes.toKeysym`); `KeyNames` names a
+  keysym where no libX11 can.
 - `opencv/` — matching engines: `OpencvManager` (template matching), `ColorMatcher` (CIELAB ΔE clusters),
   `ResolutionScaler`, the raw results `RawMatch`/`RawColorMatch`, and `OpenCvNative` — **the** process-wide
   OpenCV loader (see below).

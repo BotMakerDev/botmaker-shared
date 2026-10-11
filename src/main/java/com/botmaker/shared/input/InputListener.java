@@ -5,7 +5,8 @@ import java.util.function.Consumer;
 /**
  * Observes real (human) mouse/keyboard input globally and streams {@link InputEvent}s to a sink. Passive:
  * it never intercepts or blocks input, so events still reach the focused application normally. Obtained via
- * {@link InputListenerFactory}. Backed by X11 XRecord on Linux; unsupported elsewhere (see
+ * {@link InputListenerFactory}. Backed by X11 XRecord on Linux and a CoreGraphics event tap on macOS;
+ * unsupported elsewhere (see
  * {@link InputListenerFactory#isSupported()}).
  *
  * <p>Lifecycle: {@link #start(Consumer)} spins up a background thread that delivers events (off any UI

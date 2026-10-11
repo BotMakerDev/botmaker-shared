@@ -23,7 +23,7 @@ import java.util.List;
  * points still touch in pixels instead of overlapping: the monitor starts where the laptop's pixels end. A
  * frame pixel plus its window's corner reads back to the point it shows, on whichever display it is.
  */
-final class MacDisplays {
+public final class MacDisplays {
 
     /** One display: its bounds in points and its pixels per point. */
     record Display(Rectangle2D points, double scale) {
@@ -46,7 +46,7 @@ final class MacDisplays {
      * The displays, read at most once a second: every gesture converts coordinates, and a display arrangement
      * changes far less often than a bot clicks.
      */
-    static MacDisplays current() {
+    public static MacDisplays current() {
         long now = System.currentTimeMillis();
         MacDisplays c = cached;
         if (c == null || now - cachedAt > CACHE_MS) {
@@ -125,7 +125,7 @@ final class MacDisplays {
                 p.getY() * mainScale + (y - p.getY()) * d.scale());
     }
 
-    Point toPixels(double x, double y) {
+    public Point toPixels(double x, double y) {
         Point2D px = toPixels2D(x, y, atPoint(x, y));
         return new Point((int) Math.floor(px.getX()), (int) Math.floor(px.getY()));
     }

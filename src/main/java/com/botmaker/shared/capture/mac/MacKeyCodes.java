@@ -14,8 +14,11 @@ import java.util.Map;
  * <p>Key codes name a physical key on an ANSI keyboard, as {@code kVK_ANSI_*} do; letters map whatever their
  * case, the way {@code Key} uses the lowercase keysym for the key. {@code Alt} is Option and {@code Meta}/Super
  * is Command. A keysym with no Mac key answers {@link #NONE}.
+ *
+ * <p>The input listener reads the table backwards ({@link #toKeysym}), so the stop key and the recorder compare
+ * the same keysyms on a Mac as on Linux.
  */
-final class MacKeyCodes {
+public final class MacKeyCodes {
 
     static final int NONE = -1;
 
@@ -25,6 +28,7 @@ final class MacKeyCodes {
     static final long FLAG_COMMAND = 0x100000;
 
     private static final Map<Integer, Integer> BY_KEYSYM = new HashMap<>();
+    private static final Map<Integer, Integer> BY_KEY = new HashMap<>();
 
     static {
         // Letters, ANSI positions (kVK_ANSI_A = 0x00 …), lowercase keysyms; uppercase added below.
@@ -95,6 +99,15 @@ final class MacKeyCodes {
         put(0xFFAF, 0x4B); // KP_Divide
         put(0xFFAE, 0x41); // KP_Decimal
         put(0xFF8D, 0x4C); // KP_Enter
+
+        // Backwards. Two keysyms share a key only for letters (a key is its lowercase keysym, as in Key) and
+        // Command (Super, the keysym Linux reports for that key); those are set after the copy.
+        BY_KEYSYM.forEach((keysym, keyCode) -> BY_KEY.put(keyCode, keysym));
+        for (int i = 0; i < 26; i++) {
+            BY_KEY.put(letters[i], 'a' + i);
+        }
+        BY_KEY.put(0x37, 0xFFEB);
+        BY_KEY.put(0x36, 0xFFEC);
     }
 
     private MacKeyCodes() {
@@ -109,11 +122,17 @@ final class MacKeyCodes {
         return BY_KEYSYM.getOrDefault(keysym, NONE);
     }
 
+    /** The keysym of Mac key {@code keyCode}, unshifted (a letter is lowercase), or 0 (X's NoSymbol). */
+    public static long toKeysym(int keyCode) {
+        return BY_KEY.getOrDefault(keyCode, 0);
+    }
+
     /**
      * The modifier flag a Mac key holds down, or 0. Synthetic events carry no modifier state of their own, so
-     * the controller adds the flags of the modifiers it is holding to every event it posts.
+     * the controller adds the flags of the modifiers it is holding to every event it posts; the listener reads
+     * a modifier's press or release off its flag.
      */
-    static long flagOf(int keyCode) {
+    public static long flagOf(int keyCode) {
         return switch (keyCode) {
             case 0x38, 0x3C -> FLAG_SHIFT;
             case 0x3B, 0x3E -> FLAG_CONTROL;

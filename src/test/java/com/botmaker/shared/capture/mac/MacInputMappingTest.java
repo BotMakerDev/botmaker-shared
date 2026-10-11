@@ -46,6 +46,24 @@ class MacInputMappingTest {
     }
 
     @Test
+    void keysReadBackToTheKeysymsLinuxReports() {
+        assertEquals('a', MacKeyCodes.toKeysym(0x00), "a letter is its lowercase keysym");
+        assertEquals('z', MacKeyCodes.toKeysym(0x06));
+        assertEquals(0xFFC9, MacKeyCodes.toKeysym(0x6F), "F12");
+        assertEquals(0xFFD0, MacKeyCodes.toKeysym(0x50), "F19");
+        assertEquals(0xFFEB, MacKeyCodes.toKeysym(0x37), "Command is Super, as Linux names that key");
+        assertEquals(0xFFE9, MacKeyCodes.toKeysym(0x3A), "Option is Alt");
+        assertEquals(0, MacKeyCodes.toKeysym(0x3F), "fn has no keysym");
+        for (int key = 0; key < 0x80; key++) {
+            long keysym = MacKeyCodes.toKeysym(key);
+            if (keysym != 0) {
+                assertEquals(key, MacKeyCodes.fromKeysym((int) keysym),
+                        "round trip of key 0x" + Integer.toHexString(key));
+            }
+        }
+    }
+
+    @Test
     void buttonsMapToCoreGraphicsNumbersAndEvents() {
         assertEquals(0, MacInput.cgButton(1));
         assertEquals(2, MacInput.cgButton(2));

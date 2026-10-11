@@ -41,10 +41,10 @@ public enum Os {
         }
     },
 
-    /** Linux — the only platform with a native input listener, and the only one Waydroid runs on. */
+    /** Linux — the only platform Waydroid runs on; input listener over X11 XRecord. */
     LINUX("Linux"),
 
-    /** macOS: {@code MacController} (CoreGraphics + Accessibility); no native input listener yet. */
+    /** macOS: {@code MacController} (CoreGraphics + Accessibility); input listener over a CoreGraphics event tap. */
     MAC("macOS") {
         @Override
         public List<String> openCommand(String uri) {

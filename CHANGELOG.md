@@ -24,6 +24,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   tap. Coordinates are pixels (Retina 2×), and a window's rect is its frame, title bar included. Keys arrive
   as X keysyms and are translated to Mac key codes (Alt is Option, Meta is Command). A missing Screen
   Recording or Accessibility grant is named once, with its System Settings pane. Untried on a Mac.
+- **A global input listener on macOS (`input.mac.MacInputListener`)**, a listen-only CoreGraphics event tap,
+  so `InputListenerFactory.isSupported()` is true on a Mac. Events read as Linux's: pixels, X button numbers,
+  and X keysyms that follow the keyboard layout and Shift. It refuses to start without Input Monitoring,
+  naming the pane (`MacPermission.INPUT_MONITORING`). Untried on a Mac.
+- `input.KeyNames`: X's names for function and editing keys (`Pause`, `F12`, `Scroll Lock`) where there is no
+  libX11; a character is named by itself.
 
 ### Changed
 
