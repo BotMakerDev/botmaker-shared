@@ -143,6 +143,14 @@ public final class Diag {
         emit(TelemetryEvent.Log.WARN, Origin.named(source), message, 1, null, null);
     }
 
+    /**
+     * Prints and traces {@code message} under {@code source}, whether diagnostics are on or off: no failure, but a
+     * fact a quiet run must still report, because the host acts on it (the SDK's setup being done on this machine).
+     */
+    public static void info(String source, String message) {
+        emit(TelemetryEvent.Log.INFO, Origin.named(source), message, 1, null, null);
+    }
+
     /** Prints {@code message} to stderr, and traces it, whether diagnostics are on or off. */
     public static void error(String message) {
         error("", message);

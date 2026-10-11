@@ -21,6 +21,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `Diag.info(source, message)`: a line printed and traced at the info level whether diagnostics are on or off,
+  for a fact the host acts on (the SDK's "setup done").
 - A manual `macos` CI job (Actions tab) runs the suite on Apple Silicon, the first step of the macOS port.
 - **macOS window plumbing (`capture.mac.MacController`)**, through C APIs only. Windows are listed from
   CoreGraphics, captured with `CGWindowListCreateImage` (works on covered windows), and raised, moved and
