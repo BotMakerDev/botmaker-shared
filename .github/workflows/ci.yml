@@ -28,6 +28,32 @@ jobs:
       - name: Build
         run: mvn -B -DskipTests package
 
+  # The suite on Apple Silicon, the one place it runs on macOS: the maintainer has no Mac. Off the push
+  # path like the rest of the suite — **run it from the Actions tab** (Run workflow). A runner grants no
+  # Screen Recording or Accessibility, so it proves compile, natives loading and pure logic, never capture
+  # or input.
+  macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Test
+        run: mvn -B test
+
+      - name: Upload surefire reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: surefire-reports-macos
+          path: target/surefire-reports/
+
   # JitPack builds the artifact itself from the pushed tag; this just asks it to start eagerly so the first
   # consumer (the SDK / Studio build) doesn't wait. No secrets required.
   jitpack:
