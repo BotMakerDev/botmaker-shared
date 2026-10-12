@@ -52,6 +52,12 @@ public final class WindowMatch {
     private WindowMatch() {
     }
 
+    /** Whether {@code window} is one of BotMaker's own, by its title ({@link #OWN_TITLE_PREFIX}). */
+    public static boolean isOwn(GenericWindow window) {
+        String title = window == null ? null : window.getTitle();
+        return title != null && title.trim().toLowerCase().startsWith(OWN_TITLE_PREFIX);
+    }
+
     /** The single best window for {@code needle}, or {@code null} if none contains it. */
     public static GenericWindow best(Iterable<GenericWindow> windows, String needle) {
         List<GenericWindow> ranked = ranked(windows, needle);
@@ -82,7 +88,7 @@ public final class WindowMatch {
                 continue;
             }
             String lower = title.trim().toLowerCase();
-            if (!wantsOwn && lower.startsWith(OWN_TITLE_PREFIX)) {
+            if (!wantsOwn && isOwn(w)) {
                 continue;
             }
             int tier = tier(lower, want);

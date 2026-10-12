@@ -1,8 +1,6 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
-import com.botmaker.shared.capture.GenericWindow;
-import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.emulator.WindowsRegistry;
 
 import java.nio.charset.StandardCharsets;
@@ -316,30 +314,6 @@ public final class RunningProbe {
             return true;
         }
         return List.of(args).contains(verb);
-    }
-
-    /**
-     * True when a window titled after {@code token} is open — asked of the OS through
-     * {@code NativeController.getAllWindows()}, <em>not</em> of any capture source, so it answers whatever
-     * the project happens to capture (the desktop, a monitor, an emulator).
-     */
-    public static boolean windowTitled(String token) {
-        if (token == null || token.isBlank()) {
-            return false;
-        }
-        String needle = token.trim().toLowerCase(Locale.ROOT);
-        try {
-            for (GenericWindow w : NativeControllerFactory.get().getAllWindows()) {
-                String title = w.getTitle();
-                if (title != null && title.toLowerCase(Locale.ROOT).contains(needle)) {
-                    return true;
-                }
-            }
-        } catch (Exception e) {
-            // Includes the UnsupportedOperationException macOS's absent backend throws.
-            Diag.log("[Target] window scan for '" + token + "' failed: " + e.getMessage());
-        }
-        return false;
     }
 
     /**

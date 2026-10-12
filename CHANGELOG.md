@@ -14,6 +14,21 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **A window carries its class and its process.** `GenericWindow.getWindowClass()` is X11's `WM_CLASS` (the
+  application, the same on every computer whatever the title says), the owning program's file name on Windows
+  and the owning app on macOS; `getPid()` the owning process.
+- **`launch.GameWindows` says which window is a launch target's game:** a window of the class the bot names,
+  else one the game's processes own (a Flatpak sandbox's pids included). A window only titled after the game is
+  `Unsure`, for a person to be asked about — never the game's by default.
+
+### Changed
+
+- **A window titled after a game no longer counts as the game running** (`Launcher.isRunning`). Only an open
+  window of the bot's class does (`isRunning(spec, windowClass)`); a title-only one is traced. Studio's "BotMaker
+  Blocks - Firestone" had made a closed Firestone look running. `RunningProbe.windowTitled` is gone.
+
 ### Fixed
 
 - **`UriLauncher` no longer uses AWT on Linux.** `Desktop.browse` inside a JavaFX process could hang its caller;

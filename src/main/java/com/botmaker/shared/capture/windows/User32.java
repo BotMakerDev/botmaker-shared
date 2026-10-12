@@ -23,6 +23,7 @@ public interface User32 extends StdCallLibrary {
     /* ---------  text / geometry  --------- */
 
     int  GetWindowTextA(Pointer hWnd, byte[] lpString, int nMax);
+    int  GetWindowThreadProcessId(Pointer hWnd, int[] lpdwProcessId);
     Pointer FindWindowA(String lpClass, String lpName);
     boolean GetWindowRect(Pointer hWnd, RECT rect);
     boolean GetClientRect(HWND hWnd, RECT rect);

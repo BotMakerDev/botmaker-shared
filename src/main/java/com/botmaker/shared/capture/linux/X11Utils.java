@@ -47,6 +47,26 @@ public class X11Utils {
     }
 
     /**
+     * {@code window}'s application class from {@code WM_CLASS} — the class half ({@code "steam"},
+     * {@code "org.mozilla.firefox"}), else the instance half — or null when it sets none. What a window manager
+     * tells applications apart by; it does not change with the title, the language or the version.
+     */
+    public static String getWindowClass(Pointer display, Pointer window) {
+        if (window == null || Pointer.nativeValue(window) == 0) return null;
+        return classOf(getWindowProperty(display, window, "WM_CLASS", "STRING"));
+    }
+
+    /** The class from a raw {@code WM_CLASS} value: {@code instance\0class}, the class preferred. */
+    static String classOf(String wmClass) {
+        if (wmClass == null) return null;
+        String[] parts = wmClass.split("\0");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            if (!parts[i].isBlank()) return parts[i].trim();
+        }
+        return null;
+    }
+
+    /**
      * Get a window property as a string
      */
     public static String getWindowProperty(Pointer display, Pointer window, String propertyName, String typeName) {

@@ -141,18 +141,23 @@ public final class Launcher {
      *   <li>any live process whose command line mentions one of the spec's {@link #runningTokens tokens},
      *       deliberately matching the wrapper a launcher-started game runs under — and deliberately
      *       <em>not</em> matching the launcher's own UI, see {@link RunningProbe};</li>
-     *   <li>a window titled after one of those tokens, enumerated from the OS.</li>
+     *   <li>an open window of the class the bot names ({@code windowClass}, {@link GameWindows}).</li>
      * </ol>
      *
-     * <p>Every command-line token is tried before any window title, on purpose: the process table is the
-     * stronger evidence (a window can be a launcher's own dialog named after the game), so a cheap-but-weak
-     * layer must not pre-empt a strong one.
+     * <p>A window only <em>titled</em> after the game is no evidence (2026-10-13): Studio's own "BotMaker Blocks -
+     * Firestone" made a closed Firestone look running, the launch was skipped, and the bot clicked in Studio. It
+     * is traced, and the caller launches.
      *
      * <p>Known gap, accepted knowingly: for the ~second between a launcher hand-off and the wrapper process
      * appearing, every layer is legitimately false, so a caller polling in a tight loop could launch twice.
      * Waiting on the game's window is the answer for that, and the {@code [Target]} traces make it visible.
      */
     public static boolean isRunning(LaunchSpec spec) {
+        return isRunning(spec, null);
+    }
+
+    /** {@link #isRunning(LaunchSpec)}, also counting an open window of {@code windowClass} (null for none). */
+    public static boolean isRunning(LaunchSpec spec, String windowClass) {
         if (spec == null) {
             return false;
         }
@@ -174,11 +179,16 @@ public final class Launcher {
                 return true;
             }
         }
-        for (String token : tokens) {
-            if (RunningProbe.windowTitled(token)) {
-                Diag.log("[Target] " + spec.spec() + ": a window is titled after '" + token + "'");
+        // The processes were just looked for and none answered, so only the class is left to prove a window.
+        switch (GameWindows.ofClass(spec, windowClass)) {
+            case GameWindows.Proven(var window) -> {
+                Diag.log("[Target] " + spec.spec() + ": its window is open, " + GameWindows.describe(window));
                 return true;
             }
+            case GameWindows.Unsure(var candidates) -> Diag.log("[Target] " + spec.spec() + ": "
+                    + GameWindows.describe(candidates.getFirst()) + " is titled after it, but nothing proves it is"
+                    + " the game's window — not counted as running");
+            case GameWindows.None none -> { }
         }
         return false;
     }
@@ -199,7 +209,7 @@ public final class Launcher {
      * process: Lutris names its wrapper after the game's title ({@link LutrisLibrary}), and an app runs as the
      * program its menu entry names ({@link DesktopEntries}).
      */
-    private static List<String> runningTokens(LaunchSpec spec) {
+    static List<String> runningTokens(LaunchSpec spec) {
         switch (spec.kind()) {
             case HEROIC -> {
                 return HeroicLibrary.runningTokens(spec.token());

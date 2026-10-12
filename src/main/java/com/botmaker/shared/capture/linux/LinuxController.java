@@ -1063,7 +1063,8 @@ public class LinuxController implements NativeController, AutoCloseable {
                 rect = new Rectangle(0, 0, 0, 0);
             }
 
-            return new GenericWindow(window, title != null ? title : "", rect);
+            return new GenericWindow(window, title != null ? title : "", rect, X11Utils.getWindowPid(display, window),
+                    X11Utils.getWindowClass(display, window));
         } catch (Exception e) {
             Diag.error("[Linux] Error converting to GenericWindow: " + e.getMessage());
             return null;

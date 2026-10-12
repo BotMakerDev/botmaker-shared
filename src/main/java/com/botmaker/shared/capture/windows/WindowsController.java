@@ -321,7 +321,22 @@ public class WindowsController implements NativeController {
         if (hwnd == null) return null;
         try (WindowsDpi.Scope dpi = WindowsDpi.physical()) {
             Rectangle client = clientRect(hwnd);
-            return new GenericWindow(hwnd, titleOf(hwnd), client != null ? client : windowRect(hwnd));
+            long pid = pidOf(hwnd);
+            return new GenericWindow(hwnd, titleOf(hwnd), client != null ? client : windowRect(hwnd), pid,
+                    programOf(pid));
         }
+    }
+
+    /** The file name of the program running as {@code pid} — the window's class, see GenericWindow. */
+    private static String programOf(long pid) {
+        return ProcessHandle.of(pid).flatMap(p -> p.info().command())
+                .map(path -> path.substring(Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/')) + 1))
+                .orElse(null);
+    }
+
+    private static long pidOf(HWND hwnd) {
+        int[] pid = new int[1];
+        User32.INSTANCE.GetWindowThreadProcessId(hwnd.getPointer(), pid);
+        return Integer.toUnsignedLong(pid[0]);
     }
 }

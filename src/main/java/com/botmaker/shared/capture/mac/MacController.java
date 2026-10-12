@@ -364,7 +364,7 @@ public class MacController implements NativeController {
     }
 
     private static GenericWindow toGeneric(MacWindow w, MacDisplays displays) {
-        return new GenericWindow(w.ref(), w.title(), displays.toPixels(w.bounds()));
+        return new GenericWindow(w.ref(), w.title(), displays.toPixels(w.bounds()), w.pid(), w.owner());
     }
 
     private static MacWindow.Ref ref(GenericWindow window) {
