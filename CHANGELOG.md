@@ -16,6 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **`UriLauncher` no longer uses AWT on Linux.** `Desktop.browse` inside a JavaFX process could hang its caller;
+  called from a menu on the FX thread, it froze the desktop under the menu's pointer grab. Linux goes straight
+  to `xdg-open`.
 - **A window title never matches BotMaker's own windows** (`WindowMatch.OWN_TITLE_PREFIX`), unless the title
   you name starts with BotMaker. A project named after its game made "Firestone" match Studio's "BotMaker Blocks
   - Firestone" while the game was closed. The launch was skipped as already running, and the bot clicked in

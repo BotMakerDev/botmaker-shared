@@ -10,9 +10,9 @@ import java.util.List;
 /**
  * Opens a URI (e.g. a {@code steam://} protocol URL) through the operating system's registered handler.
  *
- * <p>{@link Desktop#browse(URI)} is tried first but is a silent no-op under many Linux desktop
- * environments (and unsupported headless), so this falls back to the platform's URL opener
- * ({@code xdg-open} / {@code open} / {@code rundll32}). Returns whether a handler was successfully invoked;
+ * <p>{@link Desktop#browse(URI)} is tried first on Windows and macOS only, falling back to the platform's URL
+ * opener ({@code open} / {@code rundll32}); Linux goes straight to {@code xdg-open}, as AWT there is a silent
+ * no-op under many desktops and, inside a JavaFX process, a hang. Returns whether a handler was successfully invoked;
  * never throws.
  *
  * <p>This used to exist twice — once in the SDK ({@code internal.launch.UriLauncher}, for {@code steam://} and
@@ -30,7 +30,11 @@ public final class UriLauncher {
         // Custom protocol schemes (steam://, discord://, …) must go to the OS protocol handler. On Windows
         // Desktop.browse hands them to the default *browser*, which shows a blank page instead of launching
         // Steam — so only use Desktop.browse for real web/file URLs and route everything else natively.
-        if (isWebOrFileScheme(uri) && tryDesktop(uri)) return true;
+        // Never AWT on Linux (2026-10-13): Desktop.browse started AWT's desktop peer inside a JavaFX (GTK) process
+        // and hung the caller — on the FX thread, under a context menu's pointer grab, the whole desktop. xdg-open
+        // is what it would have called anyway.
+        boolean awtIsSafe = Os.current().isWindows() || Os.current().isMac();
+        if (awtIsSafe && isWebOrFileScheme(uri) && tryDesktop(uri)) return true;
         return tryNativeOpener(uri);
     }
 
