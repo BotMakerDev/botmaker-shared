@@ -29,6 +29,15 @@ class WindowMatchTest {
     }
 
     @Test
+    void studiosOwnWindowIsNeverTheGame() {
+        GenericWindow studio = win("BotMaker Blocks - Firestone — ~/BotMakerProjects/Firestone", 1920, 1006);
+        assertNull(WindowMatch.best(List.of(studio), "Firestone"), "the game is closed: nothing matches");
+        GenericWindow game = win("Firestone", 1280, 720);
+        assertSame(game, WindowMatch.best(List.of(studio, game), "Firestone"));
+        assertSame(studio, WindowMatch.best(List.of(studio, game), "BotMaker Blocks"), "asked for by name");
+    }
+
+    @Test
     void exactBeatsPrefixBeatsWholeWordBeatsSubstring() {
         GenericWindow exact = win("Firestone", 800, 600);
         GenericWindow prefix = win("Firestone Idle RPG", 800, 600);

@@ -103,4 +103,37 @@ class MaskedMatchTest {
             bg.release();
         }
     }
+
+    /**
+     * A flat region (a toolbar, a failed capture) under a masked template has no energy, so the masked normed
+     * correlation divides by zero. On 2026-10-12 that scored Infinity on Studio's light toolbar, passed every
+     * threshold, and the bot clicked there.
+     */
+    @Test
+    void aFlatFrameIsNoMatchForAMaskedTemplate(@TempDir Path dir) throws IOException {
+        Path png = dir.resolve("obj.png");
+        ImageIO.write(transparentTemplate(), "png", png.toFile());
+        Mat masked = Imgcodecs.imread(png.toFile().getAbsolutePath(), Imgcodecs.IMREAD_UNCHANGED);
+        for (int rgb : new int[] {0x000000, 0xEEEEEE, 0xF5F6F7, 0x3C3F41}) {
+            // Busy everywhere but a flat block: the correlation runs through a DFT of the whole frame, so the
+            // block's zero energy meets the rest's rounding error.
+            BufferedImage flat = scene(0, 0);
+            for (int y = 20; y < 20 + 3 * TPL_H; y++) {
+                for (int x = 40; x < 40 + 3 * TPL_W; x++) flat.setRGB(x, y, rgb);
+            }
+            Mat bg = OpencvManager.bufferedImageToMat(flat);
+            try {
+                String colour = Integer.toHexString(rgb);
+                assertNull(OpencvManager.findBestMatch(masked, bg, false, 0.8), colour);
+                assertNull(OpencvManager.findBestMatch(masked, bg, true, 0.8), colour + " in grey");
+                RawMatch best = OpencvManager.findBest(masked, bg, false, null);
+                assertTrue(best == null || best.score() < 0.8, colour + ": no peak on the flat block, was " + best);
+                double score = OpencvManager.scoreAround(masked, bg, false, 50, 50, 2);
+                assertTrue(Double.isFinite(score) && score <= 1.0, colour + ": a score is at most 1, was " + score);
+            } finally {
+                bg.release();
+            }
+        }
+        masked.release();
+    }
 }

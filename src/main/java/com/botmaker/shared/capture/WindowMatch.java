@@ -24,8 +24,9 @@ import java.util.List;
  *   <li>the needle appears anywhere as a substring.</li>
  * </ol>
  * Ties break by <b>shortest title</b> (closest to the bare name), then <b>largest on-screen area</b>, then
- * input order (stable). A window with a null/blank title or a null/zero-area rect is not a candidate, and a
- * window whose title does not contain the needle at all never matches.
+ * input order (stable). A window with a null/blank title or a null/zero-area rect is not a candidate, nor is
+ * one of BotMaker's own ({@link #OWN_TITLE_PREFIX}), and a window whose title does not contain the needle at
+ * all never matches.
  */
 public final class WindowMatch {
 
@@ -38,6 +39,15 @@ public final class WindowMatch {
      * which is exactly why they are named once here rather than retyped at the use site.
      */
     private static final String[] SUFFIX_SEPARATORS = {" - ", " – ", " — ", ": "};
+
+    /**
+     * What every BotMaker window's title starts with, lowercased: Studio's editor ({@code "BotMaker Blocks -
+     * <project>"}), its project list, the Dashboard. A game is never one, and a project is usually named after
+     * its game, so such a window is no candidate unless the needle itself names BotMaker. On 2026-10-12
+     * "Firestone" matched Studio's own "BotMaker Blocks - Firestone" while the game was closed: the launch was
+     * skipped as already running, and the bot clicked in Studio.
+     */
+    public static final String OWN_TITLE_PREFIX = "botmaker";
 
     private WindowMatch() {
     }
@@ -55,6 +65,7 @@ public final class WindowMatch {
             return out;
         }
         String want = needle.trim().toLowerCase();
+        boolean wantsOwn = want.startsWith(OWN_TITLE_PREFIX);
 
         List<Scored> scored = new ArrayList<>();
         int order = 0;
@@ -70,7 +81,11 @@ public final class WindowMatch {
             if (area <= 0) {
                 continue;
             }
-            int tier = tier(title.trim().toLowerCase(), want);
+            String lower = title.trim().toLowerCase();
+            if (!wantsOwn && lower.startsWith(OWN_TITLE_PREFIX)) {
+                continue;
+            }
+            int tier = tier(lower, want);
             if (tier != NO_MATCH) {
                 scored.add(new Scored(w, tier, title.trim().length(), area, order++));
             }

@@ -14,7 +14,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
-No source changes since v0.2.5; re-released for updated upstream pins.
+### Fixed
+
+- **A window title never matches BotMaker's own windows** (`WindowMatch.OWN_TITLE_PREFIX`), unless the title
+  you name starts with BotMaker. A project named after its game made "Firestone" match Studio's "BotMaker Blocks
+  - Firestone" while the game was closed. The launch was skipped as already running, and the bot clicked in
+  Studio.
+- **A masked picture match can no longer score Infinity.** A flat region (a toolbar) under a template with
+  transparency left the whole-frame correlation dividing by zero. The score came out as ±Infinity, passed every
+  threshold, and was clicked. A score outside [-1, 1] now counts as 0.
 
 ### Build
 

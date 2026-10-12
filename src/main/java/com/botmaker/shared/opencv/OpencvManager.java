@@ -5,6 +5,7 @@ import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.Point;
+import org.opencv.core.Scalar;
 import org.opencv.imgproc.Imgproc;
 
 import java.awt.Dimension;
@@ -119,10 +120,56 @@ public final class OpencvManager {
                 if (shaped != mask) shaped.release();
             }
             // A masked normed correlation divides by the masked energy, so a region the mask reduces to a
-            // constant yields NaN — which then wins or loses comparisons unpredictably. Pin those to 0.
+            // constant yields NaN — which then wins or loses comparisons unpredictably — or, when the
+            // whole-frame DFT leaves rounding error in that region, ±Infinity, which passed every threshold
+            // (2026-10-12: the bot clicked a flat toolbar at "confidence Infinity"). Pin both to 0.
             Core.patchNaNs(result, 0.0);
+            pinImpossible(result);
         } finally {
             if (mask != null) mask.release();
+        }
+    }
+
+    /** A normed correlation lies in [-1, 1]: anything past it (±Infinity, a blow-up) is no match, so 0. */
+    private static void pinImpossible(Mat result) {
+        Mat outside = new Mat();
+        Mat below = new Mat();
+        try {
+            Core.compare(result, new Scalar(1.0 + IMPOSSIBLE_MARGIN), outside, Core.CMP_GT);
+            Core.compare(result, new Scalar(-1.0 - IMPOSSIBLE_MARGIN), below, Core.CMP_LT);
+            Core.bitwise_or(outside, below, outside);
+            result.setTo(new Scalar(0.0), outside);
+        } finally {
+            outside.release();
+            below.release();
+        }
+    }
+
+    /** Rounding a real 1.0 may overshoot by; past it a score is impossible. */
+    private static final double IMPOSSIBLE_MARGIN = 1e-3;
+
+    /** How many flat peaks a search drops before it takes what is left. */
+    private static final int FLAT_PEAK_TRIES = 8;
+
+    /** Below this standard deviation in every channel, 0–255, a patch is one colour: nothing to match. */
+    private static final double FLAT_SD = 1.0;
+
+    /** Whether {@code background}'s {@code w}×{@code h} patch at {@code (x, y)} is a single colour. */
+    private static boolean flat(Mat background, int x, int y, int w, int h) {
+        if (x < 0 || y < 0 || x + w > background.cols() || y + h > background.rows()) return false;
+        Mat patch = background.submat(y, y + h, x, x + w);
+        org.opencv.core.MatOfDouble mean = new org.opencv.core.MatOfDouble();
+        org.opencv.core.MatOfDouble sd = new org.opencv.core.MatOfDouble();
+        try {
+            Core.meanStdDev(patch, mean, sd);
+            for (double channel : sd.toArray()) {
+                if (channel >= FLAT_SD) return false;
+            }
+            return true;
+        } finally {
+            patch.release();
+            mean.release();
+            sd.release();
         }
     }
 
@@ -223,6 +270,21 @@ public final class OpencvManager {
 
             runMatch(localBackground, localTemplate, resultMat, grayscale);
             Core.MinMaxLocResult mmr = Core.minMaxLoc(resultMat);
+            // A flat patch has nothing to correlate with: its score is the division's rounding error, which can
+            // land anywhere in range. Such a peak is dropped and the next one taken.
+            for (int tries = 0; tries < FLAT_PEAK_TRIES && mmr.maxVal > 0
+                    && flat(localBackground, (int) mmr.maxLoc.x, (int) mmr.maxLoc.y,
+                    localTemplate.cols(), localTemplate.rows()); tries++) {
+                // The whole flat stretch around it goes, not the one cell: its neighbours are the same noise.
+                int x0 = Math.max(0, (int) mmr.maxLoc.x - localTemplate.cols() / 2);
+                int y0 = Math.max(0, (int) mmr.maxLoc.y - localTemplate.rows() / 2);
+                int x1 = Math.min(resultMat.cols(), x0 + localTemplate.cols());
+                int y1 = Math.min(resultMat.rows(), y0 + localTemplate.rows());
+                Mat around = resultMat.submat(y0, y1, x0, x1);
+                around.setTo(new Scalar(0.0));
+                around.release();
+                mmr = Core.minMaxLoc(resultMat);
+            }
             Point loc = mmr.maxLoc;
             return new RawMatch((int) loc.x, (int) loc.y, localTemplate.cols(), localTemplate.rows(), mmr.maxVal);
         } finally {
