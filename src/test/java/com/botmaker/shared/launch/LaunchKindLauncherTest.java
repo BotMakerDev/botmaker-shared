@@ -21,6 +21,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class LaunchKindLauncherTest {
 
+    /** What each system can launch: a bot lists launchers, and a run takes the first its system runs. */
+    @Test
+    void eachKindRunsOnTheSystemsThatCanStartIt() {
+        for (com.botmaker.shared.platform.Os os : com.botmaker.shared.platform.Os.values()) {
+            boolean known = os != com.botmaker.shared.platform.Os.UNKNOWN;
+            assertEquals(known, LaunchKind.STEAM.runsOn(os), "Steam on " + os);
+            assertEquals(known, LaunchKind.EMULATOR_APP.runsOn(os), "an emulator app on " + os);
+            assertFalse(LaunchKind.UNKNOWN.runsOn(os));
+        }
+        assertTrue(LaunchKind.FAUGUS.runsOn(com.botmaker.shared.platform.Os.LINUX));
+        assertFalse(LaunchKind.FAUGUS.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
+        assertFalse(LaunchKind.DESKTOP.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
+        assertTrue(LaunchKind.EPIC.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
+        assertFalse(LaunchKind.EPIC.runsOn(com.botmaker.shared.platform.Os.LINUX));
+        assertFalse(LaunchKind.STEAM.runsOn(null));
+    }
+
+    /** An executable answers by its file, and an app in Waydroid by its instance. */
+    @Test
+    void aSpecNarrowsItsKindByWhatItNames() {
+        com.botmaker.shared.platform.Os linux = com.botmaker.shared.platform.Os.LINUX;
+        com.botmaker.shared.platform.Os windows = com.botmaker.shared.platform.Os.WINDOWS;
+        assertTrue(LaunchSpec.parse("exe:C:\\Games\\Game.exe").runsOn(windows));
+        assertFalse(LaunchSpec.parse("exe:C:\\Games\\Game.exe").runsOn(linux));
+        assertTrue(LaunchSpec.parse("exe:/opt/game/run.sh").runsOn(linux));
+        assertFalse(LaunchSpec.parse("exe:/opt/game/run.sh").runsOn(windows));
+        assertTrue(LaunchSpec.parse("emu-app:com.game@Waydroid").runsOn(linux));
+        assertFalse(LaunchSpec.parse("emu-app:com.game@Waydroid").runsOn(windows));
+        assertTrue(LaunchSpec.parse("heroic:Fortnite").runsOn(linux));
+    }
+
     /**
      * {@code routesThroughDaemon} is derived from {@link LaunchKind#processNames()}, not declared — so "we
      * know what its daemon is called" and "it has a daemon" are one fact and cannot disagree.

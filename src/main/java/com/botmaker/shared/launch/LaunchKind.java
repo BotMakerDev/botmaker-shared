@@ -1,5 +1,7 @@
 package com.botmaker.shared.launch;
 
+import com.botmaker.shared.platform.Os;
+
 import java.util.Set;
 
 /**
@@ -130,6 +132,25 @@ public enum LaunchKind {
      */
     public boolean runsOffDesktop() {
         return this == EMULATOR_APP;
+    }
+
+    /**
+     * Whether a computer running {@code os} can launch this kind at all — what a bot listing several launchers
+     * picks its first workable one by, so a bot's author lists the launchers and never a platform. Steam, Heroic,
+     * a command, an executable and an emulator app run on Linux, Windows and a Mac; Faugus and Lutris are Linux's;
+     * a desktop entry is started by {@code gtk-launch} or {@code open -a}, so not on Windows; Epic's own launcher
+     * is Windows' and the Mac's (Linux reaches Epic through Heroic). Says nothing of what is installed. An
+     * executable or a Waydroid app narrows this by its spec: ask {@link LaunchSpec#runsOn}.
+     */
+    public boolean runsOn(Os os) {
+        if (os == null) return false;
+        return switch (this) {
+            case STEAM, HEROIC, CLI, EXE, EMULATOR_APP -> os != Os.UNKNOWN;
+            case FAUGUS, LUTRIS -> os == Os.LINUX;
+            case DESKTOP -> os == Os.LINUX || os == Os.MAC;
+            case EPIC -> os == Os.WINDOWS || os == Os.MAC;
+            case UNKNOWN -> false;
+        };
     }
 
     /** The kind for {@code id}, case-insensitively; {@link #UNKNOWN} for anything else. Never throws. */

@@ -21,6 +21,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   `429 Too Many Requests` no longer loses a tag. The statx shim comes with it. v0.2.4 never built on JitPack:
   all five tries of the Maven tarball from Central got 429.
 
+### Added
+
+- **`LaunchSpec.runsOn(Os)` / `LaunchKind.runsOn(Os)`**: whether a system can launch a target at all — Faugus and
+  Lutris are Linux's, a desktop entry not Windows', Epic's own launcher Windows' and the Mac's, an executable by
+  its file (`.exe` Windows, `.app` Mac, else Linux or Mac), an app in Waydroid Linux's. What a bot listing several
+  launchers picks its first workable one by.
+
 ## [0.2.4] — 2026-10-12
 
 ### Changed

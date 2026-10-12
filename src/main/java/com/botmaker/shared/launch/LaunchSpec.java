@@ -1,6 +1,7 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.emulator.WaydroidPlatform;
+import com.botmaker.shared.platform.Os;
 
 /**
  * A parsed {@code launch.target} spec — the {@code <kind>:<token>} string a bot is started with (the
@@ -114,6 +115,27 @@ public record LaunchSpec(LaunchKind kind, String token) {
     public String emulatorInstance() {
         int at = emulatorSplit();
         return at < 0 ? null : token.substring(at + 1).trim();
+    }
+
+    /**
+     * Whether a computer running {@code os} can launch <em>this</em> target — {@link LaunchKind#runsOn} narrowed by
+     * what the spec names, and the form a bot listing several launchers picks its first workable one by. An
+     * executable answers by its file: a {@code .exe}, {@code .bat} or {@code .cmd} is Windows', an {@code .app}
+     * bundle the Mac's, and anything else a Unix binary for Linux or a Mac. An app in Waydroid is Linux's.
+     */
+    public boolean runsOn(Os os) {
+        if (!kind.runsOn(os)) return false;
+        if (kind == LaunchKind.EXE) {
+            String file = fileName().toLowerCase(java.util.Locale.ROOT);
+            if (file.endsWith(".exe") || file.endsWith(".bat") || file.endsWith(".cmd")) return os == Os.WINDOWS;
+            if (file.endsWith(".app")) return os == Os.MAC;
+            return os == Os.LINUX || os == Os.MAC;
+        }
+        if (kind == LaunchKind.EMULATOR_APP) {
+            String instance = emulatorInstance();
+            if (instance != null && instance.equalsIgnoreCase(WaydroidPlatform.INSTANCE_NAME)) return os == Os.LINUX;
+        }
+        return true;
     }
 
     /**
