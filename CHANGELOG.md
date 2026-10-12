@@ -12,6 +12,15 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Build
+
+- **JitPack builds with `.jitpack/build.sh`**, the umbrella's `tools/jitpack/build.sh`: Maven 3.9.9 and every
+  dependency from Google's mirror of Maven Central first, with backoff and Maven's 429 retry, so Central's
+  `429 Too Many Requests` no longer loses a tag. The statx shim comes with it. v0.2.4 never built on JitPack:
+  all five tries of the Maven tarball from Central got 429.
+
 ## [0.2.4] — 2026-10-12
 
 ### Changed
