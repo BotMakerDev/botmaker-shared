@@ -235,12 +235,13 @@ public final class VncController implements NativeController, AutoCloseable {
     /**
      * {@code listed} as a window, at the part of its frame on the screen: a maximised window's frame reaches past
      * the screen's edges, and its capture, its clicks and the corner a bot adds a match to must be the same
-     * rectangle.
+     * rectangle. Its class is its program, as on Windows ({@code GenericWindow#getWindowClass}).
      */
     private GenericWindow window(GuestWindow listed) {
         Dimension size = screenSize();
         return new GenericWindow(listed, listed.title(),
-                listed.rect().intersection(new Rectangle(0, 0, size.width, size.height)));
+                listed.rect().intersection(new Rectangle(0, 0, size.width, size.height)), GenericWindow.NO_PID,
+                listed.process() == null || listed.process().isBlank() ? null : listed.process());
     }
 
     /**

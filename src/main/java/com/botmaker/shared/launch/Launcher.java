@@ -141,7 +141,7 @@ public final class Launcher {
      *   <li>any live process whose command line mentions one of the spec's {@link #runningTokens tokens},
      *       deliberately matching the wrapper a launcher-started game runs under — and deliberately
      *       <em>not</em> matching the launcher's own UI, see {@link RunningProbe};</li>
-     *   <li>an open window of the class the bot names ({@code windowClass}, {@link GameWindows}).</li>
+     *   <li>an open window the bot names ({@code game}, a {@link WindowIdentity}; {@link GameWindows}).</li>
      * </ol>
      *
      * <p>A window only <em>titled</em> after the game is no evidence (2026-10-13): Studio's own "BotMaker Blocks -
@@ -156,8 +156,8 @@ public final class Launcher {
         return isRunning(spec, null);
     }
 
-    /** {@link #isRunning(LaunchSpec)}, also counting an open window of {@code windowClass} (null for none). */
-    public static boolean isRunning(LaunchSpec spec, String windowClass) {
+    /** {@link #isRunning(LaunchSpec)}, also counting an open window {@code game} names (null for none). */
+    public static boolean isRunning(LaunchSpec spec, WindowIdentity game) {
         if (spec == null) {
             return false;
         }
@@ -179,8 +179,8 @@ public final class Launcher {
                 return true;
             }
         }
-        // The processes were just looked for and none answered, so only the class is left to prove a window.
-        switch (GameWindows.ofClass(spec, windowClass)) {
+        // The processes were just looked for and none answered, so only the identity is left to prove a window.
+        switch (GameWindows.ofIdentity(spec, game)) {
             case GameWindows.Proven(var window) -> {
                 Diag.log("[Target] " + spec.spec() + ": its window is open, " + GameWindows.describe(window));
                 return true;

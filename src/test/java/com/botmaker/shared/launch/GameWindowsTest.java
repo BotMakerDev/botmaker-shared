@@ -33,7 +33,8 @@ class GameWindowsTest {
     void studioNamedAfterAClosedGameIsNeverItsWindow() {
         assertInstanceOf(GameWindows.None.class, GameWindows.judge(List.of(STUDIO), null, GameWindows.GamePids.NONE, TITLES));
         assertInstanceOf(GameWindows.None.class,
-                GameWindows.judge(List.of(STUDIO), "com.botmaker.studio.BotMakerStudio", GameWindows.GamePids.NONE, TITLES),
+                GameWindows.judge(List.of(STUDIO), WindowIdentity.parse("com.botmaker.studio.BotMakerStudio"),
+                        GameWindows.GamePids.NONE, TITLES),
                 "not even when a bot names Studio's class");
     }
 
@@ -46,8 +47,21 @@ class GameWindowsTest {
     @Test
     void theBotsWindowClassProvesTheWindowWhateverItsTitle() {
         GenericWindow game = window("Firestone v1.2 — Héros", 4242, "firestone.exe");
-        GameWindows.Verdict verdict = GameWindows.judge(List.of(WIKI, game), "Firestone.exe", GameWindows.GamePids.NONE, TITLES);
+        GameWindows.Verdict verdict = GameWindows.judge(List.of(WIKI, game), WindowIdentity.parse("Firestone.exe"),
+                GameWindows.GamePids.NONE, TITLES);
         assertSame(game, GameWindows.proven(verdict).orElseThrow(), "the class matches whatever the case");
+    }
+
+    /** Heroic's Firestone through umu, 2026-10-13: its class is every Steam-less Proton game's. */
+    @Test
+    void aGenericClassNamesTheGameOnlyWithItsTitle() {
+        GenericWindow game = window("Firestone", 541, "steam_app_0");
+        GenericWindow other = window("Hades", 612, "steam_app_0");
+        GenericWindow discord = window("#tools | Firestone Idle RPG - Discord", 524285, "discord");
+        List<GenericWindow> open = List.of(other, discord, STUDIO, game);
+        assertSame(game, GameWindows.named(WindowIdentity.parse("steam_app_0|Firestone"), open).orElseThrow());
+        assertEquals(Optional.empty(), GameWindows.named(WindowIdentity.parse("steam_app_0|Firestone"),
+                List.of(other, discord, STUDIO)));
     }
 
     @Test
@@ -65,8 +79,8 @@ class GameWindowsTest {
     void ofSeveralProvedWindowsTheOneTitledAfterTheGameWins() {
         GenericWindow splash = window("Loading", 77, "firestone.exe");
         GenericWindow game = window("Firestone", 77, "firestone.exe");
-        assertSame(game, GameWindows.proven(GameWindows.judge(List.of(splash, game), "firestone.exe", GameWindows.GamePids.NONE,
-                TITLES)).orElseThrow());
+        assertSame(game, GameWindows.proven(GameWindows.judge(List.of(splash, game), WindowIdentity.parse("firestone.exe"),
+                GameWindows.GamePids.NONE, TITLES)).orElseThrow());
     }
 
     /** Every Flatpak sandbox numbers from 2: another sandboxed app's window with that id is not the game's. */

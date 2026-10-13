@@ -22,11 +22,16 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - **`launch.GameWindows` says which window is a launch target's game:** a window of the class the bot names,
   else one the game's processes own (a Flatpak sandbox's pids included). A window only titled after the game is
   `Unsure`, for a person to be asked about — never the game's by default.
+- **`launch.WindowIdentity` names a window on every computer:** its class, plus its exact title only when the
+  class is one unrelated programs share (`steam_app_0`, every Proton game without a Steam id; `wine`,
+  `explorer.exe`, the JVM's frames) — written `steam_app_0|Firestone`; such a class with no title names nothing.
+  `GameWindows.named` finds the window one
+  names, with no process scan. A game VM's guest window now carries its program as its class.
 
 ### Changed
 
 - **A window titled after a game no longer counts as the game running** (`Launcher.isRunning`). Only an open
-  window of the bot's class does (`isRunning(spec, windowClass)`); a title-only one is traced. Studio's "BotMaker
+  window the bot names does (`isRunning(spec, WindowIdentity)`); a title-only one is traced. Studio's "BotMaker
   Blocks - Firestone" had made a closed Firestone look running. `RunningProbe.windowTitled` is gone.
 
 ### Fixed

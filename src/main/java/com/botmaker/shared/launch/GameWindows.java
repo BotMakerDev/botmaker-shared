@@ -24,13 +24,13 @@ import java.util.stream.Stream;
  *
  * <p>Two things prove a window is the game's, in this order:
  * <ol>
- *   <li>its {@linkplain GenericWindow#getWindowClass() window class} is the one the bot names — X11's
- *       {@code WM_CLASS}, the same on every computer whatever the title, language or version;</li>
+ *   <li>it is the window the bot names, a {@link WindowIdentity}: its class — X11's {@code WM_CLASS}, the same on
+ *       every computer whatever the language or version — and its exact title too when that class is generic;</li>
  *   <li>its owning process is the game's: one the launch target's evidence counts
  *       ({@link RunningProbe#processesRunning}), the process BotMaker spawned for it, or a child of either. This
- *       is how a bot that names no class yet learns it. A process inside a Flatpak sandbox (Heroic's) gives its
- *       window the sandbox's own pid — a small number every sandbox reuses — so that id counts only for a
- *       window also titled after the game.</li>
+ *       is how a bot that names no window yet learns it ({@link WindowIdentity#of}). A process inside a Flatpak
+ *       sandbox (Heroic's) gives its window the sandbox's own pid — a small number every sandbox reuses — so that
+ *       id counts only for a window also titled after the game.</li>
  * </ol>
  * The answer is a {@link Verdict}: {@link Proven} names the window; {@link Unsure} lists the windows only
  * titled after the game — the ones to ask a person about (Studio's window picker), and that a run with nobody to
@@ -45,7 +45,7 @@ public final class GameWindows {
     public sealed interface Verdict permits Proven, Unsure, None {
     }
 
-    /** {@code window} is the game's: it has the bot's window class, or the game's process owns it. */
+    /** {@code window} is the game's: the bot names it, or the game's process owns it. */
     public record Proven(GenericWindow window) implements Verdict {
     }
 
@@ -66,33 +66,41 @@ public final class GameWindows {
     }
 
     /**
-     * The verdict for {@code spec} over the windows open now; {@code windowClass} is the class the bot names, or
-     * null. Best-effort: a failed scan answers {@link None}.
+     * The verdict for {@code spec} over the windows open now; {@code game} is the window the bot names, or null.
+     * Best-effort: a failed scan answers {@link None}.
      */
-    public static Verdict of(LaunchSpec spec, String windowClass) {
-        return scan(spec, windowClass, true);
+    public static Verdict of(LaunchSpec spec, WindowIdentity game) {
+        return scan(spec, game, true);
     }
 
     /**
      * {@link #of} without looking for the game's processes — for a caller that has just found none
-     * ({@link Launcher#isRunning}), so only a window of {@code windowClass} can prove anything.
+     * ({@link Launcher#isRunning}), so only a window {@code game} names can prove anything.
      */
-    static Verdict ofClass(LaunchSpec spec, String windowClass) {
-        return scan(spec, windowClass, false);
+    static Verdict ofIdentity(LaunchSpec spec, WindowIdentity game) {
+        return scan(spec, game, false);
     }
 
-    /** The verdict for {@code spec} over {@code windows}. */
-    public static Verdict of(LaunchSpec spec, String windowClass, List<GenericWindow> windows) {
-        List<String> tokens = Launcher.runningTokens(spec);
-        return judge(windows, windowClass, gamePids(spec, tokens), tokens);
+    /** The verdict for {@code spec} (null for none: no process, no title) over {@code windows}. */
+    public static Verdict of(LaunchSpec spec, WindowIdentity game, List<GenericWindow> windows) {
+        List<String> tokens = spec == null ? List.of() : Launcher.runningTokens(spec);
+        return judge(windows, game, spec == null ? GamePids.NONE : gamePids(spec, tokens), tokens);
     }
 
-    private static Verdict scan(LaunchSpec spec, String windowClass, boolean withProcesses) {
+    /**
+     * The window of {@code windows} that {@code game} names, with no process scan — the cheap check a capture
+     * makes each time once it knows the game's window.
+     */
+    public static Optional<GenericWindow> named(WindowIdentity game, List<GenericWindow> windows) {
+        return proven(judge(windows, game, GamePids.NONE, List.of()));
+    }
+
+    private static Verdict scan(LaunchSpec spec, WindowIdentity game, boolean withProcesses) {
         if (spec == null) return new None();
         try {
             List<GenericWindow> windows = NativeControllerFactory.get().getAllWindows();
-            if (withProcesses) return of(spec, windowClass, windows);
-            return judge(windows, windowClass, GamePids.NONE, Launcher.runningTokens(spec));
+            if (withProcesses) return of(spec, game, windows);
+            return judge(windows, game, GamePids.NONE, Launcher.runningTokens(spec));
         } catch (Exception e) {
             // Includes the UnsupportedOperationException macOS's absent backend throws.
             Diag.log("[Target] window scan for " + spec.spec() + " failed: " + e.getMessage());
@@ -101,7 +109,7 @@ public final class GameWindows {
     }
 
     /**
-     * The verdict over {@code windows} given the class the bot names ({@code windowClass}, or null), the game's
+     * The verdict over {@code windows} given the window the bot names ({@code game}, or null), the game's
      * processes ({@code pids}) and what its windows may be titled after ({@code titles}). Pure, so the rule is
      * testable without a desktop.
      *
@@ -109,14 +117,14 @@ public final class GameWindows {
      * a window whose process is known and is not the game's is no candidate; with no game process at all, every
      * window titled after it is.
      */
-    static Verdict judge(List<GenericWindow> windows, String windowClass, GamePids pids, List<String> titles) {
+    static Verdict judge(List<GenericWindow> windows, WindowIdentity game, GamePids pids, List<String> titles) {
         List<GenericWindow> usable = windows == null ? List.of()
                 : windows.stream().filter(w -> w != null && area(w.getRect()) > 0 && !WindowMatch.isOwn(w)).toList();
         List<GenericWindow> titled = byTitle(usable, titles);
 
-        if (windowClass != null && !windowClass.isBlank()) {
-            List<GenericWindow> ofClass = usable.stream().filter(w -> sameClass(w, windowClass)).toList();
-            if (!ofClass.isEmpty()) return new Proven(best(ofClass, titles));
+        if (game != null) {
+            List<GenericWindow> named = usable.stream().filter(game::matches).toList();
+            if (!named.isEmpty()) return new Proven(best(named, titles));
         }
         List<GenericWindow> owned = usable.stream()
                 .filter(w -> pids.host().contains(w.getPid())
@@ -157,10 +165,6 @@ public final class GameWindows {
             out.addAll(WindowMatch.ranked(windows, title));
         }
         return new ArrayList<>(out);
-    }
-
-    private static boolean sameClass(GenericWindow window, String windowClass) {
-        return window.getWindowClass() != null && window.getWindowClass().equalsIgnoreCase(windowClass.trim());
     }
 
     /** The game's processes now — what its tokens' evidence counts, what we spawned, their children. */
