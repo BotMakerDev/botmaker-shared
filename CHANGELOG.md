@@ -16,6 +16,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **Many pictures on one frame: `OpencvManager.findBestEach`.** Each `Search` (a template, its authored size, an
+  optional area) gets its best match as `findBest` gives it, in order. The frame is prepared once instead of once
+  a picture, and the pictures are matched in parallel on a pool of half the cores, kept off the common pool:
+  190 pictures on a 1920×1080 frame went from 25.5 s to 8.3 s on 12 cores. All the cores were slower (9.2 s),
+  since each full-frame match is bound by memory. An area bounds the search, and its match comes back in the
+  frame's pixels. A search that cannot be matched (none, empty, unreadable) answers null alone. OpenCV's
+  `matchTemplate` takes one template a call, so there is no native call for this.
 - **A window carries its class and its process.** `GenericWindow.getWindowClass()` is X11's `WM_CLASS` (the
   application, the same on every computer whatever the title says), the owning program's file name on Windows
   and the owning app on macOS; `getPid()` the owning process.
