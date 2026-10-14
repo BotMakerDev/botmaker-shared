@@ -196,8 +196,8 @@ public final class OpencvManager {
      * <p>Resolution-independent: the template is first resized by the
      * {@link ResolutionScaler#primaryScale primary scale} of its own authored capture resolution. If that
      * misses the threshold, a small
-     * pyramid of {@link ResolutionScaler#fallbackScales fallback scales} is tried (only on a miss),
-     * so templates keep matching across different screen resolutions / DPI.
+     * pyramid of {@link ResolutionScaler#fallbackScales fallback scales} is tried (only on a miss, and never on a
+     * frame of the authored size), so templates keep matching across different screen resolutions / DPI.
      */
     public static RawMatch findBestMatch(Mat template, Mat background, boolean grayscale, double confidenceThreshold) {
         return findBestMatch(template, background, grayscale, confidenceThreshold, null);
@@ -214,6 +214,11 @@ public final class OpencvManager {
         RawMatch best = matchScaled(template, background, grayscale, primary);
         if (best != null && best.score() >= confidenceThreshold) {
             return best;
+        }
+        // A frame of the very size the picture was cut in shows it pixel for pixel or not at all: a scaled pass
+        // cannot find it, and each costs a whole match (a miss paid seven, 2026-10-14).
+        if (authored != null && authored.width == background.width() && authored.height == background.height()) {
+            return null;
         }
         // Miss at the primary scale — walk the fallback pyramid, keeping the best, early-out on a hit.
         for (double scale : ResolutionScaler.fallbackScales(primary)) {

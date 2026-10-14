@@ -36,6 +36,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **A picture missing from a frame of its own size costs one match, not seven.** `findBestMatch` tried six
+  scales around the authored one on every miss; a frame the size the picture was cut in shows it pixel for pixel or
+  not at all, so it now stops after the first pass. A bot's popup check, which misses on almost every look, went
+  from ~135 ms to ~20 ms per picture on a 1920×1080 frame.
 - **`UriLauncher` no longer uses AWT on Linux.** `Desktop.browse` inside a JavaFX process could hang its caller;
   called from a menu on the FX thread, it froze the desktop under the menu's pointer grab. Linux goes straight
   to `xdg-open`.

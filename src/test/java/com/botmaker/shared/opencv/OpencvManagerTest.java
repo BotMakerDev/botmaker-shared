@@ -4,6 +4,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.opencv.core.Mat;
 
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Random;
@@ -117,6 +121,36 @@ class OpencvManagerTest {
         Mat bg = OpencvManager.bufferedImageToMat(noise(10, 10, 1));
         try {
             assertNull(OpencvManager.findBestMatch(tpl, bg, false, 0.9));
+        } finally {
+            tpl.release();
+            bg.release();
+        }
+    }
+
+    /** A copy drawn 10% larger: the pyramid finds it, unless the frame is the size the picture was cut in. */
+    @Test
+    void theScalePyramidRunsOnlyOnAFrameOfAnotherSize() {
+        BufferedImage blocks = new BufferedImage(96, 48, BufferedImage.TYPE_3BYTE_BGR);
+        Random rnd = new Random(5);
+        for (int y = 0; y < 48; y += 12) {
+            for (int x = 0; x < 96; x += 12) {
+                Graphics2D square = blocks.createGraphics();
+                square.setColor(new Color(rnd.nextInt(0xFFFFFF)));
+                square.fillRect(x, y, 12, 12);
+                square.dispose();
+            }
+        }
+        BufferedImage canvas = new BufferedImage(400, 300, BufferedImage.TYPE_3BYTE_BGR);
+        Graphics2D g = canvas.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(blocks, 100, 100, 106, 53, null);
+        g.dispose();
+        Mat tpl = OpencvManager.bufferedImageToMat(blocks);
+        Mat bg = OpencvManager.bufferedImageToMat(canvas);
+        try {
+            assertNotNull(OpencvManager.findBestMatch(tpl, bg, false, 0.95, null), "no authored size: the pyramid");
+            assertNull(OpencvManager.findBestMatch(tpl, bg, false, 0.95, new Dimension(400, 300)),
+                    "cut in a frame of this size: one pass, no pyramid");
         } finally {
             tpl.release();
             bg.release();
