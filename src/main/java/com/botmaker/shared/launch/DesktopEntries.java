@@ -1,6 +1,7 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.emulator.WaydroidPlatform;
+import com.botmaker.shared.game.ExeIcons;
 import com.botmaker.shared.platform.Os;
 
 import java.io.IOException;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -28,11 +30,15 @@ import java.util.stream.Stream;
  * a picker can show the game once, under its launcher, and launch it the launcher's way.
  *
  * <p>On macOS the menu is the {@code .app} bundles instead ({@link MacApps}): an entry's id is the bundle's path.
- * On Windows no directory exists and the list is empty.
+ * On Windows it is the Start menu ({@link WindowsApps}): an entry's id is its AppUserModelID, and a shortcut to a
+ * launcher's link (Steam's, Epic's, Ubisoft Connect's, Battle.net's) is that launcher's game.
  */
 public final class DesktopEntries {
 
     private static final Pattern STEAM = Pattern.compile("steam://rungameid/(\\d+)");
+    private static final Pattern EPIC = Pattern.compile("com\\.epicgames\\.launcher://apps/([^?/\\s\"']+)");
+    private static final Pattern UPLAY = Pattern.compile("uplay://launch/(\\d+)");
+    private static final Pattern BATTLENET = Pattern.compile("battlenet://([A-Za-z0-9]+)");
     private static final Pattern FAUGUS = Pattern.compile("faugus-launcher\\S*\\s+--game\\s+(\\S+)");
     private static final Pattern LUTRIS = Pattern.compile("lutris:rungameid/(\\d+)");
     private static final Pattern HEROIC_QUERY = Pattern.compile("heroic://launch\\?[^\\s\"']*appName=([^&\\s\"']+)");
@@ -65,8 +71,9 @@ public final class DesktopEntries {
         }
 
         /**
-         * The launcher target this entry is a shortcut for — a Steam, Faugus, Lutris or Heroic game, or a Waydroid
-         * app — or empty when it is an application of its own.
+         * The launcher target this entry is a shortcut for — a Steam, Faugus, Lutris or Heroic game, a Waydroid
+         * app, or on Windows an Epic, Ubisoft Connect or Battle.net game — or empty when it is an application of its
+         * own.
          */
         public Optional<LaunchSpec> shortcutFor() {
             return shortcutIn(exec);
@@ -79,9 +86,8 @@ public final class DesktopEntries {
     }
 
     /**
-     * Every entry the menu would show, data-home first; a Mac's apps; empty on Windows. Reads files: not on a UI
-     * thread. Cached
-     * for a minute, because "is it running?" asks on every poll.
+     * Every entry the menu would show, data-home first; a Mac's apps; Windows' Start menu. Reads files (runs
+     * PowerShell on Windows): not on a UI thread. Cached for a minute, because "is it running?" asks on every poll.
      */
     public static List<Entry> list() {
         List<Entry> snapshot = cached;
@@ -110,6 +116,7 @@ public final class DesktopEntries {
             apps.sort((a, b) -> a.name().compareToIgnoreCase(b.name()));
             return List.copyOf(apps);
         }
+        if (Os.current().isWindows()) return WindowsApps.list();
         Map<String, Entry> byId = new LinkedHashMap<>();
         for (Path dataDir : dataDirs()) {
             Path applications = dataDir.resolve("applications");
@@ -158,6 +165,8 @@ public final class DesktopEntries {
         // A Mac bundle's program is named after the app ("Chess"): its whole path is the token that says it runs.
         String path = programPathOf(entry.exec());
         if (path.contains(".app/Contents/MacOS/")) return List.of(path);
+        // A Store app's id ("Microsoft.X_8wekyb3d8bbwe!App") is no program, and no command line carries it.
+        if (path.contains("!")) return List.of();
         String program = programOf(entry.exec());
         return program.isBlank() || GENERIC_PROGRAMS.contains(program.toLowerCase(java.util.Locale.ROOT))
                 ? List.of() : List.of(program);
@@ -170,6 +179,8 @@ public final class DesktopEntries {
     public static Path icon(Entry entry) {
         String icon = entry.icon();
         if (icon.isBlank()) return null;
+        // A Start menu entry's icon is its program, whose own icon is read out of it.
+        if (Os.current().isWindows()) return ExeIcons.of(Path.of(icon), "app-" + entry.id(), UnaryOperator.identity());
         if (icon.startsWith("/")) {
             Path path = Path.of(icon);
             return Files.isRegularFile(path) && !icon.endsWith(".svg") ? path : null;
@@ -192,6 +203,15 @@ public final class DesktopEntries {
         if ((m = STEAM.matcher(exec)).find()) return Optional.of(new LaunchSpec(LaunchKind.STEAM, m.group(1)));
         if ((m = FAUGUS.matcher(exec)).find()) return Optional.of(new LaunchSpec(LaunchKind.FAUGUS, m.group(1)));
         if ((m = LUTRIS.matcher(exec)).find()) return Optional.of(new LaunchSpec(LaunchKind.LUTRIS, m.group(1)));
+        if ((m = EPIC.matcher(exec)).find()) {
+            // A shortcut may spell the app as <namespace>%3A<catalog item>%3A<app name>; the library knows the last.
+            String app = java.net.URLDecoder.decode(m.group(1), java.nio.charset.StandardCharsets.UTF_8);
+            return Optional.of(new LaunchSpec(LaunchKind.EPIC, app.substring(app.lastIndexOf(':') + 1)));
+        }
+        if ((m = UPLAY.matcher(exec)).find()) return Optional.of(LaunchSpec.ubisoft(m.group(1)));
+        if ((m = BATTLENET.matcher(exec)).find()) {
+            return Optional.of(new LaunchSpec(LaunchKind.URL, "battlenet://" + m.group(1)));
+        }
         if ((m = HEROIC_QUERY.matcher(exec)).find() || (m = HEROIC_PATH.matcher(exec)).find()) {
             return Optional.of(new LaunchSpec(LaunchKind.HEROIC, m.group(1)));
         }
@@ -243,7 +263,7 @@ public final class DesktopEntries {
      */
     static String programOf(String exec) {
         String program = programPathOf(exec);
-        int slash = program.lastIndexOf('/');
+        int slash = Math.max(program.lastIndexOf('/'), program.lastIndexOf('\\'));
         return slash >= 0 ? program.substring(slash + 1) : program;
     }
 

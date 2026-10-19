@@ -1,6 +1,7 @@
 package com.botmaker.shared.vm;
 
 import com.botmaker.shared.launch.LaunchSpec;
+import com.botmaker.shared.launch.SteamIds;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -36,6 +37,11 @@ public final class GuestLaunch {
                     ? Optional.of("start \"\" \"com.epicgames.launcher://apps/" + token + "?action=launch&silent=true\"")
                     : Optional.empty();
             case EXE -> token.contains("\"") ? Optional.empty() : Optional.of("start \"\" \"" + token + "\"");
+            // A batch line expands % even in quotes; a launcher's link needs none of cmd's other signs either.
+            case URL -> token.matches("[^\"&|<>^%]+") ? Optional.of("start \"\" \"" + token + "\"") : Optional.empty();
+            // A Start menu id; a path from / is a Mac's app, which no Windows Start menu holds.
+            case DESKTOP -> token.contains("\"") || token.contains("%") || token.startsWith("/") ? Optional.empty()
+                    : Optional.of("start \"\" \"shell:AppsFolder\\" + token + "\"");
             case CLI -> Optional.of("start \"\" " + token);
             default -> Optional.empty();
         };
@@ -53,10 +59,13 @@ public final class GuestLaunch {
         String token = spec.token().trim();
         if (token.isEmpty() || token.contains("\n") || token.contains("\r")) return Optional.empty();
         return switch (spec.kind()) {
-            case STEAM -> STEAM_ID.matcher(token).matches() ? Optional.of("steam -applaunch " + token) : Optional.empty();
+            case STEAM -> !STEAM_ID.matcher(token).matches() ? Optional.empty()
+                    : Optional.of(SteamIds.isShortcut(token) ? "steam steam://rungameid/" + token
+                    : "steam -applaunch " + token);
             case EPIC -> EPIC_ID.matcher(token).matches() ? Optional.of("legendary launch " + token) : Optional.empty();
             case EXE -> Optional.of((token.toLowerCase(Locale.ROOT).endsWith(".exe") ? "wine " : "")
                     + shellQuoted(token));
+            case URL -> Optional.of("xdg-open " + shellQuoted(token));
             case CLI -> Optional.of(token);
             default -> Optional.empty();
         };
@@ -78,6 +87,7 @@ public final class GuestLaunch {
                     ? Optional.of("open " + shellQuoted("com.epicgames.launcher://apps/" + token
                     + "?action=launch&silent=true")) : Optional.empty();
             case DESKTOP -> Optional.of("open -a " + shellQuoted(token));
+            case URL -> Optional.of("open " + shellQuoted(token));
             case EXE -> Optional.of(token.replaceAll("/+$", "").endsWith(".app") ? "open -a " + shellQuoted(token)
                     : "nohup " + shellQuoted(token) + " >/dev/null 2>&1 &");
             case CLI -> Optional.of("nohup /bin/sh -c " + shellQuoted(token) + " >/dev/null 2>&1 &");

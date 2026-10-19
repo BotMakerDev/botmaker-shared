@@ -32,7 +32,10 @@ class LaunchKindLauncherTest {
         }
         assertTrue(LaunchKind.FAUGUS.runsOn(com.botmaker.shared.platform.Os.LINUX));
         assertFalse(LaunchKind.FAUGUS.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
-        assertFalse(LaunchKind.DESKTOP.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
+        assertTrue(LaunchKind.DESKTOP.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
+        assertTrue(LaunchKind.BOTTLES.runsOn(com.botmaker.shared.platform.Os.LINUX));
+        assertFalse(LaunchKind.BOTTLES.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
+        assertTrue(LaunchKind.URL.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
         assertTrue(LaunchKind.EPIC.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
         assertFalse(LaunchKind.EPIC.runsOn(com.botmaker.shared.platform.Os.LINUX));
         assertFalse(LaunchKind.STEAM.runsOn(null));
@@ -78,13 +81,17 @@ class LaunchKindLauncherTest {
 
     /**
      * A daemon kind carries a Flatpak id and a real product name; anything else carries neither, so
-     * {@link LaunchCommands}' flatpak rung can never be built for a kind that has no Flatpak form.
+     * {@link LaunchCommands}' flatpak rung can never be built for a kind that has no Flatpak form. Bottles is the
+     * one product with a Flatpak but no daemon: its program is our child, whatever Bottles has open.
      */
     @Test
     void flatpakIdAndProductNameTrackTheDaemon() {
         for (LaunchKind kind : LaunchKind.values()) {
             assertNotNull(kind.productName(), kind.name());
-            if (kind.routesThroughDaemon()) {
+            if (kind == LaunchKind.BOTTLES) {
+                assertEquals("com.usebottles.bottles", kind.flatpakAppId());
+                assertEquals("Bottles", kind.productName());
+            } else if (kind.routesThroughDaemon()) {
                 assertNotNull(kind.flatpakAppId(), kind + " needs an app id for its flatpak rung");
                 assertFalse(kind.flatpakAppId().isBlank(), kind.name());
                 assertFalse("the launcher".equals(kind.productName()),

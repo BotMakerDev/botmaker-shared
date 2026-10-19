@@ -43,6 +43,20 @@ class GuestLaunchTest {
         assertEquals(Optional.empty(), GuestLaunch.command(LaunchSpec.parse("steam:570 & del x")));
         assertEquals(Optional.empty(), GuestLaunch.command(LaunchSpec.parse("epic:a\"b")));
         assertEquals(Optional.empty(), GuestLaunch.command(LaunchSpec.parse("exe:C:\\a\"b.exe")));
+        assertEquals(Optional.empty(), GuestLaunch.command(LaunchSpec.parse("url:x://a?b=1&c=%PATH%")));
+    }
+
+    @Test
+    void aStartMenuAppALinkAndASteamShortcutStartInEveryGuest() {
+        assertEquals(Optional.of("start \"\" \"shell:AppsFolder\\Microsoft.X_8wekyb3d8bbwe!App\""),
+                GuestLaunch.command(LaunchSpec.parse("desktop:Microsoft.X_8wekyb3d8bbwe!App")));
+        assertEquals(Optional.of("start \"\" \"uplay://launch/4553/0\""),
+                GuestLaunch.command(LaunchSpec.parse("url:uplay://launch/4553/0")));
+        assertEquals(Optional.of("xdg-open 'battlenet://Pro'"),
+                GuestLaunch.linuxCommand(LaunchSpec.parse("url:battlenet://Pro")));
+        assertEquals(Optional.of("open 'battlenet://Pro'"), GuestLaunch.macCommand(LaunchSpec.parse("url:battlenet://Pro")));
+        assertEquals(Optional.of("steam steam://rungameid/12345678901234"),
+                GuestLaunch.linuxCommand(LaunchSpec.parse("steam:12345678901234")));
     }
 
     @Test

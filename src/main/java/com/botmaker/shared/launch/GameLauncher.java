@@ -180,11 +180,48 @@ public final class GameLauncher {
     }
 
     /**
+     * Launches a program of a Bottles bottle, {@code <bottle>/<program>}: {@code bottles-cli run}, then its Flatpak
+     * form ({@link LaunchCommands#bottles}).
+     *
+     * @throws IllegalArgumentException if the token has no bottle or no program
+     * @throws RuntimeException         if neither form could be run
+     */
+    public static void bottles(String token) {
+        LaunchSpec spec = new LaunchSpec(LaunchKind.BOTTLES, require(token, "token"));
+        if (spec.bottle() == null) {
+            throw new IllegalArgumentException("a Bottles target is <bottle>/<program>, not '" + token + "'");
+        }
+        Diag.log("[Game] launchBottles " + spec.token());
+        if (runFirst(LaunchCommands.bottles(spec.bottle(), spec.bottleProgram()))) {
+            return;
+        }
+        throw new RuntimeException("Failed to launch " + spec.bottleProgram() + " from the bottle " + spec.bottle()
+                + ". Is Bottles installed?");
+    }
+
+    /**
+     * Opens a launcher's link ({@code uplay://launch/<id>/0}, {@code battlenet://<product>}) through the handler the
+     * launcher registered.
+     *
+     * @throws IllegalArgumentException if {@code link} is null/blank
+     * @throws RuntimeException         if no opener could be run
+     */
+    public static void url(String link) {
+        String uri = require(link, "link");
+        Diag.log("[Game] launchUrl " + uri);
+        if (UriLauncher.open(uri)) {
+            return;
+        }
+        throw new RuntimeException("Couldn't open " + uri + ". Is its launcher installed?");
+    }
+
+    /**
      * Starts an installed app by its desktop-entry id, the way the application menu does ({@code gtk-launch}); on
-     * macOS by its bundle's path, the way Finder does ({@code open -a}).
+     * macOS by its bundle's path, the way Finder does ({@code open -a}); on Windows by its Start menu id, the way the
+     * Start menu does.
      *
      * @throws IllegalArgumentException if {@code desktopId} is null/blank
-     * @throws RuntimeException         if {@code gtk-launch} (or {@code open}) could not be run
+     * @throws RuntimeException         if {@code gtk-launch} (or {@code open}, or {@code explorer.exe}) could not be run
      */
     public static void desktop(String desktopId) {
         String id = require(desktopId, "desktopId");
@@ -196,7 +233,8 @@ public final class GameLauncher {
         if (runFirst(LaunchCommands.desktop(id))) {
             return;
         }
-        throw new RuntimeException("Couldn't start " + id + ": gtk-launch isn't installed (it ships with GTK 3).");
+        throw new RuntimeException(Os.current().isWindows() ? "Couldn't start " + id + ": explorer.exe couldn't be run."
+                : "Couldn't start " + id + ": gtk-launch isn't installed (it ships with GTK 3).");
     }
 
     /**

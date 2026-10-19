@@ -57,9 +57,28 @@ public final class LaunchCommands {
         return ladder(LaunchKind.HEROIC, "heroic", List.of("--no-gui", "--no-sandbox", uri));
     }
 
-    /** Steam's CLI ladder: {@code steam -applaunch <appId>}, then the Flatpak install's form. */
+    /**
+     * Steam's CLI ladder: {@code steam -applaunch <appId>}, then the Flatpak install's form. A non-Steam shortcut has
+     * no app Steam's {@code -applaunch} knows, so its game id goes in Steam's own link instead ({@link SteamIds}).
+     */
     public static List<List<String>> steam(String appId) {
-        return ladder(LaunchKind.STEAM, "steam", List.of("-applaunch", require(appId)));
+        String id = require(appId);
+        return ladder(LaunchKind.STEAM, "steam",
+                SteamIds.isShortcut(id) ? List.of("steam://rungameid/" + id) : List.of("-applaunch", id));
+    }
+
+    /**
+     * A bottle's program: {@code bottles-cli run -b <bottle> -p <program>}, then the Flatpak's, whose
+     * {@code bottles-cli} is a command inside the app rather than the app itself. Wine is our child either way.
+     */
+    public static List<List<String>> bottles(String bottle, String program) {
+        List<String> run = List.of("run", "-b", require(bottle), "-p", require(program));
+        List<String> native0 = new ArrayList<>(List.of("bottles-cli"));
+        native0.addAll(run);
+        List<String> flatpak = new ArrayList<>(List.of("flatpak", "run", "--command=bottles-cli",
+                LaunchKind.BOTTLES.flatpakAppId()));
+        flatpak.addAll(run);
+        return List.of(List.copyOf(native0), List.copyOf(flatpak));
     }
 
     /** Faugus's CLI ladder: the native launcher, then its Flatpak form. */
@@ -76,7 +95,9 @@ public final class LaunchCommands {
      * An installed app by its desktop-entry id: {@code gtk-launch}, which runs the entry's {@code Exec} line
      * with our environment — so a private {@code DISPLAY} reaches it, except for an app that asks D-Bus to start
      * it ({@code DBusActivatable=true}), which the session bus starts on the desktop. On macOS the id is an
-     * {@code .app} bundle's path, which {@code open -a} starts the way Finder does.
+     * {@code .app} bundle's path, which {@code open -a} starts the way Finder does; on Windows a Start menu
+     * AppUserModelID, which {@code explorer.exe shell:AppsFolder\<id>} starts the way the Start menu does, a Store
+     * app included.
      */
     public static List<List<String>> desktop(String desktopId) {
         return desktop(desktopId, Os.current());
@@ -94,6 +115,7 @@ public final class LaunchCommands {
     /** {@link #desktop(String)} on {@code os}, for the tests. */
     static List<List<String>> desktop(String desktopId, Os os) {
         String id = require(desktopId);
+        if (os.isWindows()) return List.of(List.of("explorer.exe", "shell:AppsFolder\\" + id));
         return List.of(os.isMac() ? List.of("open", "-a", id) : List.of("gtk-launch", id));
     }
 
@@ -153,9 +175,10 @@ public final class LaunchCommands {
             case STEAM -> steam(spec.token());
             case FAUGUS -> faugus(spec.token());
             case LUTRIS -> lutris(spec.token());
+            case BOTTLES -> spec.bottle() == null ? List.of() : bottles(spec.bottle(), spec.bottleProgram());
             case DESKTOP -> DesktopEntries.find(spec.token()).filter(entry -> !entry.flatpakId().isBlank()).isPresent()
                     ? withoutWayland(desktop(spec.token())) : desktop(spec.token());
-            case EMULATOR_APP, EPIC, UNKNOWN -> List.of();
+            case EMULATOR_APP, EPIC, URL, UNKNOWN -> List.of();
         };
     }
 

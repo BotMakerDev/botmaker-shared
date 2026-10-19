@@ -50,6 +50,13 @@ also holds `botmaker-session`'s history before 2026-07-30).
 - **Emulator discovery runs each product's console tool in turn** (`ldconsole list2`, `memuc listvms`,
   `MuMuManager info`), up to 10 s each when a product's service is cold, and `EmulatorInstances.byName` scans
   at bot runtime. About 1 s here; run them in parallel, or only when a picker needs the names, if it grows.
+- **Windows launchers have never run on Windows** (2026-10-19, fixtures only): `WindowsApps` (`Get-StartApps`,
+  `shell:AppsFolder`), `UbisoftLibraryScanner`, `BattleNetLibraryScanner` and `ItchLibraryScanner`. Owed: the lists
+  on a real install, a Store app and a `uplay://`/`battlenet://` link starting their game, and the Start menu's
+  icons. `BattleNetLibraryScanner.PRODUCTS` names 19 games; one it lacks is only in the Start menu. The EA app's
+  library is encrypted, so its games come only through the Start menu, folded under "Other apps".
+- **A Steam shortcut's running check is unverified**: the reaper's `AppId=` is taken to be the shortcut's 32-bit app
+  id, and Steam's `RunningAppID` the same; neither was seen live.
 - **Windows: window-less keys are always real.** `keyDown(int)`/`typeText(String)` with no window go to the
   focused window through `SendInput` even in the background, because there is no target to post to. The SDK's
   `Keyboard` passes a window when the bot's source is one.

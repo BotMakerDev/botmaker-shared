@@ -369,23 +369,22 @@ class GameLibraryScannerTest {
      * {@code GameLibraries} is what the Launch Target picker and {@code ToolbarManager}'s artwork lookup go
      * through, and it keys on the platform string. Those strings are the {@code LaunchKind} ids — SU6/SC6
      * replace the four {@code PLATFORM} constants with the enum, and this is the pairing that has to survive.
+     * Several providers may share one (GOG and itch are both {@code exe}), so each is asked in turn.
      */
     @Test
-    void everyRegisteredProviderIsReachableByItsPlatformKey() {
+    void everyRegisteredProviderIsKeyedByALaunchKind() {
         List<GameLibraryProvider> all = GameLibraries.all();
         assertTrue(all.size() >= 4, "steam, epic, heroic and faugus are all registered: " + all.size());
 
         for (GameLibraryProvider provider : all) {
             String key = provider.platform();
-            assertEquals(provider.getClass(), GameLibraries.forPlatform(key).orElseThrow().getClass(),
-                    key + " does not resolve back to its own provider");
+            assertNotEquals(LaunchKind.UNKNOWN, LaunchKind.fromId(key), key + " is no launch kind");
             assertNotNull(provider.displayName(), key + " has no display name for the picker");
         }
     }
 
     @Test
     void anUnknownPlatformResolvesToNothingRatherThanTheFirstProvider() {
-        assertTrue(GameLibraries.forPlatform("gog-galaxy").isEmpty());
         assertTrue(GameLibraries.findGame("gog-galaxy", "123").isEmpty());
     }
 

@@ -19,7 +19,8 @@ import java.util.stream.Stream;
  *
  * <p>Reads {@code steamapps/libraryfolders.vdf} to find every library folder, then each folder's
  * {@code appmanifest_<appid>.acf} for the game's {@code appid} + {@code name}, and resolves each game's
- * cover art from the local library cache ({@code appcache/librarycache/<appid>/}, see {@link #coverArt}).
+ * cover art from the local library cache ({@code appcache/librarycache/<appid>/}, see {@link #coverArt}). The
+ * non-Steam games the user added to the library come after, by their game ids ({@link SteamShortcuts}).
  * Every step is best-effort: any missing file / parse failure is skipped and an empty list is the worst
  * case — this never throws.
  */
@@ -65,6 +66,7 @@ public final class SteamLibraryScanner implements GameLibraryProvider {
                     // unreadable library folder — skip it
                 }
             }
+            SteamShortcuts.under(root).forEach(g -> byId.putIfAbsent(g.id(), g));
         } catch (Exception ignored) {
             // never propagate: the picker degrades to free-text entry
         }

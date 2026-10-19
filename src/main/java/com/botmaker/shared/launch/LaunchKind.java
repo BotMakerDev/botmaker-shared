@@ -39,10 +39,23 @@ public enum LaunchKind {
     /** A Lutris entry, keyed by its numeric library id ({@code lutris:rungameid/<id>}). */
     LUTRIS("lutris", "Lutris game", "Lutris", Set.of("lutris"), "net.lutris.Lutris"),
     /**
+     * A program in a <a href="https://usebottles.com/">Bottles</a> bottle, spelled {@code <bottle>/<program>} and
+     * started with {@code bottles-cli run}. Bottles runs it as our own child, so no launcher has to be closed for a
+     * private display: no process names.
+     */
+    BOTTLES("bottles", "Bottles program", "Bottles", Set.of(), "com.usebottles.bottles"),
+    /**
      * An installed application, keyed by its desktop-entry id ({@code org.kde.kpat} for
-     * {@code org.kde.kpat.desktop}) and started with {@code gtk-launch} — whatever the menu would start.
+     * {@code org.kde.kpat.desktop}) and started with {@code gtk-launch} — whatever the menu would start. On Windows
+     * the id is the Start menu's AppUserModelID (a program's path, or a Store app's
+     * {@code Microsoft.X_8wekyb3d8bbwe!App}), started through {@code shell:AppsFolder}.
      */
     DESKTOP("desktop", "App"),
+    /**
+     * A link a launcher registered a handler for — Ubisoft Connect's {@code uplay://launch/<id>/0}, Battle.net's
+     * {@code battlenet://<product>} — opened the way a browser would open it.
+     */
+    URL("url", "Launcher link"),
     /** An arbitrary command line — the escape hatch for any launcher not modelled directly. */
     CLI("cli", "Command"),
     /** A plain executable, launched directly. */
@@ -137,17 +150,16 @@ public enum LaunchKind {
     /**
      * Whether a computer running {@code os} can launch this kind at all — what a bot listing several launchers
      * picks its first workable one by, so a bot's author lists the launchers and never a platform. Steam, Heroic,
-     * a command, an executable and an emulator app run on Linux, Windows and a Mac; Faugus and Lutris are Linux's;
-     * a desktop entry is started by {@code gtk-launch} or {@code open -a}, so not on Windows; Epic's own launcher
-     * is Windows' and the Mac's (Linux reaches Epic through Heroic). Says nothing of what is installed. An
-     * executable or a Waydroid app narrows this by its spec: ask {@link LaunchSpec#runsOn}.
+     * a command, an executable, an emulator app, an app of the menu ({@code gtk-launch}, {@code open -a} or the
+     * Start menu) and a launcher's link run on Linux, Windows and a Mac; Faugus, Lutris and Bottles are Linux's;
+     * Epic's own launcher is Windows' and the Mac's (Linux reaches Epic through Heroic). Says nothing of what is
+     * installed. An executable or a Waydroid app narrows this by its spec: ask {@link LaunchSpec#runsOn}.
      */
     public boolean runsOn(Os os) {
         if (os == null) return false;
         return switch (this) {
-            case STEAM, HEROIC, CLI, EXE, EMULATOR_APP -> os != Os.UNKNOWN;
-            case FAUGUS, LUTRIS -> os == Os.LINUX;
-            case DESKTOP -> os == Os.LINUX || os == Os.MAC;
+            case STEAM, HEROIC, CLI, EXE, EMULATOR_APP, DESKTOP, URL -> os != Os.UNKNOWN;
+            case FAUGUS, LUTRIS, BOTTLES -> os == Os.LINUX;
             case EPIC -> os == Os.WINDOWS || os == Os.MAC;
             case UNKNOWN -> false;
         };

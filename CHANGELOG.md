@@ -14,6 +14,26 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **More launchers** (`docs/display-pipeline.md` §2 has where each runs):
+  - **Bottles** (Linux): `LaunchKind.BOTTLES`, `bottles:<bottle>/<program>`, read off each `bottle.yml`
+    (`BottlesLibrary`, native and Flatpak) and started with `bottles-cli run` as our child, so in a private display
+    too.
+  - **Steam's non-Steam shortcuts**: `SteamShortcuts` reads each account's binary `shortcuts.vdf`; each is a
+    `steam:` game by its 64-bit game id (`SteamIds`), started by `steam://rungameid/`, found running by its
+    32-bit app id.
+  - **Windows' Start menu and Store apps**: `desktop:` on Windows is the AppUserModelID `Get-StartApps` lists
+    (`WindowsApps`), started through `shell:AppsFolder`, with its program's icon. A Start menu shortcut to a
+    Steam, Epic, Ubisoft Connect or Battle.net game is listed under its launcher.
+  - **Ubisoft Connect and Battle.net** (Windows): `LaunchKind.URL`, `url:<link>`, opened by the launcher's
+    handler; `UbisoftLibraryScanner` (its `Installs` key) and `BattleNetLibraryScanner` (uninstall entries, by a
+    table of product codes).
+  - **itch** (Windows): `ItchLibraryScanner`, each game's receipt for its title and its folder's largest program
+    as an `exe:` target.
+  - The EA app keeps no readable library; its games come through the Start menu.
+- `GameLibraries.findGame` asks every provider of a platform (GOG and itch are both `exe`); `forPlatform` is gone.
+
 ### Fixed
 
 - **Lutris's game list is read again only when its library changes**: `LutrisLibrary.games` keeps its list while

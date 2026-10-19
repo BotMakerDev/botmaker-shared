@@ -47,7 +47,9 @@ public final class Launcher {
             case HEROIC -> GameLauncher.heroic(spec.token());
             case FAUGUS -> GameLauncher.faugus(spec.token());
             case LUTRIS -> GameLauncher.lutris(spec.token());
+            case BOTTLES -> GameLauncher.bottles(spec.token());
             case DESKTOP -> GameLauncher.desktop(spec.token());
+            case URL -> GameLauncher.url(spec.token());
             case EMULATOR_APP -> {
                 // Thrown, not logged: this kind used to be the one that could fail in four different ways and
                 // still report success, because it had no way to say otherwise. Every other kind here already
@@ -161,7 +163,7 @@ public final class Launcher {
         if (spec == null) {
             return false;
         }
-        if (spec.kind() == LaunchKind.STEAM && RunningProbe.steamReportsRunning(spec.token())) {
+        if (spec.kind() == LaunchKind.STEAM && RunningProbe.steamReportsRunning(SteamIds.appId(spec.token()))) {
             Diag.log("[Target] " + spec.spec() + ": Steam reports it as the running app");
             return true;
         }
@@ -207,7 +209,8 @@ public final class Launcher {
      *
      * <p>{@code lutris:} and {@code desktop:} are looked up the same way, because neither id appears in the live
      * process: Lutris names its wrapper after the game's title ({@link LutrisLibrary}), and an app runs as the
-     * program its menu entry names ({@link DesktopEntries}).
+     * program its menu entry names ({@link DesktopEntries}). A bottle's program runs as its {@code .exe}
+     * ({@link BottlesLibrary}).
      */
     static List<String> runningTokens(LaunchSpec spec) {
         switch (spec.kind()) {
@@ -216,6 +219,9 @@ public final class Launcher {
             }
             case LUTRIS -> {
                 return LutrisLibrary.runningTokens(spec.token());
+            }
+            case BOTTLES -> {
+                return BottlesLibrary.runningTokens(spec.token());
             }
             case DESKTOP -> {
                 return DesktopEntries.runningTokens(spec.token());
@@ -229,16 +235,17 @@ public final class Launcher {
     /**
      * Stops {@code spec}'s game where it already runs on the host, by a token only its own processes carry: a
      * Steam game's {@code AppId=<id> --} (the space and dashes after it, so {@code AppId=57} spares 570), a store
-     * game's app id, an {@code exe:}'s file name. A file name stopped nothing for a Steam game, whose name is its
-     * app id (2026-10-19). Lutris titles and menu apps' binaries are never stopped by name: "Celeste" or
-     * {@code firefox} is on other programs' command lines too, and a wrong match here is a kill, not a guess.
-     * Whether it had a token to stop by.
+     * game's app id, an {@code exe:}'s file name, a bottle's program's {@code .exe}. A file name stopped nothing for
+     * a Steam game, whose name is its app id (2026-10-19). Lutris titles and menu apps' binaries are never stopped
+     * by name: "Celeste" or {@code firefox} is on other programs' command lines too, and a wrong match here is a
+     * kill, not a guess. Whether it had a token to stop by.
      */
     public static boolean stopOnHost(LaunchSpec spec) {
         String token = spec == null ? null : switch (spec.kind()) {
-            case STEAM -> "AppId=" + spec.token() + " --";
+            case STEAM -> "AppId=" + SteamIds.appId(spec.token()) + " --";
             case EPIC, HEROIC, FAUGUS -> spec.token();
             case EXE, CLI -> spec.fileName();
+            case BOTTLES -> BottlesLibrary.runningTokens(spec.token()).stream().findFirst().orElse(null);
             default -> null;
         };
         if (token == null || token.isBlank()) return false;

@@ -144,7 +144,7 @@ public final class EpicLibraryScanner implements GameLibraryProvider {
         Path dir = launch.getParent();
         if (dir == null) return null;
         String stem = stem(launch).replaceFirst("(?i)eos$", "");
-        List<Path> programs = programsUnder(dir).stream().filter(p -> !p.equals(launch)).toList();
+        List<Path> programs = GamePrograms.under(dir).stream().filter(p -> !p.equals(launch)).toList();
         for (Path p : programs) if (stem(p).equalsIgnoreCase(stem)) return p;
         Path shipping = null;
         for (Path p : programs) {
@@ -154,57 +154,8 @@ public final class EpicLibraryScanner implements GameLibraryProvider {
             if (shipping == null) shipping = p;
         }
         if (shipping != null) return shipping;
-        Path largest = null;
-        long most = -1;
-        for (Path p : programs) {
-            if (HELPER.matcher(p.getFileName().toString()).find()) continue;
-            long size = size(p);
-            if (size > most && !isBootstrapper(p)) {
-                largest = p;
-                most = size;
-            }
-        }
-        return largest;
+        return GamePrograms.largest(programs, EpicLibraryScanner::isBootstrapper);
     }
-
-    /** Every {@code .exe} up to {@link #PROGRAM_DEPTH} below {@code dir}, in name order; unreadable folders skipped. */
-    private static List<Path> programsUnder(Path dir) {
-        List<Path> found = new ArrayList<>();
-        try {
-            Files.walkFileTree(dir, java.util.EnumSet.noneOf(java.nio.file.FileVisitOption.class), PROGRAM_DEPTH,
-                    new java.nio.file.SimpleFileVisitor<>() {
-                        @Override
-                        public java.nio.file.FileVisitResult visitFile(Path file,
-                                java.nio.file.attribute.BasicFileAttributes attrs) {
-                            if (attrs.isRegularFile()
-                                    && file.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".exe")) {
-                                found.add(file);
-                            }
-                            return java.nio.file.FileVisitResult.CONTINUE;
-                        }
-
-                        @Override
-                        public java.nio.file.FileVisitResult visitFileFailed(Path file, java.io.IOException e) {
-                            return java.nio.file.FileVisitResult.CONTINUE;
-                        }
-                    });
-        } catch (Exception e) {
-            // what was found before the failure still counts
-        }
-        found.sort(java.util.Comparator.comparing(Path::toString));
-        return found;
-    }
-
-    /** How deep a game's own program sits below its install folder: Unreal puts it at {@code <Game>/Binaries/Win64}. */
-    private static final int PROGRAM_DEPTH = 4;
-
-    /**
-     * Programs a game folder carries that are not the game, by their usual names; only the largest-program
-     * fallback sets them aside, so a game called "Crash…" is still found by its name.
-     */
-    private static final java.util.regex.Pattern HELPER = java.util.regex.Pattern.compile(
-            "(?i)^(UnityCrashHandler|CrashReportClient|EpicOnlineServices|EpicWebHelper|UE4?PrereqSetup|unins)"
-                    + "|redist|^setup|^dxsetup");
 
     /** The UTF-16 assembly name every Epic online-services bootstrapper carries. */
     private static final byte[] BOOTSTRAPPER_MARK =
@@ -235,14 +186,6 @@ public final class EpicLibraryScanner implements GameLibraryProvider {
         String name = exe.getFileName().toString();
         int dot = name.lastIndexOf('.');
         return dot < 0 ? name : name.substring(0, dot);
-    }
-
-    private static long size(Path p) {
-        try {
-            return Files.size(p);
-        } catch (Exception e) {
-            return -1;
-        }
     }
 
     private static String text(JsonNode node, String field) {

@@ -19,22 +19,27 @@ public final class GameLibraries {
      */
     public static List<GameLibraryProvider> all() {
         return List.of(new SteamLibraryScanner(), new EpicLibraryScanner(), new HeroicLibraryScanner(),
-                new FaugusLibraryScanner(), new LutrisLibraryScanner(), new GogLibraryScanner(),
-                new DesktopEntryScanner());
+                new FaugusLibraryScanner(), new LutrisLibraryScanner(), new BottlesLibraryScanner(),
+                new GogLibraryScanner(), new ItchLibraryScanner(), new UbisoftLibraryScanner(),
+                new BattleNetLibraryScanner(), new DesktopEntryScanner());
     }
 
-    /** The provider whose {@link GameLibraryProvider#platform()} equals {@code platform}, if any. */
-    public static Optional<GameLibraryProvider> forPlatform(String platform) {
-        if (platform == null || platform.isBlank()) return Optional.empty();
-        return all().stream().filter(p -> platform.equals(p.platform())).findFirst();
-    }
-
-    /** The installed game a {@code <platform>:<id>} pair refers to, or empty. Blocking; never throws. */
+    /**
+     * The installed game a {@code <platform>:<id>} pair refers to, or empty: asked of every provider of that
+     * platform in turn, since several list one kind (GOG and itch games are both {@code exe:}). Blocking; never
+     * throws.
+     */
     public static Optional<InstalledGame> findGame(String platform, String id) {
-        try {
-            return forPlatform(platform).flatMap(p -> p.findById(id));
-        } catch (Exception e) {
-            return Optional.empty();
+        if (platform == null || platform.isBlank()) return Optional.empty();
+        for (GameLibraryProvider provider : all()) {
+            if (!platform.equals(provider.platform())) continue;
+            try {
+                Optional<InstalledGame> game = provider.findById(id);
+                if (game.isPresent()) return game;
+            } catch (Exception e) {
+                // the next provider may still know it
+            }
         }
+        return Optional.empty();
     }
 }

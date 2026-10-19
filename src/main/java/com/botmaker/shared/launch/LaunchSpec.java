@@ -9,12 +9,14 @@ import com.botmaker.shared.platform.Os;
  * SDK (which launches it) and its Studio half (which shows and edits it) work from.
  *
  * <pre>
- *   steam:&lt;appId&gt;
+ *   steam:&lt;appId, or a non-Steam shortcut's 64-bit game id&gt;
  *   epic:&lt;appName&gt;
  *   heroic:&lt;appName&gt;
  *   faugus:&lt;gameId&gt;
  *   lutris:&lt;id&gt;
- *   desktop:&lt;desktop-entry id&gt;
+ *   bottles:&lt;bottle&gt;/&lt;program&gt;
+ *   desktop:&lt;desktop-entry id, or a Start menu AppUserModelID&gt;
+ *   url:&lt;a launcher's link&gt;
  *   cli:&lt;command line&gt;
  *   exe:&lt;path&gt;
  *   emu-app:&lt;package&gt;@&lt;instanceName&gt;
@@ -118,10 +120,39 @@ public record LaunchSpec(LaunchKind kind, String token) {
     }
 
     /**
+     * The link that starts Ubisoft Connect's game {@code id} ({@code uplay://launch/<id>/0}), the one spelling its
+     * library and a Start menu shortcut to it agree on.
+     */
+    public static LaunchSpec ubisoft(String id) {
+        return new LaunchSpec(LaunchKind.URL, "uplay://launch/" + id + "/0");
+    }
+
+    /** The {@code <bottle>} half of a {@code bottles:} token, or {@code null} for any other kind. */
+    public String bottle() {
+        int slash = bottleSplit();
+        return slash < 0 ? null : token.substring(0, slash).trim();
+    }
+
+    /** The {@code <program>} half of a {@code bottles:} token, or {@code null} for any other kind. */
+    public String bottleProgram() {
+        int slash = bottleSplit();
+        return slash < 0 ? null : token.substring(slash + 1).trim();
+    }
+
+    /** Index of the {@code /} after the bottle — the <em>first</em> one: a bottle is a folder, so it has none. */
+    private int bottleSplit() {
+        if (kind != LaunchKind.BOTTLES) return -1;
+        int slash = token.indexOf('/');
+        return slash <= 0 || slash == token.length() - 1 ? -1 : slash;
+    }
+
+    /**
      * Whether a computer running {@code os} can launch <em>this</em> target — {@link LaunchKind#runsOn} narrowed by
      * what the spec names, and the form a bot listing several launchers picks its first workable one by. An
      * executable answers by its file: a {@code .exe}, {@code .bat} or {@code .cmd} is Windows', an {@code .app}
-     * bundle the Mac's, and anything else a Unix binary for Linux or a Mac. An app in Waydroid is Linux's.
+     * bundle the Mac's, and anything else a Unix binary for Linux or a Mac. An app in Waydroid is Linux's. An app
+     * answers by its id: a Start menu id (a path with {@code \}, a known folder's {@code {GUID}}, a Store app's
+     * {@code !}) is Windows', any other id Linux's or the Mac's.
      */
     public boolean runsOn(Os os) {
         if (!kind.runsOn(os)) return false;
@@ -130,6 +161,11 @@ public record LaunchSpec(LaunchKind kind, String token) {
             if (file.endsWith(".exe") || file.endsWith(".bat") || file.endsWith(".cmd")) return os == Os.WINDOWS;
             if (file.endsWith(".app")) return os == Os.MAC;
             return os == Os.LINUX || os == Os.MAC;
+        }
+        if (kind == LaunchKind.DESKTOP) {
+            // A Start menu id names a program's path, a known folder or a Store app; a menu entry's id never does.
+            boolean startMenu = token.contains("\\") || token.contains("!") || token.startsWith("{");
+            return startMenu == (os == Os.WINDOWS);
         }
         if (kind == LaunchKind.EMULATOR_APP) {
             String instance = emulatorInstance();
@@ -173,12 +209,15 @@ public record LaunchSpec(LaunchKind kind, String token) {
     public String runningToken() {
         return switch (kind) {
             // Not the bare id — a number that short would match any command line by accident. Steam's own
-            // launch wrapper spells it `reaper SteamLaunch AppId=<id> --`, which is unambiguous.
-            case STEAM -> "AppId=" + token;
+            // launch wrapper spells it `reaper SteamLaunch AppId=<id> --`, which is unambiguous. A shortcut's
+            // wrapper carries its 32-bit app id, not the game id the target names.
+            case STEAM -> "AppId=" + SteamIds.appId(token);
             case EPIC, HEROIC, FAUGUS -> token;
-            // Neither id appears in the live game's process: Lutris names its wrapper after the game's title and
-            // an app runs as its own binary. Both are looked up by Launcher.runningTokens instead.
-            case LUTRIS, DESKTOP -> null;
+            // No id appears in the live game's process: Lutris names its wrapper after the game's title, an app
+            // runs as its own binary and a bottle's program as its .exe. Looked up by Launcher.runningTokens.
+            case LUTRIS, DESKTOP, BOTTLES -> null;
+            // A link is handed to its launcher, whose game carries no trace of it.
+            case URL -> null;
             case EXE, CLI -> {
                 String name = fileName();
                 yield name.isBlank() ? null : name;

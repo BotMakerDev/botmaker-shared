@@ -33,7 +33,7 @@ import java.util.stream.Stream;
  * /game-icons}, named by the caller's key, the launch program's modification time and the size, so a game update
  * writes a new file (and removes the old one) and an unchanged game is read back without opening a program.
  */
-final class ExeIcons {
+public final class ExeIcons {
 
     /** The largest size an icon resource holds. */
     private static final int SIZE = 256;
@@ -59,7 +59,7 @@ final class ExeIcons {
      * {@code source} picks the program whose icon it is, which may be another one beside it. Blocking; never
      * throws.
      */
-    static Path of(Path launch, String key, UnaryOperator<Path> source) {
+    public static Path of(Path launch, String key, UnaryOperator<Path> source) {
         if (launch == null || key == null || !supported()) return null;
         try {
             if (!Files.isRegularFile(launch)) return null;
