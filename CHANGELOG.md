@@ -16,6 +16,16 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`HostLauncherProbe.closeAndWait`**: closes a launcher open on the desktop and waits for it to go; Steam is
+  asked with its own `-shutdown` (through the Flatpak when that is the one running) before a terminate.
+- **`Launcher.stopOnHost`**: stops a game's host copy by the tokens `isRunning` counts it by.
+
+### Fixed
+
+- **`lutris-wrapper` is no longer Lutris.** A launcher's name followed by a separator now needs a version or a
+  packaging word after it (`heroic-2.15.2.AppImage`, `heroic_amd64`): a Lutris game's own wrapper read as Lutris's
+  UI and refused every private launch while a game was open.
+
 - **`PhoneState`**: where a phone stands with this computer (online, unauthorized, offline, not connected), with
   each state's line and advice, so every picker words a phone waiting on "Allow USB debugging?" alike.
 - **`AdbTools.wake()`**: starts the adb server when none runs and a binary can, and says whether it did. Pickers

@@ -225,4 +225,24 @@ public final class Launcher {
         String token = spec.runningToken();
         return token == null || token.isBlank() ? List.of() : List.of(token);
     }
+
+    /**
+     * Stops {@code spec}'s game where it already runs on the host, by a token only its own processes carry: a
+     * Steam game's {@code AppId=<id> --} (the space and dashes after it, so {@code AppId=57} spares 570), a store
+     * game's app id, an {@code exe:}'s file name. A file name stopped nothing for a Steam game, whose name is its
+     * app id (2026-10-19). Lutris titles and menu apps' binaries are never stopped by name: "Celeste" or
+     * {@code firefox} is on other programs' command lines too, and a wrong match here is a kill, not a guess.
+     * Whether it had a token to stop by.
+     */
+    public static boolean stopOnHost(LaunchSpec spec) {
+        String token = spec == null ? null : switch (spec.kind()) {
+            case STEAM -> "AppId=" + spec.token() + " --";
+            case EPIC, HEROIC, FAUGUS -> spec.token();
+            case EXE, CLI -> spec.fileName();
+            default -> null;
+        };
+        if (token == null || token.isBlank()) return false;
+        GameLauncher.kill(token);
+        return true;
+    }
 }

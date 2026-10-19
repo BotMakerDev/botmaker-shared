@@ -11,7 +11,9 @@ import java.nio.file.Path;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -103,6 +105,21 @@ class RunningProbeLauncherTest {
                 launcher.destroyForcibly();
             }
         }
+    }
+
+    /**
+     * After a separator only a version or a packaging word keeps the launcher's name: {@code lutris-wrapper} is the
+     * process a Lutris game runs under, and reading it as Lutris refused private launches while a game was open.
+     */
+    @Test
+    void aProgramNamedAfterTheLauncherIsAnotherProgram() {
+        Set<String> names = Set.of("lutris", "heroic", "steam");
+        assertNull(RunningProbe.named("lutris-wrapper", names));
+        assertNull(RunningProbe.named("steam-runtime-launcher-service", names));
+        assertEquals("heroic", RunningProbe.named("heroic-2.15.2.appimage", names));
+        assertEquals("heroic", RunningProbe.named("heroic.appimage", names));
+        assertEquals("heroic", RunningProbe.named("heroic_amd64", names));
+        assertEquals("lutris", RunningProbe.named("lutris", names));
     }
 
     /** But a suffix that isn't a separator is a different program: {@code steamworld} is a game, not Steam. */

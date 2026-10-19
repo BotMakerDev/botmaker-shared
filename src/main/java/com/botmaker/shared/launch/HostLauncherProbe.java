@@ -2,6 +2,8 @@ package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
 
+import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -118,6 +120,56 @@ public final class HostLauncherProbe {
             }
         }
         return closed;
+    }
+
+    /**
+     * Closes {@code kind}'s launcher on the host and waits up to {@code wait} for it to be gone — what Studio does
+     * when the user accepts its offer, so the private launch that follows isn't refused again. Steam is asked with
+     * its own {@code -shutdown} first, which saves its state and ends its helpers; whatever is still up after half
+     * the wait gets {@link #closeHostLaunchers}. Whether none is left. Blocking.
+     */
+    public static boolean closeAndWait(LaunchKind kind, Duration wait) {
+        long until = System.nanoTime() + wait.toNanos();
+        List<ProcessHandle> steam = kind == LaunchKind.STEAM ? running(kind) : List.of();
+        if (!steam.isEmpty()) {
+            askSteamToShutDown(steam);
+            if (gone(kind, System.nanoTime() + wait.toNanos() / 2)) return true;
+        }
+        closeHostLaunchers(kind);
+        return gone(kind, until);
+    }
+
+    /**
+     * {@code -shutdown} through the Steam that runs: the Flatpak's when its id is on a running process's command
+     * line, else the native one — the other would start a second Steam only to stop it. Best-effort.
+     */
+    private static void askSteamToShutDown(List<ProcessHandle> running) {
+        String flatpakId = LaunchKind.STEAM.flatpakAppId();
+        boolean flatpak = running.stream().anyMatch(p -> p.info().commandLine()
+                .map(line -> line.contains(flatpakId)).orElse(false));
+        List<String> command = flatpak ? List.of("flatpak", "run", flatpakId, "-shutdown")
+                : List.of("steam", "-shutdown");
+        try {
+            new ProcessBuilder(command).redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            Diag.log("[Session] asked Steam to shut down: " + String.join(" ", command));
+        } catch (IOException e) {
+            Diag.log("[Session] `" + String.join(" ", command) + "` failed: " + e.getMessage());
+        }
+    }
+
+    /** Polls until no host launcher of {@code kind} is left or {@code untilNanos}; whether none is. */
+    private static boolean gone(LaunchKind kind, long untilNanos) {
+        while (!running(kind).isEmpty()) {
+            if (System.nanoTime() >= untilNanos) return false;
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

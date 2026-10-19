@@ -86,6 +86,14 @@ public final class RunningProbe {
     private static final String VERSION_SEPARATORS = "-_.";
 
     /**
+     * What may follow a separator besides a version: packaging words. Anything else is another program —
+     * {@code lutris-wrapper} is the process a Lutris <em>game</em> runs under, not Lutris's UI, and reading it as
+     * Lutris refused every private launch while a game was open (2026-10-19).
+     */
+    private static final List<String> PACKAGING_SUFFIXES = List.of(
+            "appimage", "amd64", "x86_64", "x86-64", "arm64", "aarch64", "bin", "sh", "py", "linux");
+
+    /**
      * {@code legendary} is Heroic's Epic backend and is spawned for library work (auth, list, sync) as well as
      * for launching. Only the {@code launch} verb means a game is actually running under it.
      */
@@ -266,12 +274,18 @@ public final class RunningProbe {
             return programName;
         }
         for (String candidate : names) {
-            if (programName.length() > candidate.length() && programName.startsWith(candidate)
-                    && VERSION_SEPARATORS.indexOf(programName.charAt(candidate.length())) >= 0) {
+            if (programName.length() > candidate.length() + 1 && programName.startsWith(candidate)
+                    && VERSION_SEPARATORS.indexOf(programName.charAt(candidate.length())) >= 0
+                    && packagingSuffix(programName.substring(candidate.length() + 1))) {
                 return candidate;
             }
         }
         return null;
+    }
+
+    /** Whether {@code suffix} (after the separator) is a version or a packaging word, not another program's name. */
+    private static boolean packagingSuffix(String suffix) {
+        return Character.isDigit(suffix.charAt(0)) || PACKAGING_SUFFIXES.stream().anyMatch(suffix::startsWith);
     }
 
     /**
