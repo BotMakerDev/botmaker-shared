@@ -47,4 +47,12 @@ class LutrisLibraryTest {
         assertEquals(List.of(List.of("gtk-launch", "org.kde.kpat")),
                 LaunchCommands.childLadder(LaunchSpec.parse("desktop:org.kde.kpat")));
     }
+
+    @Test
+    void theListHoldsWhileTheLibraryFileIsUnchanged() {
+        assertTrue(LutrisLibrary.fresh(500, 500, 0, 3_600_000), "an hour later, same pga.db: no lutris -l");
+        assertFalse(LutrisLibrary.fresh(500, 900, 1_000, 1_001), "a game added or removed reads it again");
+        assertTrue(LutrisLibrary.fresh(-1, -1, 1_000, 30_000), "no pga.db found: a minute");
+        assertFalse(LutrisLibrary.fresh(-1, -1, 1_000, 62_000));
+    }
 }

@@ -159,11 +159,6 @@ public final class LaunchCommands {
         };
     }
 
-    /**
-     * {@code ladder} run with no Wayland socket. A Flatpak granted X11 only as {@code fallback-x11} gets no X
-     * socket while a Wayland one is offered, and drew on gamescope's Wayland, out of the session's X window list
-     * (2026-10-19, live). Pure.
-     */
     /** The program a rung runs, past a leading {@code env -u <name>…}; {@code null} for an empty rung. Pure. */
     public static String executable(List<String> rung) {
         int i = 0;
@@ -174,6 +169,11 @@ public final class LaunchCommands {
         return i < rung.size() ? rung.get(i) : null;
     }
 
+    /**
+     * {@code ladder} run with no Wayland socket. A Flatpak granted X11 only as {@code fallback-x11} gets no X
+     * socket while a Wayland one is offered, and drew on gamescope's Wayland, out of the session's X window list
+     * (2026-10-19, live). Pure.
+     */
     static List<List<String>> withoutWayland(List<List<String>> ladder) {
         return ladder.stream().map(rung -> {
             List<String> unset = new ArrayList<>(List.of("env", "-u", SessionEnv.WAYLAND_DISPLAY));

@@ -6,6 +6,7 @@ import com.botmaker.shared.Spawn;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -20,8 +21,8 @@ import java.util.Map;
  *
  * <p>Asked of the CLI rather than read off disk because Lutris keeps its library in an SQLite database
  * ({@code pga.db}), and this module carries no SQLite driver. The CLI answers the same rows as JSON, with the
- * cover path already resolved, in about a second — so the answer is cached for a minute, like
- * {@link HeroicLibrary}'s, for the "is it running?" question that asks it on every poll.
+ * cover path already resolved, in about a second (three, measured) — so the answer is kept until {@code pga.db}
+ * changes, or for a minute when it can't be found, for the "is it running?" question that asks it on every poll.
  *
  * <p>Here rather than in {@code game/} for the reason {@link HeroicLibrary} is: the launch stack needs the
  * game's <em>title</em> to tell whether it is running (Lutris runs a game under a {@code lutris-wrapper}
@@ -41,6 +42,7 @@ public final class LutrisLibrary {
 
     private static volatile Map<String, Game> cached;
     private static volatile long cachedAt;
+    private static volatile long cachedStamp = -1;
 
     private LutrisLibrary() {}
 
@@ -63,13 +65,38 @@ public final class LutrisLibrary {
     /** Every installed game, keyed by id, in Lutris's own order; empty when Lutris isn't installed. */
     public static Map<String, Game> games() {
         Map<String, Game> snapshot = cached;
-        if (snapshot != null && System.currentTimeMillis() - cachedAt < CACHE_TTL_MS) {
+        long stamp = libraryStamp();
+        if (snapshot != null && fresh(cachedStamp, stamp, cachedAt, System.currentTimeMillis())) {
             return snapshot;
         }
         Map<String, Game> games = parse(listJson());
         cached = games;
+        cachedStamp = stamp;
         cachedAt = System.currentTimeMillis();
         return games;
+    }
+
+    /**
+     * Whether a list read at {@code cachedAt}, when the library file's stamp was {@code cachedStamp}, still holds:
+     * while the file's stamp is the same, else for a minute when there is no file to look at. {@code lutris -l}
+     * takes about three seconds, so the game dialog paid it on each open a minute apart (2026-10-19). Pure.
+     */
+    static boolean fresh(long cachedStamp, long stamp, long cachedAt, long now) {
+        return stamp >= 0 ? stamp == cachedStamp : now - cachedAt < CACHE_TTL_MS;
+    }
+
+    /** When Lutris's library ({@code pga.db}, native or Flatpak) last changed, or {@code -1} when neither is here. */
+    private static long libraryStamp() {
+        String home = System.getProperty("user.home", "");
+        for (Path db : List.of(Path.of(home, ".local/share/lutris/pga.db"), Path.of(home, FLATPAK_DATA,
+                "data/lutris/pga.db"))) {
+            try {
+                if (Files.isRegularFile(db)) return Files.getLastModifiedTime(db).toMillis();
+            } catch (IOException | RuntimeException unreadable) {
+                // the next one, else the minute
+            }
+        }
+        return -1;
     }
 
     /** The game with library id {@code id}, or {@code null}. */

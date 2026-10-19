@@ -16,6 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **Lutris's game list is read again only when its library changes**: `LutrisLibrary.games` keeps its list while
+  `pga.db` (native or Flatpak) keeps its modified time, and for a minute only when no `pga.db` is found. Before, it
+  ran `lutris -l` (about three seconds) whenever the last read was a minute old.
 - **Lutris games were never listed** where Vulkan warns on start: `LutrisLibrary.parse` read from the first `[`,
   inside `WARNING: [Loader Message]`; it now reads from a `[` that starts a line.
 - **A Lutris game on the Steam runner counts an open Steam**: `HostLauncherProbe.launchersOf`/`openLauncher`
