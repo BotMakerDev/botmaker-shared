@@ -14,6 +14,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **`PhoneState`**: where a phone stands with this computer (online, unauthorized, offline, not connected), with
+  each state's line and advice, so every picker words a phone waiting on "Allow USB debugging?" alike.
+- **`AdbTools.wake()`**: starts the adb server when none runs and a binary can, and says whether it did. Pickers
+  call it as they open: a phone on a cable is invisible without a server.
+
 ### Changed
 
 - **`EmulatorInstances.byName` is `find`**, matching `EmulatorInstance.reference()` first — a phone's serial, any

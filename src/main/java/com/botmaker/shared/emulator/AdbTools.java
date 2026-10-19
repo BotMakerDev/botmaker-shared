@@ -112,9 +112,9 @@ public final class AdbTools {
     /**
      * Every device a running adb server owns, or an empty list when no server is running.
      *
-     * <p><b>Deliberately does not start one.</b> Enumeration happens on pickers and poll loops, and spawning a
-     * background daemon as a side effect of drawing a list is not something a user asked for. Starting the
-     * server is {@link #startServer()}, which a UI calls once, on purpose.
+     * <p><b>Deliberately does not start one.</b> Enumeration happens in poll loops and bot runs. A picker starts
+     * the server once as it opens ({@link #wake()}): a phone on a cable is invisible without one, and nobody
+     * reads "no adb server" as the reason their phone vanished (2026-10-19, the user's call).
      */
     public static List<ServerDevice> devices() {
         return devices(DEFAULT_PORT);
@@ -297,6 +297,14 @@ public final class AdbTools {
             return false;
         }
         return serverRunning();
+    }
+
+    /**
+     * What a picker calls as it opens: starts the server when none runs and a binary can. Whether this call
+     * started it — the picker then lists again, since a phone appears only now. Blocking; never throws.
+     */
+    public static boolean wake() {
+        return !serverRunning() && startServer();
     }
 
     /**
