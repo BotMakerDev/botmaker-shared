@@ -12,6 +12,19 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Changed
+
+- **`EmulatorInstances.byName` is `find`**, matching `EmulatorInstance.reference()` first — a phone's serial, any
+  other instance's name — then the name. A phone's model name appears only after USB debugging is allowed, so a
+  saved name lost the phone.
+
+### Added
+
+- **`RunningProbe.launcherUi(pid)`**: whether a process is a launcher's own UI (Steam, Heroic, Faugus, an Electron
+  helper), so a window it owns is not taken for the game.
+
 ## [0.3.0] — 2026-10-18
 
 ### Added

@@ -203,6 +203,20 @@ public final class RunningProbe {
     }
 
     /**
+     * Whether process {@code pid} is a launcher's own UI (Steam, Heroic, Faugus, an Electron helper) rather than a
+     * game: a window it owns is the library or a login prompt, never the game a launch was waiting for. False for an
+     * unknown or gone pid.
+     */
+    public static boolean launcherUi(long pid) {
+        if (pid <= 0) return false;
+        return ProcessHandle.of(pid).map(process -> {
+            ProcessHandle.Info info = process.info();
+            String commandLine = info.commandLine().orElse(info.command().orElse(""));
+            return launcherReason(info, commandLine.toLowerCase(Locale.ROOT)) != null;
+        }).orElse(false);
+    }
+
+    /**
      * Why {@code info} should not count as a running game, or {@code null} when it should. Split out so the
      * three cases — a launcher UI, an Electron shell hosting one, {@code legendary} doing library work — read
      * as the three separate observations they are.

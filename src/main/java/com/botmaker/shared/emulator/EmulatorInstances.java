@@ -1,10 +1,11 @@
 package com.botmaker.shared.emulator;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
- * Looking up a discovered {@link EmulatorInstance} by the name a user configured it under — the one question
- * every consumer of a saved emulator reference has to answer before it can do anything else.
+ * Looking up a discovered {@link EmulatorInstance} by what a bot saved — the one question every consumer of a
+ * saved emulator reference has to answer before it can do anything else.
  *
  * <p>It lives here because it was already being answered three times: the launch stack's own private
  * {@code find} (an {@code emu-app:<pkg>@<instance>} target names its instance), Studio's capture thumbnail
@@ -13,28 +14,38 @@ import java.util.Optional;
  * about what a name matches — the same drift {@link EmulatorInstance#identity()} exists to prevent for cache
  * keys.
  *
- * <p><b>Names, not identities.</b> This deliberately matches on the display name, because that is what a
- * user picked and what got persisted. It is not unique in principle (multi-instance managers default several
- * instances to the same string), so this returns the <em>first</em> match — the same thing every hand-rolled
- * copy did. Use {@code identity()} anywhere the answer must be unique.
+ * <p><b>References, then names.</b> A picker saves {@link EmulatorInstance#reference()} — a phone's serial, an
+ * emulator's name — and a bot written before 2026-10-19 saved a phone's model name, which still matches. Neither
+ * is unique in principle (multi-instance managers default several instances to the same string), so this returns
+ * the <em>first</em> match — the same thing every hand-rolled copy did. Use {@code identity()} anywhere the answer
+ * must be unique.
  */
 public final class EmulatorInstances {
 
     private EmulatorInstances() {}
 
     /**
-     * The discovered instance with this name, if any. Total: a null or blank name is empty rather than a
-     * throw, since it routinely comes from an unset config key.
+     * The discovered instance {@code reference} names, if any. Total: a null or blank reference is empty rather
+     * than a throw, since it routinely comes from an unset config key.
      *
      * <p>Runs a full {@link Platforms#discoverAll()} scan (registry reads / console-tool calls), so it is not
      * for a hot path — resolve once and hold the result.
      */
-    public static Optional<EmulatorInstance> byName(String name) {
-        if (name == null || name.isBlank()) {
+    public static Optional<EmulatorInstance> find(String reference) {
+        if (reference == null || reference.isBlank()) {
             return Optional.empty();
         }
-        String wanted = name.trim();
-        return Platforms.discoverAll().stream().filter(i -> wanted.equals(i.name())).findFirst();
+        return find(Platforms.discoverAll(), reference);
+    }
+
+    /** The first of {@code instances} whose {@link EmulatorInstance#reference()} is {@code reference}, else whose name is. */
+    static Optional<EmulatorInstance> find(List<EmulatorInstance> instances, String reference) {
+        if (reference == null || reference.isBlank()) {
+            return Optional.empty();
+        }
+        String wanted = reference.trim();
+        return instances.stream().filter(i -> wanted.equals(i.reference())).findFirst()
+                .or(() -> instances.stream().filter(i -> wanted.equals(i.name())).findFirst());
     }
 
     /**
@@ -43,7 +54,7 @@ public final class EmulatorInstances {
      *
      * <p>It says {@code "Android: Pixel 7"} rather than the {@code "Emulator: Pixel 7"} these sites used to
      * hard-code, because a physical phone is now one of the things a name can refer to and calling it an
-     * emulator is simply wrong. It deliberately does <b>not</b> resolve the name: {@link #byName} runs a full
+     * emulator is simply wrong. It deliberately does <b>not</b> resolve the name: {@link #find} runs a full
      * discovery scan (registry reads, console-tool calls), and a label is drawn far too often to pay for one.
      * Where an instance is already in hand, use {@link EmulatorInstance#caption()}, which knows the product.
      */

@@ -74,6 +74,20 @@ public record EmulatorInstance(PlatformId platformId, String name, AdbEndpoint a
         return platformId.id() + "@" + endpoint();
     }
 
+    /**
+     * What a bot's Java names this instance by — {@code CaptureSource.emulator(…)}, an {@code emu-app:…@<it>}
+     * target: a phone's {@link #endpoint()} (its serial, or {@code host:port}), any other instance's name.
+     *
+     * <p>Each is the half that stays put. A phone's name is its model as the adb server reports it, which it does
+     * not until USB debugging is allowed — the same phone was "R58M…" before and "Pixel 7" after, and a bot that
+     * saved one stopped finding it (2026-10-19). An emulator's address is the one that moves (a second instance
+     * takes the next port), its name the one its user gave it. Never {@link #identity()}: its {@code @} would split
+     * an {@code emu-app:} target in the wrong place.
+     */
+    public String reference() {
+        return platformId == PlatformId.PHYSICAL ? endpoint() : name;
+    }
+
     /** The product's human-readable name, e.g. {@code "BlueStacks"}. */
     public String brand() {
         return platformId.displayName();

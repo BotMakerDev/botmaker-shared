@@ -2,6 +2,9 @@ package com.botmaker.shared.emulator;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,14 +18,37 @@ class EmulatorInstancesTest {
     @Test
     void anUnsetNameIsEmptyRatherThanAThrow() {
         // These come straight from unset config keys — capture.source with no emulator, a cleared target.
-        assertTrue(EmulatorInstances.byName(null).isEmpty());
-        assertTrue(EmulatorInstances.byName("").isEmpty());
-        assertTrue(EmulatorInstances.byName("   ").isEmpty());
+        assertTrue(EmulatorInstances.find(null).isEmpty());
+        assertTrue(EmulatorInstances.find("").isEmpty());
+        assertTrue(EmulatorInstances.find("   ").isEmpty());
     }
 
     @Test
     void aNameNoProductCouldEverReportIsEmpty() {
-        assertTrue(EmulatorInstances.byName("no-such-instance-4f2b9c").isEmpty());
+        assertTrue(EmulatorInstances.find("no-such-instance-4f2b9c").isEmpty());
+    }
+
+    /**
+     * A phone is saved by its serial, which the adb server reports before USB debugging is allowed as well as
+     * after — its model name only after (2026-10-19). A bot that saved the name still finds it.
+     */
+    @Test
+    void aPhoneIsFoundBySerialAndStillByItsOldName() {
+        EmulatorInstance phone = new EmulatorInstance(PlatformId.PHYSICAL, "Pixel 7", new AdbEndpoint.Server("R58M12"));
+        // An emulator named as the phone's model is not taken for it: the serial is matched first.
+        EmulatorInstance namesake = new EmulatorInstance(PlatformId.BLUESTACKS, "Pixel 7", AdbEndpoint.loopback(5555));
+        List<EmulatorInstance> all = List.of(namesake, phone);
+        assertEquals("R58M12", phone.reference());
+        assertEquals(Optional.of(phone), EmulatorInstances.find(all, " R58M12 "));
+        assertEquals(Optional.of(namesake), EmulatorInstances.find(all, "Pixel 7"));
+        assertEquals(Optional.of(phone), EmulatorInstances.find(List.of(phone), "Pixel 7"));
+    }
+
+    /** An emulator keeps its name as its reference: its port is what moves. */
+    @Test
+    void anEmulatorIsSavedByItsName() {
+        assertEquals("Nougat64", new EmulatorInstance(
+                PlatformId.BLUESTACKS, "Nougat64", AdbEndpoint.loopback(5565)).reference());
     }
 
     /**

@@ -331,9 +331,9 @@ public final class EmulatorAppLauncher {
         return false;
     }
 
-    /** The discovered instance with this name, if any — {@link EmulatorInstances#byName}'s one owner. */
-    private static Optional<EmulatorInstance> find(String name) {
-        return EmulatorInstances.byName(name);
+    /** The discovered instance the target names, if any — {@link EmulatorInstances#find}'s one owner. */
+    private static Optional<EmulatorInstance> find(String reference) {
+        return EmulatorInstances.find(reference);
     }
 
     private static void report(Consumer<String> progress, String message) {
