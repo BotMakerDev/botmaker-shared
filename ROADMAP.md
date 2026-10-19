@@ -57,6 +57,11 @@ also holds `botmaker-session`'s history before 2026-07-30).
   library is encrypted, so its games come only through the Start menu, folded under "Other apps".
 - **A Steam shortcut's running check is unverified**: the reaper's `AppId=` is taken to be the shortcut's 32-bit app
   id, and Steam's `RunningAppID` the same; neither was seen live.
+- **Game readiness: what `GameReadiness` doesn't read** (2026-10-19). Epic on Windows and Mac, Lutris, Faugus,
+  Bottles and Legendary in a game VM are `UNKNOWN` (launched as before); a game VM's Legendary install
+  (`legendary install`, `legendary auth`'s browser code) isn't offered. Steam's signed-out test is a remembered
+  account in `loginusers.vdf`, not seen after a real sign-out; an update Steam starts only when the game is
+  launched (`UPDATE_PENDING`) runs inside the launch's window wait, which a long download outlasts.
 - **Windows: window-less keys are always real.** `keyDown(int)`/`typeText(String)` with no window go to the
   focused window through `SendInput` even in the background, because there is no target to post to. The SDK's
   `Keyboard` passes a window when the bot's source is one.

@@ -118,6 +118,28 @@ public final class SteamLibraryScanner implements GameLibraryProvider {
         return found;
     }
 
+    /**
+     * The {@code appmanifest_<appId>.acf} of an installed Steam game in any library of the Steam install at
+     * {@code root} ({@link #root()}), or empty when it lists no such game. Never throws.
+     */
+    public static java.util.Optional<Path> manifest(Path root, String appId) {
+        try {
+            if (root == null || appId == null || !appId.matches("\\d+")) return java.util.Optional.empty();
+            for (Path library : libraryFolders(root)) {
+                Path acf = library.resolve("steamapps").resolve("appmanifest_" + appId + ".acf");
+                if (Files.isRegularFile(acf)) return java.util.Optional.of(acf);
+            }
+        } catch (RuntimeException e) {
+            // none found, then
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** This computer's Steam install root, or {@code null} when Steam isn't installed. */
+    public static Path root() {
+        return steamRoot();
+    }
+
     private static boolean isAppManifest(Path p) {
         String n = p.getFileName().toString();
         return n.startsWith("appmanifest_") && n.endsWith(".acf");

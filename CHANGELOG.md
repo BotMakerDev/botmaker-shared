@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`GameReadiness`**: whether a target's game can start now, off its launcher's files — Steam's
+  `appmanifest_<id>.acf` `StateFlags` (installed, update pending, downloading while the client runs) and, while
+  Steam is closed, a remembered account in `config/loginusers.vdf` (signed out), a Heroic game installed; other kinds `UNKNOWN`. `awaitLaunchable` waits out
+  a download (`UPDATE_WAIT`, 30 min) and throws for a game not installed or a launcher signed out; `installLink`
+  (`steam://install/<id>`) and `signInLink`. `SteamLibraryScanner.root()` and `manifest(root, id)`.
 - **More launchers** (`docs/display-pipeline.md` §2 has where each runs):
   - **Bottles** (Linux): `LaunchKind.BOTTLES`, `bottles:<bottle>/<program>`, read off each `bottle.yml`
     (`BottlesLibrary`, native and Flatpak) and started with `bottles-cli run` as our child, so in a private display
