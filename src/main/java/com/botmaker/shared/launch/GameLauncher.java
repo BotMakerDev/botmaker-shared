@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Brings a game up on the host: the protocol-URL-then-CLI ladders for each store launcher, plus plain process
@@ -236,13 +237,21 @@ public final class GameLauncher {
      * uses, launcher deny-list and all, and this method additionally spares <em>our own</em> process, its
      * ancestors and its descendants.
      *
+     * <p>A match's descendants go first: a Steam game runs under {@code reaper … AppId=<id> --}, and the reaper
+     * alone ended while the game and its pressure-vessel ran on, orphaned (2026-10-19, live).
+     *
      * @throws IllegalArgumentException if {@code processName} is null/blank
      */
     public static void kill(String processName) {
         String name = require(processName, "processName");
         Set<Long> ours = ownProcessTree();
+        Set<Long> seen = new HashSet<>();
+        // Our own tree is spared before a match's children are added: a shell of ours that names the target is
+        // spared, and so must its other children be (a live run killed the grep beside it).
         List<ProcessHandle> targets = RunningProbe.processesRunning(name).stream()
                 .filter(p -> !ours.contains(p.pid()))
+                .flatMap(p -> Stream.concat(p.descendants(), Stream.of(p)))
+                .filter(p -> !ours.contains(p.pid()) && seen.add(p.pid()))
                 .toList();
         Diag.log("[Game] kill " + name + ": " + targets.size() + " process(es)");
         for (ProcessHandle target : targets) {

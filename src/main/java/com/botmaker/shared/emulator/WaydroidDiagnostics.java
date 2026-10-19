@@ -4,6 +4,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Read-only probes for the ways a Waydroid setup is broken, each paired with the fix — <b>as text</b>.
@@ -32,6 +34,9 @@ public final class WaydroidDiagnostics {
 
     /** The property an ARM-translation layer (libhoudini/libndk) installs itself under. */
     static final String NATIVE_BRIDGE_PROP = "ro.dalvik.vm.native.bridge";
+
+    /** systemd's line when it can't exec the service's program: the file is the group. */
+    private static final Pattern EXEC_DENIED = Pattern.compile("Failed to execute (\\S+): Permission denied");
 
     private WaydroidDiagnostics() {}
 
@@ -86,7 +91,9 @@ public final class WaydroidDiagnostics {
         if (!WaydroidCli.available()) {
             return findings;   // not installed is not "misconfigured"; the picker already says so
         }
-        add(findings, containerDown(WaydroidCli.runAnyExit("systemctl", "is-active", "waydroid-container")));
+        add(findings, containerDown(WaydroidCli.runAnyExit("systemctl", "is-active", "waydroid-container"),
+                WaydroidCli.runAnyExit("journalctl", "-u", "waydroid-container", "-n", "20", "-o", "cat",
+                        "--no-pager")));
         WaydroidStatus status = WaydroidStatus.read();
         add(findings, sessionStopped(status));
         add(findings, noInternet(readOrNull(IP_FORWARD), status, defaultInterface(WaydroidCli.run("ip", "route"))));
@@ -108,9 +115,22 @@ public final class WaydroidDiagnostics {
      * we need is on a failing command's stdout. A null reading (no systemd, no systemctl) is not a finding:
      * absence of evidence would otherwise be reported as a broken container on every non-systemd distro.
      */
-    static Finding containerDown(String isActiveOutput) {
+    static Finding containerDown(String isActiveOutput, String journal) {
         if (isActiveOutput == null || isActiveOutput.isBlank() || isActiveOutput.trim().startsWith("active")) {
             return null;
+        }
+        Matcher denied = journal == null ? null : EXEC_DENIED.matcher(journal);
+        if (denied != null && denied.find()) {
+            // Measured 2026-10-19: a python3.14 labelled user_home_t (copied from a home folder) made systemd's
+            // exec of the waydroid script fail under SELinux; a restart only fails again.
+            return new Finding(Issue.CONTAINER_DOWN,
+                    "The waydroid-container service can't start: the system refuses to run " + denied.group(1)
+                            + " (\"Permission denied\"), so nothing Android-side can start.",
+                    "Usually a file with the wrong SELinux label, such as a Python copied in from a home "
+                            + "folder: restore the system labels, then start the service.",
+                    List.of("sudo restorecon -Rv /usr/bin /usr/lib/waydroid",
+                            "sudo systemctl restart waydroid-container"),
+                    null);
         }
         return new Finding(Issue.CONTAINER_DOWN,
                 "The waydroid-container service is not running (systemctl says \"" + isActiveOutput.trim()

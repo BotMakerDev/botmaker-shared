@@ -6,6 +6,7 @@ import com.botmaker.shared.emulator.WaydroidPlatform;
 import com.botmaker.shared.emulator.WaydroidResolution;
 import com.botmaker.shared.emulator.WaydroidStatus;
 import com.botmaker.shared.platform.Os;
+import com.botmaker.shared.platform.SessionEnv;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -152,9 +153,33 @@ public final class LaunchCommands {
             case STEAM -> steam(spec.token());
             case FAUGUS -> faugus(spec.token());
             case LUTRIS -> lutris(spec.token());
-            case DESKTOP -> desktop(spec.token());
+            case DESKTOP -> DesktopEntries.find(spec.token()).filter(entry -> !entry.flatpakId().isBlank()).isPresent()
+                    ? withoutWayland(desktop(spec.token())) : desktop(spec.token());
             case EMULATOR_APP, EPIC, UNKNOWN -> List.of();
         };
+    }
+
+    /**
+     * {@code ladder} run with no Wayland socket. A Flatpak granted X11 only as {@code fallback-x11} gets no X
+     * socket while a Wayland one is offered, and drew on gamescope's Wayland, out of the session's X window list
+     * (2026-10-19, live). Pure.
+     */
+    /** The program a rung runs, past a leading {@code env -u <name>…}; {@code null} for an empty rung. Pure. */
+    public static String executable(List<String> rung) {
+        int i = 0;
+        if (!rung.isEmpty() && "env".equals(rung.get(0))) {
+            i = 1;
+            while (i + 1 < rung.size() && "-u".equals(rung.get(i))) i += 2;
+        }
+        return i < rung.size() ? rung.get(i) : null;
+    }
+
+    static List<List<String>> withoutWayland(List<List<String>> ladder) {
+        return ladder.stream().map(rung -> {
+            List<String> unset = new ArrayList<>(List.of("env", "-u", SessionEnv.WAYLAND_DISPLAY));
+            unset.addAll(rung);
+            return List.copyOf(unset);
+        }).toList();
     }
 
     /**

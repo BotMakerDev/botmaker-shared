@@ -49,9 +49,16 @@ public final class LutrisLibrary {
      *
      * @param id    the library id {@code lutris:rungameid/<id>} starts, as text
      * @param name  the title Lutris shows
-     * @param cover the cover file Lutris downloaded, or {@code null}
+     * @param cover  the cover file Lutris downloaded, or {@code null}
+     * @param runner what Lutris runs it with ({@code wine}, {@code steam}, {@code linux}…), blank when unknown
      */
-    public record Game(String id, String name, Path cover) {}
+    public record Game(String id, String name, Path cover, String runner) {
+
+        /** Whether Lutris hands this game to Steam, which then starts it — so an open Steam takes the launch. */
+        public boolean throughSteam() {
+            return "steam".equals(runner);
+        }
+    }
 
     /** Every installed game, keyed by id, in Lutris's own order; empty when Lutris isn't installed. */
     public static Map<String, Game> games() {
@@ -78,9 +85,15 @@ public final class LutrisLibrary {
         if (id == null || id.isBlank()) return List.of();
         // A poll must not stall on a Python start-up once a minute: any list read before will do, since a game's
         // title doesn't change while it runs. Only the first ask runs lutris.
-        Map<String, Game> known = cached;
-        Game game = known != null && known.containsKey(id.trim()) ? known.get(id.trim()) : find(id);
+        Game game = known(id);
         return game == null || game.name().isBlank() ? List.of() : List.of(game.name());
+    }
+
+    /** The game with id {@code id} from any list read before, else read now; {@code null} when not installed. */
+    public static Game known(String id) {
+        if (id == null || id.isBlank()) return null;
+        Map<String, Game> known = cached;
+        return known != null && known.containsKey(id.trim()) ? known.get(id.trim()) : find(id);
     }
 
     /** Forget the cached list — for a caller that just installed or removed a game. */
@@ -115,7 +128,9 @@ public final class LutrisLibrary {
      */
     static Map<String, Game> parse(String output) {
         if (output == null) return Map.of();
-        int start = output.indexOf('[');
+        // The first `[` that starts a line: Vulkan's loader warns "WARNING: [Loader Message] …" on the same stream,
+        // and reading from that bracket left this machine with no Lutris games at all (2026-10-19, live).
+        int start = output.startsWith("[") ? 0 : output.indexOf("\n[");
         if (start < 0) return Map.of();
         Map<String, Game> games = new LinkedHashMap<>();
         try {
@@ -128,7 +143,8 @@ public final class LutrisLibrary {
                 String cover = row.path("coverPath").asText("");
                 Path coverPath = cover.isBlank() ? null : Path.of(cover);
                 games.putIfAbsent(id, new Game(id, name,
-                        coverPath != null && Files.isRegularFile(coverPath) ? coverPath : null));
+                        coverPath != null && Files.isRegularFile(coverPath) ? coverPath : null,
+                        row.path("runner").asText("")));
             }
         } catch (Exception e) {
             return Map.of();

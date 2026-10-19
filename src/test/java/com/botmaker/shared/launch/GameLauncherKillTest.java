@@ -77,6 +77,32 @@ class GameLauncherKillTest {
         }
     }
 
+    @Test
+    void whatTheMatchStartedGoesWithIt() throws Exception {
+        // Steam's reaper carries AppId=<id>; the game under it doesn't, and outlived a kill of the reaper alone.
+        String token = "botmaker-kill-tree-" + UUID.randomUUID();
+        new ProcessBuilder("setsid", "--fork", "sh", "-c", "sleep 7777 & while :; do sleep 1; done", token)
+                .start().waitFor(5, TimeUnit.SECONDS);
+        try {
+            assertTrue(waitFor(() -> RunningProbe.commandLineMentions(token)));
+            List<ProcessHandle> game = RunningProbe.processesRunning(token).stream()
+                    .flatMap(ProcessHandle::descendants)
+                    .filter(p -> p.info().commandLine().orElse("").contains("7777"))
+                    .toList();
+            assertFalse(game.isEmpty(), "the child the match started should be visible");
+
+            GameLauncher.kill(token);
+
+            assertTrue(waitFor(() -> game.stream().noneMatch(ProcessHandle::isAlive)),
+                    "the match's child must be killed with it");
+        } finally {
+            RunningProbe.processesRunning(token).forEach(p -> {
+                p.descendants().forEach(ProcessHandle::destroyForcibly);
+                p.destroyForcibly();
+            });
+        }
+    }
+
     /** Poll for up to ~3s: process creation and signal delivery are both asynchronous. */
     private static boolean waitFor(java.util.function.BooleanSupplier condition) throws InterruptedException {
         for (int i = 0; i < 30; i++) {

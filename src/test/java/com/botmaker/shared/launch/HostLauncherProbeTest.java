@@ -8,7 +8,9 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -57,6 +59,28 @@ class HostLauncherProbeTest {
         } finally {
             flatpak.destroyForcibly();
         }
+    }
+
+    @Test
+    void aPathUnderTheFlatpaksDataIsNotTheFlatpak() {
+        String id = "com.heroicgameslauncher.hgl";
+        assertTrue(HostLauncherProbe.runsFlatpakApp(List.of("run", "--branch=stable", id), id));
+        assertTrue(HostLauncherProbe.runsFlatpakApp(List.of("run", id + "//stable"), id));
+        assertTrue(HostLauncherProbe.runsFlatpakApp(List.of("--app-id=" + id), id));
+        assertFalse(HostLauncherProbe.runsFlatpakApp(List.of("-c", "ls ~/.var/app/" + id + "/config"), id),
+                "a shell listing Heroic's files is not Heroic");
+        assertFalse(HostLauncherProbe.runsFlatpakApp(List.of("/home/u/.var/app/" + id + "/heroic.log"), id));
+    }
+
+    @Test
+    void aLutrisGameOnTheSteamRunnerAlsoWaitsOnSteam() {
+        assertEquals(List.of(LaunchKind.LUTRIS, LaunchKind.STEAM),
+                HostLauncherProbe.launchersOf(LaunchSpec.parse("lutris:8"), "8"::equals));
+        assertEquals(List.of(LaunchKind.LUTRIS),
+                HostLauncherProbe.launchersOf(LaunchSpec.parse("lutris:1"), "8"::equals), "a wine game is Lutris's only");
+        assertEquals(List.of(LaunchKind.STEAM),
+                HostLauncherProbe.launchersOf(LaunchSpec.parse("steam:570"), id -> true));
+        assertEquals(List.of(), HostLauncherProbe.launchersOf(LaunchSpec.parse("exe:/x/game"), id -> true));
     }
 
     @Test

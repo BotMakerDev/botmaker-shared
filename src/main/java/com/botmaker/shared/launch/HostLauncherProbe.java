@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Whether a store launcher's own UI (Heroic, Steam, Faugus) is already running on the user's real desktop —
@@ -81,14 +83,40 @@ public final class HostLauncherProbe {
         }
     }
 
-    /** {@link #isRunning(LaunchKind)} for a parsed spec. */
-    public static boolean isRunning(LaunchSpec spec) {
-        return spec != null && isRunning(spec.kind());
+    /**
+     * The single-instance launchers {@code spec}'s launch passes through: its own kind's, and Steam's for a Lutris
+     * game on Lutris's Steam runner — Lutris hands it to Steam, so an open Steam put it on the desktop while only
+     * Lutris was checked (2026-10-19, live). Empty for a kind no launcher stands behind.
+     */
+    public static List<LaunchKind> launchersOf(LaunchSpec spec) {
+        return launchersOf(spec, id -> {
+            LutrisLibrary.Game game = LutrisLibrary.known(id);
+            return game != null && game.throughSteam();
+        });
     }
 
-    /** {@link #running(LaunchKind)} for a parsed spec. */
+    /** {@link #launchersOf(LaunchSpec)} with whether a Lutris id runs through Steam given. Pure. */
+    static List<LaunchKind> launchersOf(LaunchSpec spec, Predicate<String> lutrisThroughSteam) {
+        if (spec == null || !routesThroughDaemon(spec.kind())) return List.of();
+        if (spec.kind() == LaunchKind.LUTRIS && lutrisThroughSteam.test(spec.token())) {
+            return List.of(LaunchKind.LUTRIS, LaunchKind.STEAM);
+        }
+        return List.of(spec.kind());
+    }
+
+    /** The first of {@link #launchersOf(LaunchSpec)} open on this desktop, the one to close; empty when none. */
+    public static Optional<LaunchKind> openLauncher(LaunchSpec spec) {
+        return launchersOf(spec).stream().filter(HostLauncherProbe::isRunning).findFirst();
+    }
+
+    /** Whether a launcher {@code spec}'s launch passes through is open on this desktop ({@link #openLauncher}). */
+    public static boolean isRunning(LaunchSpec spec) {
+        return openLauncher(spec).isPresent();
+    }
+
+    /** {@link #running(LaunchKind)} of every launcher {@code spec}'s launch passes through. */
     public static List<ProcessHandle> running(LaunchSpec spec) {
-        return spec == null ? List.of() : running(spec.kind());
+        return launchersOf(spec).stream().flatMap(kind -> running(kind).stream()).toList();
     }
 
     /**
@@ -181,10 +209,21 @@ public final class HostLauncherProbe {
         return refusalMessage(kind, running(kind));
     }
 
+    /** {@link #refusalMessage(LaunchKind)} for the launcher open in front of {@code spec}, its own kind if none is. */
+    public static String refusalMessage(LaunchSpec spec) {
+        LaunchKind launcher = openLauncher(spec).orElse(spec.kind());
+        return refusalMessage(spec.kind(), launcher, running(launcher));
+    }
+
     /** {@link #refusalMessage(LaunchKind)} over an already-taken observation, so the probe runs once. */
     public static String refusalMessage(LaunchKind kind, List<ProcessHandle> processes) {
-        String product = productName(kind);
-        return "Can't run " + kind.displayName().toLowerCase(Locale.ROOT) + "s in a private display while "
+        return refusalMessage(kind, kind, processes);
+    }
+
+    /** The refusal for a {@code game} kind whose launch {@code launcher} would take (Lutris's via Steam). */
+    private static String refusalMessage(LaunchKind game, LaunchKind launcher, List<ProcessHandle> processes) {
+        String product = productName(launcher);
+        return "Can't run " + game.displayName().toLowerCase(Locale.ROOT) + "s in a private display while "
                 + product + " is open: it is single-instance, so it would hand the launch to the copy already "
                 + "running on your desktop and start the game there. Close " + product + " and try again"
                 + describeProcesses(processes) + ".";
@@ -252,10 +291,24 @@ public final class HostLauncherProbe {
                 return true;
             }
         }
-        if (flatpakAppId == null) {
-            return false;
+        return flatpakAppId != null && info.arguments().map(args -> runsFlatpakApp(List.of(args), flatpakAppId))
+                .orElse(false);
+    }
+
+    /**
+     * Whether {@code args} start the Flatpak {@code appId}: an argument that is the id ({@code flatpak run <id>},
+     * {@code <id>//stable}, {@code --app-id=<id>}), never one that only holds it in a path. A substring of the
+     * command line read {@code ls ~/.var/app/com.heroicgameslauncher.hgl/…}, or an editor open on a Heroic
+     * config, as Heroic open, and the private launch was refused (2026-10-19, live).
+     */
+    static boolean runsFlatpakApp(List<String> args, String appId) {
+        String id = appId.toLowerCase(Locale.ROOT);
+        for (String arg : args) {
+            String a = arg.toLowerCase(Locale.ROOT);
+            int equals = a.indexOf('=');
+            if (a.startsWith("--") && equals > 0) a = a.substring(equals + 1);
+            if (a.equals(id) || a.startsWith(id + "/")) return true;
         }
-        String commandLine = info.commandLine().map(s -> s.toLowerCase(Locale.ROOT)).orElse(null);
-        return commandLine != null && commandLine.contains(flatpakAppId.toLowerCase(Locale.ROOT));
+        return false;
     }
 }

@@ -38,6 +38,15 @@ class LaunchCommandsTest {
     }
 
     @Test
+    void aFlatpakAppInAPrivateDisplayIsOfferedNoWaylandSocket() {
+        assertEquals(List.of(List.of("env", "-u", "WAYLAND_DISPLAY", "gtk-launch", "com.github.tenderowl.frog")),
+            LaunchCommands.withoutWayland(LaunchCommands.desktop("com.github.tenderowl.frog", Os.LINUX)));
+        assertEquals("gtk-launch", LaunchCommands.executable(List.of("env", "-u", "WAYLAND_DISPLAY", "gtk-launch", "x")),
+            "the install check looks past the env prefix");
+        assertEquals("steam", LaunchCommands.executable(List.of("steam", "-applaunch", "570")));
+    }
+
+    @Test
     void steamLaddersNativeThenFlatpak() {
         assertEquals(List.of(
                 List.of("steam", "-applaunch", "570"),

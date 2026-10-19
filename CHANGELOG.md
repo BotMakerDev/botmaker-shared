@@ -14,6 +14,20 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lutris games were never listed** where Vulkan warns on start: `LutrisLibrary.parse` read from the first `[`,
+  inside `WARNING: [Loader Message]`; it now reads from a `[` that starts a line.
+- **A Lutris game on the Steam runner counts an open Steam**: `HostLauncherProbe.launchersOf`/`openLauncher`
+  (Lutris's `runner`, `LutrisLibrary.Game.throughSteam`); before, the game went to the desktop's Steam.
+- **A path under a launcher's Flatpak data is not the launcher**: the Flatpak id must be a whole argument
+  (`runsFlatpakApp`), so `ls ~/.var/app/com.heroicgameslauncher.hgl/…` no longer reads as Heroic open.
+- **`GameLauncher.kill` ends what a match started**: a Steam game outlived the kill of its `reaper`; our own
+  tree and its children stay spared.
+- **A Flatpak menu app runs without a Wayland socket** in a private display (`LaunchCommands.withoutWayland`), so
+  a `fallback-x11` app draws on X where the session sees it.
+- **Waydroid's container refused by SELinux** gets its own finding: `restorecon` before the restart.
+
 ### Added
 
 - **`HostLauncherProbe.closeAndWait`**: closes a launcher open on the desktop and waits for it to go; Steam is

@@ -94,13 +94,25 @@ class WaydroidDiagnosticsTest {
 
     @Test
     void aStoppedContainerIsReportedButAMissingSystemctlIsNot() {
-        assertNotNull(WaydroidDiagnostics.containerDown("inactive"));
-        assertNull(WaydroidDiagnostics.containerDown("active"));
+        assertNotNull(WaydroidDiagnostics.containerDown("inactive", null));
+        assertNull(WaydroidDiagnostics.containerDown("active", null));
         // `is-active` on a running-but-degraded unit prints "activating"/"active (exited)" — the prefix match
         // keeps those out of the panel.
-        assertNull(WaydroidDiagnostics.containerDown("active (exited)"));
-        assertNull(WaydroidDiagnostics.containerDown(null), "no systemd is not a broken container");
-        assertNull(WaydroidDiagnostics.containerDown(""));
+        assertNull(WaydroidDiagnostics.containerDown("active (exited)", null));
+        assertNull(WaydroidDiagnostics.containerDown(null, null), "no systemd is not a broken container");
+        assertNull(WaydroidDiagnostics.containerDown("", null));
+    }
+
+    @Test
+    void aServiceTheSystemWontRunAsksForLabelsNotARestart() {
+        String journal = "Starting waydroid-container.service - Waydroid Container...\n"
+                + "waydroid-container.service: Failed to execute /usr/bin/waydroid: Permission denied\n"
+                + "waydroid-container.service: Main process exited, code=exited, status=203/EXEC\n";
+        WaydroidDiagnostics.Finding finding = WaydroidDiagnostics.containerDown("failed", journal);
+        assertTrue(finding.symptom().contains("/usr/bin/waydroid"));
+        assertTrue(finding.commandBlock().startsWith("sudo restorecon"), "a restart alone fails again");
+        assertEquals("sudo systemctl restart waydroid-container",
+                WaydroidDiagnostics.containerDown("failed", "Stopped.").commandBlock());
     }
 
     @Test

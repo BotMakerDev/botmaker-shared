@@ -6,7 +6,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LutrisLibraryTest {
 
@@ -14,15 +16,20 @@ class LutrisLibraryTest {
     void theJsonListIsReadPastLutrisOwnLogLines() {
         Map<String, LutrisLibrary.Game> games = LutrisLibrary.parse("""
                 2026-10-07 11:00:00,000: Startup info
+                WARNING: [Loader Message] Code 0 : ICD for selected physical device does not export vkGet!
                 [
                   {"id": 3, "slug": "epic-games-store", "name": "Epic Games Store", "runner": "wine",
                    "coverPath": "/nowhere/epic-games-store.jpg"},
-                  {"id": 1, "slug": "osu", "name": "osu!", "coverPath": null}
+                  {"id": 1, "slug": "osu", "name": "osu!", "coverPath": null},
+                  {"id": 8, "slug": "firestone", "name": "Firestone", "runner": "steam"}
                 ]
                 """);
-        assertEquals(List.of("3", "1"), List.copyOf(games.keySet()), "Lutris's own order");
+        assertEquals(List.of("3", "1", "8"), List.copyOf(games.keySet()), "Lutris's own order");
         assertEquals("Epic Games Store", games.get("3").name());
         assertNull(games.get("3").cover(), "a cover file that doesn't exist is no cover");
+        assertFalse(games.get("3").throughSteam());
+        assertFalse(games.get("1").throughSteam(), "no runner is not Steam");
+        assertTrue(games.get("8").throughSteam(), "a Steam-runner game is started by Steam");
     }
 
     @Test
