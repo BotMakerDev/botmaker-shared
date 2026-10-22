@@ -38,6 +38,15 @@ public interface NativeController {
     BufferedImage captureWindow(GenericWindow window);
 
     /**
+     * Frames of this window read again and again, for a live feed: what each read needs kept open until the grab is
+     * closed. The default reads each frame by {@link #captureWindow} and copies it; X11 reads the window's composite
+     * pixmap through shared memory.
+     */
+    default FrameGrab grabWindow(GenericWindow window) {
+        return FrameGrab.of(() -> captureWindow(window));
+    }
+
+    /**
      * Force the window whose title equals {@code windowTitle} to stack <em>above fullscreen</em> windows.
      * Studio's transparent overlays are only {@code setAlwaysOnTop} (EWMH {@code _NET_WM_STATE_ABOVE}), which
      * a fullscreen game still covers; this promotes the overlay via notification window-type + raise so it

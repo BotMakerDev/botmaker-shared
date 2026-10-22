@@ -1,6 +1,7 @@
 package com.botmaker.shared.capture.linux;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.capture.FrameGrab;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.linux.input.InputTiming;
@@ -467,6 +468,18 @@ public class LinuxController implements NativeController, AutoCloseable {
     }
 
     /**
+     * The window's frames through shared memory on a connection of the grab's own ({@link XShmGrab}), each frame it
+     * cannot read so by {@link #captureWindow}; only that when MIT-SHM is missing.
+     */
+    @Override
+    public FrameGrab grabWindow(GenericWindow window) {
+        checkNotClosed();
+        FrameGrab slow = FrameGrab.of(() -> captureWindow(window));
+        if (!x11Available || window == null) return slow;
+        return XShmGrab.open(displayName, (Pointer) window.getNativeHandle(), slow);
+    }
+
+    /**
      * Capture a window by reading its X pixmap directly with {@link X11#XGetImage} against the window drawable.
      * This is deliberately <b>not</b> AWT {@code Robot}: on Wayland every {@code Robot} grab tunnels through
      * xdg-desktop-portal and pops a screen-share prompt (and then fails with a {@code SecurityException}),
@@ -607,6 +620,11 @@ public class LinuxController implements NativeController, AutoCloseable {
      * does a top-level window have a redirected off-screen pixmap for {@link #captureViaComposite} to read.
      */
     private boolean compositorActive() {
+        return compositorActive(display);
+    }
+
+    /** {@link #compositorActive()} on {@code display}, a connection of the caller's own. */
+    static boolean compositorActive(Pointer display) {
         try {
             int screen = X11.INSTANCE.XDefaultScreen(display);
             Pointer atom = X11.INSTANCE.XInternAtom(display, "_NET_WM_CM_S" + screen, false);

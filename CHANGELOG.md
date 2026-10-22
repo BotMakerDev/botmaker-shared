@@ -16,6 +16,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`NativeController.grabWindow`**: a window's frames read again and again into a caller's `int[]`
+  (`FrameGrab`, `FrameSink`), for a live feed. On X11 (`XShmGrab`) it works the way OBS reads a window:
+  - It reads through MIT-SHM into one shared-memory segment, on an X connection of its own.
+  - It keeps the composite pixmap named until the size changes.
+  - A window the compositor does not redirect, as rootless XWayland's, is read directly.
+  - A frame that still reads black goes to `captureWindow`.
+
+  A 1280×692 game window takes 1.5–5 ms a frame, where `captureWindow` takes 17–27 ms. Other platforms read
+  each frame by `captureWindow` and copy it.
 - **`GameReadiness`**: whether a target's game can start now, off its launcher's files — Steam's
   `appmanifest_<id>.acf` `StateFlags` (installed, update pending, downloading while the client runs) and, while
   Steam is closed, a remembered account in `config/loginusers.vdf` (signed out), a Heroic game installed; other kinds `UNKNOWN`. `awaitLaunchable` waits out
