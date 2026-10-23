@@ -11,21 +11,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * The gallery and the registry move to {@link GitHubConfig#NEXT_OWNER} in two steps (2026-09-18): a Studio
- * that reads the new owner first and the old one second ships before either repository moves. These hold the
- * order, and that a reader gets the second URL's body when the first answers 404 — the state every Studio is
- * in until the move.
+ * The catalog's one address (2026-10-23), compiled into every Studio, and that a reader given several URLs gets
+ * the second one's body when the first answers 404.
  */
 class RawUrlsTest {
 
     @Test
-    void theNewOwnerIsTriedFirstAndTheOldOneStillAnswers() {
+    void theCatalogHasOneAddress() {
         assertEquals(List.of("https://raw.githubusercontent.com/BotMakerDev/botmaker-catalog/main/catalog.json"),
                 GitHubConfig.catalogRawUrls());
-        assertEquals(List.of(
-                "https://raw.githubusercontent.com/BotMakerDev/botmaker-plugin-registry/main/index.json",
-                "https://raw.githubusercontent.com/LiQiyeDev/botmaker-plugin-registry/main/index.json"),
-                GitHubConfig.registryIndexRawUrls());
     }
 
     @Test

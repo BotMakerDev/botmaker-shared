@@ -18,7 +18,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 - **`GitHubConfig.CATALOG_OWNER`, `CATALOG_REPO`, `CATALOG_BRANCH`**: the catalog repository
   `BotMakerDev/botmaker-catalog`, which lists bots and plugins. `catalogRawUrls()` now names its `catalog.json`
-  (one URL) instead of the gallery's.
+  (one URL) instead of the gallery's. The gallery's and the registry's addresses are removed: `INDEX_*`,
+  `REGISTRY_*`, `PREVIOUS_OWNER`, `ENTRIES_DIR`, `VETTED_DIR`, `indexRawUrls()`, `registryIndexRawUrls()`,
+  `entryPath()`, `vettedPath()`, `isGalleryConfigured()` and `isRegistryConfigured()`.
 
 - **`NativeController.grabWindow`**: a window's frames read again and again into a caller's `int[]`
   (`FrameGrab`, `FrameSink`), for a live feed. On X11 (`XShmGrab`) it works the way OBS reads a window:

@@ -1,24 +1,23 @@
 package com.botmaker.shared.github;
 
+import java.util.List;
+
 /**
- * Static configuration for the federated bot-sharing gallery.
+ * Static configuration for sharing bots and plugins through GitHub.
  *
- * <p>Two values are maintainer-owned and must be filled in before publishing / the gallery work
- * end-to-end (see the project plan):
- * <ul>
- *   <li>{@link #OAUTH_CLIENT_ID} — register a GitHub OAuth App with device flow enabled and paste its
- *       (public) client id here. While blank, publishing degrades gracefully ("publishing not configured").</li>
- *   <li>{@link #INDEX_OWNER}/{@link #INDEX_REPO} — the curated index repo holding {@code index.json}. While
- *       it doesn't exist, Studio's {@code GitHubGallery.browse()} simply returns an empty catalog.</li>
- * </ul>
- * Browsing / installing public bots needs no GitHub account; only publishing does.
+ * <p>{@link #OAUTH_CLIENT_ID} is maintainer-owned: a GitHub OAuth App with device flow enabled, whose (public)
+ * client id is pasted here. While blank, publishing degrades gracefully ("publishing not configured"). Browsing
+ * and installing public bots needs no GitHub account; only publishing does.
+ *
+ * <p>Every published bot and plugin is listed in one repository, the catalog ({@link #CATALOG_REPO}, 2026-10-23):
+ * the gallery repository and the plugin registry it replaced are gone, and so are their addresses here.
  *
  * <p><b>It lives in {@code botmaker-shared} since 2026-09-05</b>, with the rest of
- * {@code com.botmaker.shared.github}, because Studio is no longer the only operator of these repositories:
- * {@code botmaker-dashboard} reads the same registry, the same gallery and the same pull requests. A second
- * copy of the owner/repo names is a second thing to edit when one of them moves — and the device flow beside
- * it is emphatically not code that may exist twice. Nothing here names a Studio type; the javadoc below
- * mentions Studio's readers as prose rather than as links, on purpose.
+ * {@code com.botmaker.shared.github}, because Studio is not the only operator of these repositories:
+ * {@code botmaker-dashboard} reads the same catalog and the same pull requests. A second copy of the owner/repo
+ * names is a second thing to edit when one of them moves — and the device flow beside it is emphatically not code
+ * that may exist twice. Nothing here names a Studio type; the javadoc below mentions Studio's readers as prose
+ * rather than as links, on purpose.
  */
 public final class GitHubConfig {
 
@@ -31,25 +30,13 @@ public final class GitHubConfig {
      *
      * <p>Separate from the owner constants since 2026-09-18, when every repository moved into the
      * {@code BotMakerDev} organization: an owner is now an organization, and a signed-in user's login can
-     * never equal it. The two readers that compare a login against it are asking *are you the maintainer*
-     * — the dashboard's draft-with-Claude gate and the publisher's commit-straight-to-the-gallery path —
-     * and comparing that to an organization name silently answers no for everybody, forever.
+     * never equal it. The readers that compare a login against it are asking *are you the maintainer*, and
+     * comparing that to an organization name silently answers no for everybody, forever.
      *
      * <p>It is not a permission. What a login may actually do is read from the API
      * ({@code permissions.push}); this only decides what is worth offering.
      */
     public static final String MAINTAINER = "LiQiyeDev";
-
-    /**
-     * The owner every repository moved to on 2026-09-18. GitHub redirects the old address for git, the API
-     * and the web, but not for {@code raw.githubusercontent.com} reliably and not for Pages at all — which
-     * is why {@link #PREVIOUS_OWNER} is still read as a fallback.
-     */
-    public static final String INDEX_OWNER = "BotMakerDev";
-    public static final String INDEX_REPO = "botmaker-gallery";
-
-    /** Where the gallery and the registry were until 2026-09-18; still read when the new owner answers nothing. */
-    public static final String PREVIOUS_OWNER = "LiQiyeDev";
 
     /** The Studio's own repo, whose GitHub Releases host the app installers (used by the in-app updater). */
     public static final String STUDIO_OWNER = "BotMakerDev";
@@ -70,18 +57,6 @@ public final class GitHubConfig {
     /** Umbrella repo that receives in-app bug reports (Help ▸ Report Issue…). */
     public static final String ISSUE_OWNER = "BotMakerDev";
     public static final String ISSUE_REPO = "botmaker";
-    public static final String INDEX_BRANCH = "main";
-
-    /**
-     * The generated catalog, read by Studio's {@code GitHubGallery.browse()}.
-     *
-     * <p><b>Read only.</b> Studio used to publish by rewriting this whole array, which made every concurrent
-     * submission a merge conflict and every delisting a whole-file diff. The gallery's own CI generates it
-     * from {@link #ENTRIES_DIR} now, and refuses a pull request that edits it. The path is a compatibility
-     * promise in the other direction — a Studio already in the wild has this URL compiled into it — so it
-     * must not move.
-     */
-    public static final String INDEX_PATH = "index.json";
 
     /**
      * The catalog (2026-10-23): one repository for every listed bot and plugin, the plugin registry renamed.
@@ -92,31 +67,16 @@ public final class GitHubConfig {
     public static final String CATALOG_REPO = "botmaker-catalog";
     public static final String CATALOG_BRANCH = "main";
 
-    /** Every listed plugin and bot with its rank and derived facts, {@code "schemaVersion": 3}. */
+    /**
+     * Every listed plugin and bot with its rank and derived facts, {@code "schemaVersion": 3}. The path is a
+     * promise to every Studio in the wild, which has this address compiled into it: it never moves.
+     */
     public static final String CATALOG_PATH = "catalog.json";
 
-    /** Where one bot's entry lives, and what Studio's {@code BotPublisher} writes: {@code bots/<owner>-<repo>.json}. */
-    public static final String ENTRIES_DIR = "bots";
-
     /**
-     * Maintainer-only records saying which release of a bot is vetted: {@code vetted/<owner>-<repo>.json}.
-     *
-     * <p>A directory of its own rather than a field in the entry, because the entry is its author's to rewrite
-     * on every publish and a field would be something every submission can set.
+     * The topic Studio's publisher still puts on a published bot's repository. Nothing reads it since 2026-10-23
+     * (the catalog lists bots); the publisher stops writing it when it opens the catalog's pull request instead.
      */
-    public static final String VETTED_DIR = "vetted";
-
-    /**
-     * The plugin index — the gallery's sibling, read by Studio's {@code PluginRegistry}.
-     *
-     * <p>Studio only ever <em>reads</em> it: a plugin is submitted with {@code botmaker publish} from the
-     * CLI, whose validator is the same code the registry's CI runs. There is deliberately no publish path
-     * here, because the checks that decide a submission need the plugin's build, not a bot's editor.
-     */
-    public static final String REGISTRY_OWNER = "BotMakerDev";
-    public static final String REGISTRY_REPO = "botmaker-plugin-registry";
-
-    /** Discovery topic also applied to published repos (secondary signal; the index repo is authoritative). */
     public static final String TOPIC = "botmaker-bot";
 
     public static final String API_BASE = "https://api.github.com";
@@ -130,52 +90,10 @@ public final class GitHubConfig {
      */
     public static final String SCOPE = "repo";
 
-    /**
-     * The path of one bot's entry file, {@code bots/<owner>-<repo>.json}.
-     *
-     * <p>The filename is the bot's identity, which is what makes two submissions two files that cannot
-     * conflict — and makes a delisting a deletion rather than a rewrite.
-     */
-    public static String entryPath(String owner, String repo) {
-        return ENTRIES_DIR + "/" + owner + "-" + repo + ".json";
-    }
-
-    /** The path of one bot's vetting record, {@code vetted/<owner>-<repo>.json} — named like its entry. */
-    public static String vettedPath(String owner, String repo) {
-        return VETTED_DIR + "/" + owner + "-" + repo + ".json";
-    }
-
-    /** Raw (CDN) URLs of the legacy index, in the order to try: Vetted bots only, in the array shape older Studios read. */
-    public static java.util.List<String> indexRawUrls() {
-        return rawUrls(INDEX_REPO, INDEX_PATH, INDEX_OWNER);
-    }
-
-    /**
-     * Raw (CDN) URL of {@code catalog.json} — no API rate limit, no auth. One address: the catalog never lived
-     * under {@link #PREVIOUS_OWNER}.
-     */
-    public static java.util.List<String> catalogRawUrls() {
-        return java.util.List.of("https://raw.githubusercontent.com/" + CATALOG_OWNER + "/" + CATALOG_REPO + "/"
+    /** Raw (CDN) URL of {@code catalog.json} — no API rate limit, no auth. */
+    public static List<String> catalogRawUrls() {
+        return List.of("https://raw.githubusercontent.com/" + CATALOG_OWNER + "/" + CATALOG_REPO + "/"
                 + CATALOG_BRANCH + "/" + CATALOG_PATH);
-    }
-
-    /** Raw (CDN) URLs of the plugin index, in the order to try — generated by the registry's CI, never written here. */
-    public static java.util.List<String> registryIndexRawUrls() {
-        return rawUrls(REGISTRY_REPO, INDEX_PATH, REGISTRY_OWNER);
-    }
-
-    /**
-     * {@code owner}'s copy first, then {@link #PREVIOUS_OWNER}'s; one URL when they are the same owner.
-     *
-     * <p>The fallback is what a Studio released before the move still needs from this one, and what this one
-     * needs on the day a repository moves again: a raw URL is compiled into every shipped build, so the
-     * reader has to know both addresses rather than the release having to land first.
-     */
-    private static java.util.List<String> rawUrls(String repo, String path, String owner) {
-        return java.util.stream.Stream.of(owner, PREVIOUS_OWNER)
-                .distinct()
-                .map(o -> "https://raw.githubusercontent.com/" + o + "/" + repo + "/" + INDEX_BRANCH + "/" + path)
-                .toList();
     }
 
     /**
@@ -200,13 +118,5 @@ public final class GitHubConfig {
 
     public static boolean isPublishingConfigured() {
         return !OAUTH_CLIENT_ID.isBlank();
-    }
-
-    public static boolean isGalleryConfigured() {
-        return !INDEX_OWNER.isBlank() && !INDEX_REPO.isBlank();
-    }
-
-    public static boolean isRegistryConfigured() {
-        return !REGISTRY_OWNER.isBlank() && !REGISTRY_REPO.isBlank();
     }
 }
