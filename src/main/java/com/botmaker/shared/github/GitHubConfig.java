@@ -73,12 +73,6 @@ public final class GitHubConfig {
      */
     public static final String CATALOG_PATH = "catalog.json";
 
-    /**
-     * The topic Studio's publisher still puts on a published bot's repository. Nothing reads it since 2026-10-23
-     * (the catalog lists bots); the publisher stops writing it when it opens the catalog's pull request instead.
-     */
-    public static final String TOPIC = "botmaker-bot";
-
     public static final String API_BASE = "https://api.github.com";
     public static final String DEVICE_CODE_URL = "https://github.com/login/device/code";
     public static final String ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token";
