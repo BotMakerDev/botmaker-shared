@@ -20,9 +20,7 @@ class RawUrlsTest {
 
     @Test
     void theNewOwnerIsTriedFirstAndTheOldOneStillAnswers() {
-        assertEquals(List.of(
-                "https://raw.githubusercontent.com/BotMakerDev/botmaker-gallery/main/catalog.json",
-                "https://raw.githubusercontent.com/LiQiyeDev/botmaker-gallery/main/catalog.json"),
+        assertEquals(List.of("https://raw.githubusercontent.com/BotMakerDev/botmaker-catalog/main/catalog.json"),
                 GitHubConfig.catalogRawUrls());
         assertEquals(List.of(
                 "https://raw.githubusercontent.com/BotMakerDev/botmaker-plugin-registry/main/index.json",

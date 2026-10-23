@@ -16,6 +16,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`GitHubConfig.CATALOG_OWNER`, `CATALOG_REPO`, `CATALOG_BRANCH`**: the catalog repository
+  `BotMakerDev/botmaker-catalog`, which lists bots and plugins. `catalogRawUrls()` now names its `catalog.json`
+  (one URL) instead of the gallery's.
+
 - **`NativeController.grabWindow`**: a window's frames read again and again into a caller's `int[]`
   (`FrameGrab`, `FrameSink`), for a live feed. On X11 (`XShmGrab`) it works the way OBS reads a window:
   - It reads through MIT-SHM into one shared-memory segment, on an X connection of its own.
