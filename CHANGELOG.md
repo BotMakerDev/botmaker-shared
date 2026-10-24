@@ -12,6 +12,96 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+No source changes since v0.4.0; re-released for updated upstream pins.
+
+### Added
+
+- **`GitHubConfig.CATALOG_OWNER`, `CATALOG_REPO`, `CATALOG_BRANCH`**: the catalog repository
+  `BotMakerDev/botmaker-catalog`, which lists bots and plugins. `catalogRawUrls()` now names its `catalog.json`
+  (one URL) instead of the gallery's. The gallery's and the registry's addresses are removed: `INDEX_*`,
+  `REGISTRY_*`, `PREVIOUS_OWNER`, `ENTRIES_DIR`, `VETTED_DIR`, `indexRawUrls()`, `registryIndexRawUrls()`,
+  `entryPath()`, `vettedPath()`, `isGalleryConfigured()` and `isRegistryConfigured()`. `GitHubConfig.TOPIC`
+  (`botmaker-bot`) is removed too: the catalog lists bots, and nothing writes or reads the topic.
+
+- **`NativeController.grabWindow`**: a window's frames read again and again into a caller's `int[]`
+  (`FrameGrab`, `FrameSink`), for a live feed. On X11 (`XShmGrab`) it works the way OBS reads a window:
+  - It reads through MIT-SHM into one shared-memory segment, on an X connection of its own.
+  - It keeps the composite pixmap named until the size changes.
+  - A window the compositor does not redirect, as rootless XWayland's, is read directly.
+  - A frame that still reads black goes to `captureWindow`.
+
+  A 1280×692 game window takes 1.5–5 ms a frame, where `captureWindow` takes 17–27 ms. Other platforms read
+  each frame by `captureWindow` and copy it.
+- **`GameReadiness`**: whether a target's game can start now, off its launcher's files — Steam's
+  `appmanifest_<id>.acf` `StateFlags` (installed, update pending, downloading while the client runs) and, while
+  Steam is closed, a remembered account in `config/loginusers.vdf` (signed out), a Heroic game installed; other kinds `UNKNOWN`. `awaitLaunchable` waits out
+  a download (`UPDATE_WAIT`, 30 min) and throws for a game not installed or a launcher signed out; `installLink`
+  (`steam://install/<id>`) and `signInLink`. `SteamLibraryScanner.root()` and `manifest(root, id)`.
+- **More launchers** (`docs/display-pipeline.md` §2 has where each runs):
+  - **Bottles** (Linux): `LaunchKind.BOTTLES`, `bottles:<bottle>/<program>`, read off each `bottle.yml`
+    (`BottlesLibrary`, native and Flatpak) and started with `bottles-cli run` as our child, so in a private display
+    too.
+  - **Steam's non-Steam shortcuts**: `SteamShortcuts` reads each account's binary `shortcuts.vdf`; each is a
+    `steam:` game by its 64-bit game id (`SteamIds`), started by `steam://rungameid/`, found running by its
+    32-bit app id.
+  - **Windows' Start menu and Store apps**: `desktop:` on Windows is the AppUserModelID `Get-StartApps` lists
+    (`WindowsApps`), started through `shell:AppsFolder`, with its program's icon. A Start menu shortcut to a
+    Steam, Epic, Ubisoft Connect or Battle.net game is listed under its launcher.
+  - **Ubisoft Connect and Battle.net** (Windows): `LaunchKind.URL`, `url:<link>`, opened by the launcher's
+    handler; `UbisoftLibraryScanner` (its `Installs` key) and `BattleNetLibraryScanner` (uninstall entries, by a
+    table of product codes).
+  - **itch** (Windows): `ItchLibraryScanner`, each game's receipt for its title and its folder's largest program
+    as an `exe:` target.
+  - The EA app keeps no readable library; its games come through the Start menu.
+- `GameLibraries.findGame` asks every provider of a platform (GOG and itch are both `exe`); `forPlatform` is gone.
+
+### Fixed
+
+- **Lutris's game list is read again only when its library changes**: `LutrisLibrary.games` keeps its list while
+  `pga.db` (native or Flatpak) keeps its modified time, and for a minute only when no `pga.db` is found. Before, it
+  ran `lutris -l` (about three seconds) whenever the last read was a minute old.
+- **Lutris games were never listed** where Vulkan warns on start: `LutrisLibrary.parse` read from the first `[`,
+  inside `WARNING: [Loader Message]`; it now reads from a `[` that starts a line.
+- **A Lutris game on the Steam runner counts an open Steam**: `HostLauncherProbe.launchersOf`/`openLauncher`
+  (Lutris's `runner`, `LutrisLibrary.Game.throughSteam`); before, the game went to the desktop's Steam.
+- **A path under a launcher's Flatpak data is not the launcher**: the Flatpak id must be a whole argument
+  (`runsFlatpakApp`), so `ls ~/.var/app/com.heroicgameslauncher.hgl/…` no longer reads as Heroic open.
+- **`GameLauncher.kill` ends what a match started**: a Steam game outlived the kill of its `reaper`; our own
+  tree and its children stay spared.
+- **A Flatpak menu app runs without a Wayland socket** in a private display (`LaunchCommands.withoutWayland`), so
+  a `fallback-x11` app draws on X where the session sees it.
+- **Waydroid's container refused by SELinux** gets its own finding: `restorecon` before the restart.
+
+### Added
+
+- **`HostLauncherProbe.closeAndWait`**: closes a launcher open on the desktop and waits for it to go; Steam is
+  asked with its own `-shutdown` (through the Flatpak when that is the one running) before a terminate.
+- **`Launcher.stopOnHost`**: stops a game's host copy by the tokens `isRunning` counts it by.
+
+### Fixed
+
+- **`lutris-wrapper` is no longer Lutris.** A launcher's name followed by a separator now needs a version or a
+  packaging word after it (`heroic-2.15.2.AppImage`, `heroic_amd64`): a Lutris game's own wrapper read as Lutris's
+  UI and refused every private launch while a game was open.
+
+- **`PhoneState`**: where a phone stands with this computer (online, unauthorized, offline, not connected), with
+  each state's line and advice, so every picker words a phone waiting on "Allow USB debugging?" alike.
+- **`AdbTools.wake()`**: starts the adb server when none runs and a binary can, and says whether it did. Pickers
+  call it as they open: a phone on a cable is invisible without a server.
+
+### Changed
+
+- **`EmulatorInstances.byName` is `find`**, matching `EmulatorInstance.reference()` first — a phone's serial, any
+  other instance's name — then the name. A phone's model name appears only after USB debugging is allowed, so a
+  saved name lost the phone.
+
+### Added
+
+- **`RunningProbe.launcherUi(pid)`**: whether a process is a launcher's own UI (Steam, Heroic, Faugus, an Electron
+  helper), so a window it owns is not taken for the game.
+
 ## [0.4.0] — 2026-10-23
 
 ### Added
