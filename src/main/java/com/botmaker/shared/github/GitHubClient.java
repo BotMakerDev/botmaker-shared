@@ -3,10 +3,14 @@ package com.botmaker.shared.github;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.FileNotFoundException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -220,6 +224,35 @@ public final class GitHubClient {
      */
     public CompletableFuture<JsonNode> delete(String url, Object body, String token) {
         return send("DELETE", url, body, token);
+    }
+
+    /**
+     * {@code file} attached to a release as {@code name}: {@code uploadUrl} is the release's {@code upload_url}
+     * (its {@code {?name,label}} template dropped), the bytes streamed, at most half an hour. Fails the future on a
+     * non-2xx; GitHub refuses a second file of one name, so a caller replacing one deletes it first.
+     */
+    public CompletableFuture<JsonNode> uploadAsset(String uploadUrl, String name, Path file, String token) {
+        String url = uploadUrl.replaceFirst("\\{.*}$", "") + "?name=" + URLEncoder.encode(name, StandardCharsets.UTF_8);
+        HttpRequest req;
+        try {
+            req = authed(baseRequest(url), token).timeout(Duration.ofMinutes(30))
+                    .header("Content-Type", "application/octet-stream")
+                    .POST(HttpRequest.BodyPublishers.ofFile(file)).build();
+        } catch (FileNotFoundException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                        throw new RuntimeException("GitHub upload of " + name + " → HTTP " + resp.statusCode()
+                                + ": " + resp.body());
+                    }
+                    try {
+                        return mapper.readTree(resp.body());
+                    } catch (Exception e) {
+                        throw new RuntimeException("Bad JSON from " + url + ": " + e.getMessage(), e);
+                    }
+                });
     }
 
     /** True when {@code GET url} returns 204 (GitHub's "yes" for boolean check endpoints), false on 404/error. */

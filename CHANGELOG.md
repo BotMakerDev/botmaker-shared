@@ -16,6 +16,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`GitHubClient.uploadAsset`** (2026-10-25): a file attached to a GitHub Release, streamed, for Studio's publish
+  of a bot's `.bmk`.
 - **`UserDirs.data()`** (2026-10-25): the per-user data folder, for what BotMaker keeps for the user that is
   not a setting (the runner's values per bot, bots opened from a file). Linux `$XDG_DATA_HOME/botmaker`, else
   `~/.local/share/botmaker`; Windows and macOS a `data` folder inside the config one. The property
