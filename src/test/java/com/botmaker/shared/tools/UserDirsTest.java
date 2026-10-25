@@ -26,6 +26,7 @@ class UserDirsTest {
     void clearOverrides() {
         System.clearProperty(UserDirs.CONFIG_PROPERTY);
         System.clearProperty(UserDirs.CACHE_PROPERTY);
+        System.clearProperty(UserDirs.DATA_PROPERTY);
     }
 
     @Test
@@ -69,10 +70,32 @@ class UserDirsTest {
     }
 
     @Test
+    void dataHonoursXdgOnLinuxAndSitsInTheConfigFolderElsewhere() {
+        assertEquals(Path.of("/xdg/data/botmaker"),
+                UserDirs.data("Linux", env(Map.of("XDG_DATA_HOME", "/xdg/data")), "/home/u"));
+        assertEquals(Path.of("/home/u/.local/share/botmaker"), UserDirs.data("Linux", NO_ENV, "/home/u"));
+        assertEquals(Path.of("/Users/u/Library/Application Support/botmaker/data"),
+                UserDirs.data("Mac OS X", NO_ENV, "/Users/u"));
+        Map<String, String> local = Map.of("LOCALAPPDATA", "C:\\Users\\u\\AppData\\Local");
+        assertEquals(Path.of("C:\\Users\\u\\AppData\\Local", "BotMaker", "data"),
+                UserDirs.data("Windows 11", env(local), "C:\\Users\\u"));
+    }
+
+    /** The user's data is never where a cache-cleaner reclaims disk. */
+    @Test
+    void dataAndCacheAreNeverTheSameDirectory() {
+        for (String os : new String[] {"Linux", "Mac OS X", "Windows 11"}) {
+            assertNotEquals(UserDirs.data(os, NO_ENV, "/home/u"), UserDirs.cache(os, NO_ENV, "/home/u"), os);
+        }
+    }
+
+    @Test
     void aPropertyOverridesEverything() {
         System.setProperty(UserDirs.CONFIG_PROPERTY, "/tmp/cfg");
         System.setProperty(UserDirs.CACHE_PROPERTY, "/tmp/cache");
+        System.setProperty(UserDirs.DATA_PROPERTY, "/tmp/data");
         assertEquals(Path.of("/tmp/cfg"), UserDirs.config());
         assertEquals(Path.of("/tmp/cache"), UserDirs.cache());
+        assertEquals(Path.of("/tmp/data"), UserDirs.data());
     }
 }

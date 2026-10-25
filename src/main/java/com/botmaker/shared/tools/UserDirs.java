@@ -33,6 +33,21 @@ public final class UserDirs {
     /** Overrides {@link #cache()} outright. */
     public static final String CACHE_PROPERTY = "botmaker.cache.dir";
 
+    /** Overrides {@link #data()} outright. */
+    public static final String DATA_PROPERTY = "botmaker.data.dir";
+
+    /**
+     * The per-user data directory (2026-10-25): what BotMaker keeps for the user and could not fetch again, but
+     * that is not a setting — the bots opened from a file, the values a runner chose for each bot. Durable like
+     * {@link #config()}; apart from it so a config folder stays small enough to read by hand.
+     */
+    public static Path data() {
+        Path override = override(DATA_PROPERTY);
+        return override != null ? override
+                : data(System.getProperty("os.name", ""), System::getenv,
+                        System.getProperty("user.home", "."));
+    }
+
     /** The per-user config directory: durable, user-owned, never auto-cleaned. */
     public static Path config() {
         Path override = override(CONFIG_PROPERTY);
@@ -79,6 +94,18 @@ public final class UserDirs {
         }
         String xdg = env.apply("XDG_CACHE_HOME");
         return blank(xdg) ? Path.of(home, ".cache", "botmaker") : Path.of(xdg, "botmaker");
+    }
+
+    /**
+     * The data layout for one OS. Windows and macOS have one folder for an application's config and data, so
+     * the data is a subdirectory of the config folder there; Linux has {@code XDG_DATA_HOME}.
+     */
+    static Path data(String osName, UnaryOperator<String> env, String home) {
+        if (windows(osName) || mac(osName)) {
+            return config(osName, env, home).resolve("data");
+        }
+        String xdg = env.apply("XDG_DATA_HOME");
+        return blank(xdg) ? Path.of(home, ".local", "share", "botmaker") : Path.of(xdg, "botmaker");
     }
 
     private static Path override(String property) {
