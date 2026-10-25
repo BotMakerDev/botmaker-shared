@@ -52,6 +52,19 @@ class HeroicLibraryTest {
     }
 
     @Test
+    void aTitlesUnicodeEscapeIsDecoded() {
+        // legendary's installed.json writes the dash this way; the 🎮 label showed "–" (2026-10-25).
+        String json = """
+            {"43d4ef20": {"app_name": "43d4ef20", "title": "Firestone \\u2013 Idle Clicker \\"RPG\\"",
+              "install_path": "/g/F", "executable": "F.exe"}}
+            """;
+
+        assertEquals("Firestone – Idle Clicker \"RPG\"", HeroicLibrary.parseEpicForTesting(json).get(0).title());
+        assertEquals("a\\u12", HeroicLibrary.unescape("a\\\\u12"), "an escaped backslash is not an escape");
+        assertEquals("\\uZZ", HeroicLibrary.unescape("\\uZZ"), "a broken escape is kept as written");
+    }
+
+    @Test
     void sideloadedEntriesSurviveNestedObjects() {
         String json = """
             {

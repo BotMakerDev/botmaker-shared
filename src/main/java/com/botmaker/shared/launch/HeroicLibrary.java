@@ -300,7 +300,41 @@ public final class HeroicLibrary {
         if (!m.find()) {
             return null;
         }
-        return m.group(1).replace("\\\\", "\\").replace("\\\"", "\"").replace("\\/", "/");
+        return unescape(m.group(1));
+    }
+
+    /**
+     * A JSON string's body with its escapes decoded, {@code –} included: legendary writes a title's non-ASCII
+     * characters that way ("Firestone – Idle Clicker", 2026-10-25). A broken escape is kept as written.
+     */
+    static String unescape(String body) {
+        StringBuilder out = new StringBuilder(body.length());
+        for (int i = 0; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (c != '\\' || i + 1 == body.length()) {
+                out.append(c);
+                continue;
+            }
+            char e = body.charAt(++i);
+            switch (e) {
+                case 'b' -> out.append('\b');
+                case 'f' -> out.append('\f');
+                case 'n' -> out.append('\n');
+                case 'r' -> out.append('\r');
+                case 't' -> out.append('\t');
+                case 'u' -> {
+                    String hex = i + 5 <= body.length() ? body.substring(i + 1, i + 5) : "";
+                    if (hex.matches("[0-9a-fA-F]{4}")) {
+                        out.append((char) Integer.parseInt(hex, 16));
+                        i += 4;
+                    } else {
+                        out.append('\\').append(e);
+                    }
+                }
+                default -> out.append(e);
+            }
+        }
+        return out.toString();
     }
 
     private static String firstNonBlank(String a, String b) {
