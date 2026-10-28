@@ -12,6 +12,15 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+No source changes since v0.5.1; re-released for updated upstream pins.
+
+### Fixed
+
+- **A Heroic game's title decodes its JSON escapes** (2026-10-25): legendary writes a non-ASCII character as
+  `–`, and the title kept it as written (`Firestone – Idle Clicker`). Every escape is decoded now.
+
 ## [0.5.1] — 2026-10-25
 
 ### Fixed
