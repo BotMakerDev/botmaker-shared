@@ -1,6 +1,7 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.platform.Os;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -41,6 +42,11 @@ public final class Launcher {
             Diag.log("[Target] start: no launch target configured");
             return null;
         }
+        // Thrown, as an emulator app's failure is: a Heroic target on Linux (retired for Lutris) would otherwise
+        // start nothing and report success.
+        spec.notHere(Os.current()).ifPresent(refusal -> {
+            throw new IllegalStateException(refusal);
+        });
         switch (spec.kind()) {
             case STEAM -> GameLauncher.steam(spec.token());
             case EPIC -> GameLauncher.epic(spec.token());

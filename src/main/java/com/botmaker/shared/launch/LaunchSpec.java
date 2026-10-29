@@ -3,6 +3,8 @@ package com.botmaker.shared.launch;
 import com.botmaker.shared.emulator.WaydroidPlatform;
 import com.botmaker.shared.platform.Os;
 
+import java.util.Optional;
+
 /**
  * A parsed {@code launch.target} spec — the {@code <kind>:<token>} string a bot is started with (the
  * {@code botmaker.launch.target} property, kept per machine since 2026-09-27) and the single value both the
@@ -144,6 +146,16 @@ public record LaunchSpec(LaunchKind kind, String token) {
         if (kind != LaunchKind.BOTTLES) return -1;
         int slash = token.indexOf('/');
         return slash <= 0 || slash == token.length() - 1 ? -1 : slash;
+    }
+
+    /**
+     * The sentence that refuses this target on {@code os} — "Heroic game … does not run on Linux.", and what to do
+     * instead when the kind was retired there ({@link LaunchKind#retiredOn}) — or empty when it runs.
+     */
+    public Optional<String> notHere(Os os) {
+        if (runsOn(os)) return Optional.empty();
+        String refusal = describe() + " does not run on " + (os == null ? Os.UNKNOWN : os).displayName() + ".";
+        return Optional.of(kind.retiredOn(os).map(instead -> refusal + " " + instead).orElse(refusal));
     }
 
     /**

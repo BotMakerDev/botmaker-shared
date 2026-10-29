@@ -2,6 +2,7 @@ package com.botmaker.shared.launch;
 
 import com.botmaker.shared.platform.Os;
 
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -149,20 +150,40 @@ public enum LaunchKind {
 
     /**
      * Whether a computer running {@code os} can launch this kind at all — what a bot listing several launchers
-     * picks its first workable one by, so a bot's author lists the launchers and never a platform. Steam, Heroic,
-     * a command, an executable, an emulator app, an app of the menu ({@code gtk-launch}, {@code open -a} or the
-     * Start menu) and a launcher's link run on Linux, Windows and a Mac; Faugus, Lutris and Bottles are Linux's;
-     * Epic's own launcher is Windows' and the Mac's (Linux reaches Epic through Heroic). Says nothing of what is
-     * installed. An executable or a Waydroid app narrows this by its spec: ask {@link LaunchSpec#runsOn}.
+     * picks its first workable one by, so a bot's author lists the launchers and never a platform. Steam, a
+     * command, an executable, an emulator app and an app of the menu ({@code gtk-launch}, {@code open -a} or the
+     * Start menu) run on Linux, Windows and a Mac. Heroic, Epic's own launcher and a launcher's link are Windows'
+     * and the Mac's; Lutris is Linux's. Says nothing of what is installed. An executable or a Waydroid app narrows
+     * this by its spec: ask {@link LaunchSpec#runsOn}.
+     *
+     * <p><b>Linux launches games through Lutris</b> (2026-10-29, the user's call): it runs native games, Steam's,
+     * Epic's, GOG's and any Windows program under Wine or Proton, so one launcher stands where Heroic, Faugus,
+     * Bottles and a launcher's link each had their own path. Those kinds still parse, so a machine's old target
+     * loads; {@link #retiredOn} says what to do instead. A Steam target stays portable: a bot written on Windows
+     * lists {@code steam:<appid>}, and Lutris lists the same game.
      */
     public boolean runsOn(Os os) {
         if (os == null) return false;
         return switch (this) {
-            case STEAM, HEROIC, CLI, EXE, EMULATOR_APP, DESKTOP, URL -> os != Os.UNKNOWN;
-            case FAUGUS, LUTRIS, BOTTLES -> os == Os.LINUX;
-            case EPIC -> os == Os.WINDOWS || os == Os.MAC;
-            case UNKNOWN -> false;
+            case STEAM, CLI, EXE, EMULATOR_APP, DESKTOP -> os != Os.UNKNOWN;
+            case HEROIC, URL, EPIC -> os == Os.WINDOWS || os == Os.MAC;
+            case LUTRIS -> os == Os.LINUX;
+            case FAUGUS, BOTTLES, UNKNOWN -> false;
         };
+    }
+
+    /**
+     * What to do instead when this kind no longer launches on {@code os} — the sentence a refusal ends with — or
+     * empty when it never did or still does. Only Linux retired kinds, for Lutris (see {@link #runsOn}).
+     */
+    public Optional<String> retiredOn(Os os) {
+        boolean retired = os == Os.LINUX && switch (this) {
+            case HEROIC, FAUGUS, BOTTLES, URL -> true;
+            default -> false;
+        };
+        return retired ? Optional.of("On Linux BotMaker launches games through Lutris: add the game to "
+                + "Lutris (it runs Steam, Epic, GOG and Windows games too), then pick it again.")
+                : Optional.empty();
     }
 
     /** The kind for {@code id}, case-insensitively; {@link #UNKNOWN} for anything else. Never throws. */

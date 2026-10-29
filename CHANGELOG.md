@@ -14,7 +14,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
-No source changes since v0.5.1; re-released for updated upstream pins.
+### Changed
+
+- **Linux launches games through Lutris** (2026-10-29). `LaunchKind.runsOn(LINUX)` is false for Heroic, Faugus,
+  Bottles and a launcher's link; they still parse, `LaunchKind.retiredOn` and `LaunchSpec.notHere` say "add the
+  game to Lutris, then pick it again", and `Launcher.start` refuses them with that sentence. Heroic and links
+  still run on Windows and macOS. `GameLibraries.pickable(Os)` lists Lutris alone on Linux;
+  `LutrisLibraryScanner` lists a game it runs through Steam as `steam:<appid>`, matched by title against Steam's
+  library, so a target stays portable. `GameLauncher.openLutris()` opens Lutris's window to add a game.
 
 ### Fixed
 

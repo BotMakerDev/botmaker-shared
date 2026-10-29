@@ -91,6 +91,11 @@ public final class LaunchCommands {
         return ladder(LaunchKind.LUTRIS, "lutris", List.of("lutris:rungameid/" + require(id)));
     }
 
+    /** Lutris's own window, where a game is added or installed: the native launcher, then its Flatpak form. */
+    public static List<List<String>> lutrisWindow() {
+        return ladder(LaunchKind.LUTRIS, "lutris", List.of());
+    }
+
     /**
      * An installed app by its desktop-entry id: {@code gtk-launch}, which runs the entry's {@code Exec} line
      * with our environment — so a private {@code DISPLAY} reaches it, except for an app that asks D-Bus to start
@@ -159,7 +164,9 @@ public final class LaunchCommands {
      * <p>A non-positive size means "not stated", and falls back to the container's properties.
      */
     public static List<List<String>> childLadder(LaunchSpec spec, int width, int height) {
-        if (spec == null) {
+        // A kind this system no longer launches (Heroic on Linux, 2026-10-29) builds no command for a private
+        // display either: the desktop's Launcher.start refuses it, and so must this.
+        if (spec == null || spec.notHere(Os.current()).isPresent()) {
             return List.of();
         }
         if (spec.kind() == LaunchKind.EMULATOR_APP) {

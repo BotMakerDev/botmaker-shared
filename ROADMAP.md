@@ -5,6 +5,11 @@ also holds `botmaker-session`'s history before 2026-07-30).
 
 ## Open
 
+- **Delete the launch paths Lutris replaced on Linux** (retired 2026-10-29): `FaugusEntries`, `FaugusLibraryScanner`,
+  `BottlesLibrary`, `BottlesLibraryScanner`, the Linux halves of `HeroicLibrary` and the Ubisoft/Battle.net link
+  scanners, and the `FAUGUS`/`BOTTLES` kinds, once no machine's run properties name them. Kept for now so an old
+  target still shows its game's name and cover beside the refusal.
+
 - **macOS: `MacController` has never run on a Mac** (written 2026-10-11 without one). Owed on a real Mac or a
   macOS VM: the Screen Recording and Accessibility prompts and their one-time hints; a window list with titles;
   a covered window's capture at 2× and 1×, and the frame lining up with the rect; background clicks

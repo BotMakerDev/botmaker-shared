@@ -68,10 +68,12 @@ class LaunchCommandsTest {
             LaunchCommands.childLadder(LaunchSpec.parse("exe:/opt/game/run.sh")));
         assertEquals(List.of(List.of("xterm", "-e", "sleep", "300")),
             LaunchCommands.childLadder(LaunchSpec.parse("cli:xterm -e sleep 300")));
-        assertEquals(LaunchCommands.heroic("AbC123"),
-            LaunchCommands.childLadder(LaunchSpec.parse("heroic:AbC123")));
         assertEquals(LaunchCommands.steam("570"),
             LaunchCommands.childLadder(LaunchSpec.parse("steam:570")));
+        // Heroic builds its ladder where it still runs; on Linux it was retired for Lutris (2026-10-29).
+        assertEquals(com.botmaker.shared.platform.Os.current() == com.botmaker.shared.platform.Os.LINUX
+                ? List.of() : LaunchCommands.heroic("AbC123"),
+            LaunchCommands.childLadder(LaunchSpec.parse("heroic:AbC123")));
     }
 
     @Test

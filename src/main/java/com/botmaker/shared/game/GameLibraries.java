@@ -1,5 +1,8 @@
 package com.botmaker.shared.game;
 
+import com.botmaker.shared.launch.LaunchKind;
+import com.botmaker.shared.platform.Os;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -22,6 +25,16 @@ public final class GameLibraries {
                 new FaugusLibraryScanner(), new LutrisLibraryScanner(), new BottlesLibraryScanner(),
                 new GogLibraryScanner(), new ItchLibraryScanner(), new UbisoftLibraryScanner(),
                 new BattleNetLibraryScanner(), new DesktopEntryScanner());
+    }
+
+    /**
+     * The libraries a game is picked from on {@code os}: Lutris alone on Linux (2026-10-29), the one launcher that
+     * runs native, Steam, Epic, GOG and Windows games there; every library elsewhere. {@link #all} still finds a
+     * saved target's game by any of them, so a target picked before keeps its name and picture.
+     */
+    public static List<GameLibraryProvider> pickable(Os os) {
+        if (os == Os.LINUX) return List.of(new LutrisLibraryScanner());
+        return all().stream().filter(provider -> LaunchKind.fromId(provider.platform()).runsOn(os)).toList();
     }
 
     /**

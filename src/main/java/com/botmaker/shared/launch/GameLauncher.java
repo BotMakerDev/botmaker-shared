@@ -1,6 +1,7 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.Executables;
 import com.botmaker.shared.Spawn;
 import com.botmaker.shared.platform.Os;
 
@@ -177,6 +178,30 @@ public final class GameLauncher {
             return;
         }
         throw new RuntimeException("Failed to launch Lutris game " + gameId + ". Is Lutris installed?");
+    }
+
+    /**
+     * Opens Lutris's window, where the user adds or installs a game (a store's tab, an installer script, or a
+     * Windows program from its {@code .exe}); its library then lists it. Answers whether either form started.
+     */
+    public static boolean openLutris() {
+        Diag.log("[Game] openLutris");
+        // Only a form that is there: `flatpak run` of an app Flatpak lacks spawns, then fails, and would read as open.
+        List<List<String>> ladder = LaunchCommands.lutrisWindow().stream()
+                .filter(command -> command.getFirst().equals("flatpak") ? flatpakHas(command.get(2))
+                        : Executables.onPath(command.getFirst()))
+                .toList();
+        return runFirst(ladder);
+    }
+
+    private static boolean flatpakHas(String appId) {
+        if (!Executables.onPath("flatpak")) return false;
+        try {
+            Spawn.Completed info = Spawn.run(Duration.ofSeconds(5), List.of("flatpak", "info", appId));
+            return info != null && info.ok();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

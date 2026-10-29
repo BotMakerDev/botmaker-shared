@@ -44,7 +44,8 @@ class MoreLaunchersTest {
         assertEquals(List.of(List.of("bottles-cli", "run", "-b", "Gaming", "-p", "Battle.net / EU"),
                         List.of("flatpak", "run", "--command=bottles-cli", "com.usebottles.bottles", "run", "-b",
                                 "Gaming", "-p", "Battle.net / EU")),
-                LaunchCommands.childLadder(spec));
+                LaunchCommands.bottles(spec.bottle(), spec.bottleProgram()));
+        assertEquals(List.of(), LaunchCommands.childLadder(spec), "Bottles retired for Lutris (2026-10-29)");
         assertFalse(LaunchKind.BOTTLES.routesThroughDaemon(), "an open Bottles needs no closing");
         assertNull(spec.runningToken(), "looked up in its bottle instead");
     }

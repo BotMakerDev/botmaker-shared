@@ -30,15 +30,37 @@ class LaunchKindLauncherTest {
             assertEquals(known, LaunchKind.EMULATOR_APP.runsOn(os), "an emulator app on " + os);
             assertFalse(LaunchKind.UNKNOWN.runsOn(os));
         }
-        assertTrue(LaunchKind.FAUGUS.runsOn(com.botmaker.shared.platform.Os.LINUX));
-        assertFalse(LaunchKind.FAUGUS.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
-        assertTrue(LaunchKind.DESKTOP.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
-        assertTrue(LaunchKind.BOTTLES.runsOn(com.botmaker.shared.platform.Os.LINUX));
-        assertFalse(LaunchKind.BOTTLES.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
-        assertTrue(LaunchKind.URL.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
-        assertTrue(LaunchKind.EPIC.runsOn(com.botmaker.shared.platform.Os.WINDOWS));
-        assertFalse(LaunchKind.EPIC.runsOn(com.botmaker.shared.platform.Os.LINUX));
+        com.botmaker.shared.platform.Os linux = com.botmaker.shared.platform.Os.LINUX;
+        com.botmaker.shared.platform.Os windows = com.botmaker.shared.platform.Os.WINDOWS;
+        assertTrue(LaunchKind.LUTRIS.runsOn(linux));
+        assertFalse(LaunchKind.LUTRIS.runsOn(windows));
+        assertTrue(LaunchKind.DESKTOP.runsOn(windows));
+        assertTrue(LaunchKind.DESKTOP.runsOn(linux), "an app of the menu is no game launcher; it stays");
+        assertTrue(LaunchKind.URL.runsOn(windows));
+        assertTrue(LaunchKind.HEROIC.runsOn(windows));
+        assertTrue(LaunchKind.EPIC.runsOn(windows));
+        assertFalse(LaunchKind.EPIC.runsOn(linux));
         assertFalse(LaunchKind.STEAM.runsOn(null));
+    }
+
+    /**
+     * Linux launches games through Lutris (2026-10-29): Heroic, Faugus, Bottles and a launcher's link no longer
+     * run there, still parse, and say what to do instead. Nowhere else did anything retire.
+     */
+    @Test
+    void linuxRetiredItsOtherLaunchersForLutris() {
+        com.botmaker.shared.platform.Os linux = com.botmaker.shared.platform.Os.LINUX;
+        for (LaunchKind kind : java.util.List.of(LaunchKind.HEROIC, LaunchKind.FAUGUS, LaunchKind.BOTTLES,
+                LaunchKind.URL)) {
+            assertFalse(kind.runsOn(linux), kind + " on Linux");
+            assertTrue(kind.retiredOn(linux).orElseThrow().contains("Lutris"), kind.toString());
+            assertTrue(kind.retiredOn(com.botmaker.shared.platform.Os.WINDOWS).isEmpty(), kind + " on Windows");
+        }
+        assertTrue(LaunchKind.STEAM.retiredOn(linux).isEmpty(), "a Steam target stays portable");
+        assertEquals(LaunchKind.HEROIC, LaunchSpec.parse("heroic:Fortnite").kind(), "an old target still parses");
+        String refusal = LaunchSpec.parse("heroic:Fortnite").notHere(linux).orElseThrow();
+        assertTrue(refusal.contains("does not run on Linux") && refusal.contains("Lutris"), refusal);
+        assertTrue(LaunchSpec.parse("lutris:14").notHere(linux).isEmpty());
     }
 
     /** An executable answers by its file, and an app in Waydroid by its instance. */
@@ -52,7 +74,7 @@ class LaunchKindLauncherTest {
         assertFalse(LaunchSpec.parse("exe:/opt/game/run.sh").runsOn(windows));
         assertTrue(LaunchSpec.parse("emu-app:com.game@Waydroid").runsOn(linux));
         assertFalse(LaunchSpec.parse("emu-app:com.game@Waydroid").runsOn(windows));
-        assertTrue(LaunchSpec.parse("heroic:Fortnite").runsOn(linux));
+        assertFalse(LaunchSpec.parse("heroic:Fortnite").runsOn(linux), "Heroic is Lutris's on Linux");
     }
 
     /**
