@@ -45,13 +45,20 @@ public final class GitHubAuth {
      */
     private static final String LOGIN_KEY = "github_login";
 
-    private final HttpClient http = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(8))
-            .build();
     private final ObjectMapper mapper = new ObjectMapper();
 
     private volatile String token;
     private volatile String login;
+
+    /**
+     * One client for every instance, built on its first request: building one costs a few hundred ms, and Studio
+     * constructs this class on the FX thread while its first window shows (2026-10-30).
+     */
+    private static final class Http {
+        static final HttpClient CLIENT = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(8))
+                .build();
+    }
 
     public GitHubAuth() {
         this.token = loadToken();
@@ -133,7 +140,7 @@ public final class GitHubAuth {
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
-        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).thenApply(resp -> {
+        return Http.CLIENT.sendAsync(req, HttpResponse.BodyHandlers.ofString()).thenApply(resp -> {
             try {
                 JsonNode n = mapper.readTree(resp.body());
                 if (n.hasNonNull("device_code")) {
@@ -212,7 +219,7 @@ public final class GitHubAuth {
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         try {
-            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> resp = Http.CLIENT.send(req, HttpResponse.BodyHandlers.ofString());
             return mapper.readTree(resp.body());
         } catch (Exception e) {
             return null; // transient; keep polling

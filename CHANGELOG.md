@@ -25,6 +25,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- `GitHubAuth` builds its HTTP client on its first request, one for every instance: Studio built one on the FX
+  thread as its bot list showed, a few hundred ms of a 1.2 s stall (2026-10-30).
 - **A Steam game with several launch options starts** (2026-10-30, measured on TrackMania Nations Forever).
   `GameLauncher.steam` opened `steam://rungameid/`, which stops at Steam's "Select launch option" waiting for a
   click; it runs `steam -applaunch` first now (an installed form only), the link after.
