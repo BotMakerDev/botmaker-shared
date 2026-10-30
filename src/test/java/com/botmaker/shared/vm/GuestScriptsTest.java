@@ -6,6 +6,7 @@ import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -57,7 +58,7 @@ class GuestScriptsTest {
 
     @TestFactory
     Stream<DynamicTest> eachGuestScriptParses() {
-        boolean shellcheck = onPath("shellcheck");
+        boolean shellcheck = runs("shellcheck", "--version");
         return scripts().entrySet().stream().map(script -> DynamicTest.dynamicTest(script.getKey(), () -> {
             Path file = Files.createTempFile("guest-script", ".sh");
             try {
@@ -80,9 +81,20 @@ class GuestScriptsTest {
                 + "\n--- the script ---\n" + script.getValue());
     }
 
-    private static boolean onPath(String program) {
-        String path = System.getenv("PATH");
-        return path != null && Stream.of(path.split(java.io.File.pathSeparator))
-                .anyMatch(dir -> Files.isExecutable(Path.of(dir, program)));
+    /**
+     * Whether {@code command} runs and succeeds. Being on {@code PATH} is not enough: a version manager's shim with no
+     * version set is executable and fails every call (2026-10-30, mise's {@code shellcheck}).
+     */
+    private static boolean runs(String... command) {
+        try {
+            Process process = new ProcessBuilder(command).redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            return process.waitFor(30, TimeUnit.SECONDS) && process.exitValue() == 0;
+        } catch (IOException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 }
