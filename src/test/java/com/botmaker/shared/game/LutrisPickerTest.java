@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -36,18 +38,30 @@ class LutrisPickerTest {
                 new InstalledGame("steam", "16245283705034784768", "Balatro", null)));
 
         InstalledGame balatro = LutrisLibraryScanner.listed(new LutrisLibrary.Game("14", "Balatro", null, "steam"),
-                steam);
+                steam, Set.of());
         assertEquals("steam", balatro.platform());
         assertEquals("2379780", balatro.id());
 
         // A title Steam spells otherwise is no match: listed as Lutris's, which launches it all the same.
         InstalledGame firestone = LutrisLibraryScanner.listed(
-                new LutrisLibrary.Game("8", "Firestone – Idle Clicker Online RPG", null, "steam"), steam);
+                new LutrisLibrary.Game("8", "Firestone – Idle Clicker Online RPG", null, "steam"), steam, Set.of());
         assertEquals(LutrisLibraryScanner.PLATFORM, firestone.platform());
         assertEquals("8", firestone.id());
 
-        InstalledGame wine = LutrisLibraryScanner.listed(new LutrisLibrary.Game("2", "Balatro", null, "wine"), steam);
+        InstalledGame wine = LutrisLibraryScanner.listed(new LutrisLibrary.Game("2", "Balatro", null, "wine"), steam,
+                Set.of());
         assertEquals(LutrisLibraryScanner.PLATFORM, wine.platform(), "only Lutris's Steam runner is Steam's game");
+    }
+
+    @Test
+    void aTitleMatchStandsOnlyWhereLutrisHasASteamConfigOfThatAppId() {
+        Map<String, String> steam = Map.of(LutrisLibraryScanner.title("Balatro"), "2379780");
+        LutrisLibrary.Game balatro = new LutrisLibrary.Game("14", "Balatro", null, "steam");
+        assertEquals(Optional.of("2379780"), LutrisLibraryScanner.steamAppId(balatro, steam, Set.of("2379780", "11020")));
+        // Lutris's configs name other app ids: the entry is another game titled alike, so it is not Steam's.
+        assertEquals(Optional.empty(), LutrisLibraryScanner.steamAppId(balatro, steam, Set.of("11020")));
+        assertEquals(Optional.of("2379780"), LutrisLibraryScanner.steamAppId(balatro, steam, Set.of()),
+                "configs unreadable: the title alone");
     }
 
     @Test

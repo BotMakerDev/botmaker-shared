@@ -80,22 +80,23 @@ public final class GameLauncher {
     }
 
     /**
-     * Launches a Steam game by appId. Opens {@code steam://rungameid/<appId>} and falls back to
-     * {@code steam -applaunch <appId>} (requires {@code steam} on {@code PATH}).
+     * Launches a Steam game by appId: {@code steam -applaunch <appId>} where a Steam CLI is installed, else
+     * {@code steam://rungameid/<appId>}. The CLI first because the link stops at Steam's "Select launch option"
+     * for a game with several, waiting for a click, where {@code -applaunch} starts the default one (2026-10-30,
+     * TrackMania Nations Forever).
      *
      * @throws IllegalArgumentException if {@code appId} is null/blank
-     * @throws RuntimeException         if neither the Steam URL nor the CLI fallback could be invoked
+     * @throws RuntimeException         if neither the Steam CLI nor the Steam URL could be invoked
      */
     public static void steam(String appId) {
         String id = require(appId, "appId");
-        String uri = "steam://rungameid/" + id;
-        Diag.log("[Game] launchSteam " + id + " → " + uri);
-        if (UriLauncher.open(uri)) {
-            Diag.log("[Game] launchSteam: opener invoked for " + uri);
+        Diag.log("[Game] launchSteam " + id);
+        if (runFirstInstalled(LaunchCommands.steam(id))) {
             return;
         }
-        Diag.log("[Game] launchSteam: opener declined " + uri + ", falling back to the Steam CLI");
-        if (runFirst(LaunchCommands.steam(id))) {
+        String uri = "steam://rungameid/" + id;
+        if (UriLauncher.open(uri)) {
+            Diag.log("[Game] launchSteam: opener invoked for " + uri);
             return;
         }
         throw new RuntimeException("Failed to launch Steam game '" + id + "'. Is Steam installed?");
@@ -186,12 +187,20 @@ public final class GameLauncher {
      */
     public static boolean openLutris() {
         Diag.log("[Game] openLutris");
-        // Only a form that is there: `flatpak run` of an app Flatpak lacks spawns, then fails, and would read as open.
-        List<List<String>> ladder = LaunchCommands.lutrisWindow().stream()
-                .filter(command -> command.getFirst().equals("flatpak") ? flatpakHas(command.get(2))
-                        : Executables.onPath(command.getFirst()))
-                .toList();
-        return runFirst(ladder);
+        return runFirstInstalled(LaunchCommands.lutrisWindow());
+    }
+
+    /**
+     * {@link #runFirst} over the forms of {@code ladder} that are there, each looked for only when reached:
+     * {@code flatpak run} of an app Flatpak lacks spawns, then fails, and would read as started.
+     */
+    private static boolean runFirstInstalled(List<List<String>> ladder) {
+        for (List<String> command : ladder) {
+            boolean there = command.getFirst().equals("flatpak") ? flatpakHas(command.get(2))
+                    : Executables.onPath(command.getFirst());
+            if (there && tryStart(command)) return true;
+        }
+        return false;
     }
 
     private static boolean flatpakHas(String appId) {

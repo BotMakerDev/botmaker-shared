@@ -31,7 +31,7 @@ class MoreLaunchersTest {
         String gameId = SteamIds.shortcutGameId(42);
         assertEquals(List.of("steam", "steam://rungameid/" + gameId), LaunchCommands.steam(gameId).get(0));
         assertEquals(List.of("steam", "-applaunch", "570"), LaunchCommands.steam("570").get(0));
-        assertEquals("AppId=42", new LaunchSpec(LaunchKind.STEAM, gameId).runningToken());
+        assertEquals("AppId=42 --", new LaunchSpec(LaunchKind.STEAM, gameId).runningToken());
     }
 
     @Test

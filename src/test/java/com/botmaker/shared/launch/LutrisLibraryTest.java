@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -41,9 +42,12 @@ class LutrisLibraryTest {
 
     @Test
     void bothNewKindsHaveAChildLadder() {
-        assertEquals(List.of(List.of("lutris", "lutris:rungameid/3"),
-                        List.of("flatpak", "run", "net.lutris.Lutris", "lutris:rungameid/3")),
-                LaunchCommands.childLadder(LaunchSpec.parse("lutris:3")));
+        // An id no Lutris here lists: an installed one Lutris hands to Steam starts as Steam's (2026-10-30).
+        assertEquals(List.of(List.of("lutris", "lutris:rungameid/987654"),
+                        List.of("flatpak", "run", "net.lutris.Lutris", "lutris:rungameid/987654")),
+                LaunchCommands.childLadder(LaunchSpec.parse("lutris:987654")));
+        assertEquals(Optional.of("11020"), LutrisLibrary.steamAppIdOf("steam-11020-1791365800.yml"));
+        assertEquals(Optional.empty(), LutrisLibrary.steamAppIdOf("epic-games-store-standard-1791365251.yml"));
         assertEquals(List.of(List.of("gtk-launch", "org.kde.kpat")),
                 LaunchCommands.childLadder(LaunchSpec.parse("desktop:org.kde.kpat")));
     }

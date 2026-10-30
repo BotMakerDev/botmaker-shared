@@ -221,9 +221,10 @@ public record LaunchSpec(LaunchKind kind, String token) {
     public String runningToken() {
         return switch (kind) {
             // Not the bare id — a number that short would match any command line by accident. Steam's own
-            // launch wrapper spells it `reaper SteamLaunch AppId=<id> --`, which is unambiguous. A shortcut's
-            // wrapper carries its 32-bit app id, not the game id the target names.
-            case STEAM -> "AppId=" + SteamIds.appId(token);
+            // launch wrapper spells it `reaper SteamLaunch AppId=<id> --`, which is unambiguous with the " --":
+            // "AppId=57" alone is in game 570's command line too (2026-10-30). A shortcut's wrapper carries its
+            // 32-bit app id, not the game id the target names.
+            case STEAM -> "AppId=" + SteamIds.appId(token) + " --";
             case EPIC, HEROIC, FAUGUS -> token;
             // No id appears in the live game's process: Lutris names its wrapper after the game's title, an app
             // runs as its own binary and a bottle's program as its .exe. Looked up by Launcher.runningTokens.

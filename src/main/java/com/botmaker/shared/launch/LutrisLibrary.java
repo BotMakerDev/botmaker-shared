@@ -12,9 +12,15 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * The games Lutris has installed, as Lutris itself lists them ({@code lutris -l -o -j}).
@@ -39,6 +45,8 @@ public final class LutrisLibrary {
     private static final long CACHE_TTL_MS = 60_000;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private static final Pattern STEAM_CONFIG = Pattern.compile("steam-(\\d+)-\\d+\\.yml");
 
     private static volatile Map<String, Game> cached;
     private static volatile long cachedAt;
@@ -121,6 +129,31 @@ public final class LutrisLibrary {
         if (id == null || id.isBlank()) return null;
         Map<String, Game> known = cached;
         return known != null && known.containsKey(id.trim()) ? known.get(id.trim()) : find(id);
+    }
+
+    /**
+     * The Steam app ids Lutris has a game config for: its Steam service names each {@code steam-<appid>-<n>.yml}
+     * (native or Flatpak). Empty when neither folder can be read.
+     */
+    public static Set<String> steamAppIds() {
+        String home = System.getProperty("user.home", "");
+        Set<String> ids = new HashSet<>();
+        for (Path folder : List.of(Path.of(home, ".local/share/lutris/games"),
+                Path.of(home, FLATPAK_DATA, "data/lutris/games"))) {
+            try (Stream<Path> files = Files.list(folder)) {
+                files.map(file -> steamAppIdOf(file.getFileName().toString())).flatMap(Optional::stream)
+                        .forEach(ids::add);
+            } catch (IOException | RuntimeException unreadable) {
+                // the other folder
+            }
+        }
+        return Set.copyOf(ids);
+    }
+
+    /** The app id in a Steam game config's name, {@code steam-11020-1791365800.yml}; empty for another. Pure. */
+    static Optional<String> steamAppIdOf(String fileName) {
+        Matcher m = STEAM_CONFIG.matcher(fileName);
+        return m.matches() ? Optional.of(m.group(1)) : Optional.empty();
     }
 
     /** Forget the cached list — for a caller that just installed or removed a game. */

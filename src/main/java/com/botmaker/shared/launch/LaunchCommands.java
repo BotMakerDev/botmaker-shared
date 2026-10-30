@@ -10,6 +10,7 @@ import com.botmaker.shared.platform.SessionEnv;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The <em>child-launchable</em> argv ladders for a {@link LaunchSpec} — the command lines that run a target
@@ -172,6 +173,10 @@ public final class LaunchCommands {
         if (spec.kind() == LaunchKind.EMULATOR_APP) {
             return emulatorApp(spec, width, height);
         }
+        // A Lutris game Lutris hands to Steam starts as Steam's, as Launcher.start does: Lutris's steam://rungameid/
+        // stops at Steam's "Select launch option".
+        Optional<LaunchSpec> steam = Launcher.steamGame(spec);
+        if (steam.isPresent()) return steam(steam.get().token());
         return switch (spec.kind()) {
             case EXE -> spec.token().isBlank() ? List.of() : List.of(List.of(program(spec.token())));
             case CLI -> {

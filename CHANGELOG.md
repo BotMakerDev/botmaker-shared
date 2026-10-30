@@ -25,6 +25,19 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **A Steam game with several launch options starts** (2026-10-30, measured on TrackMania Nations Forever).
+  `GameLauncher.steam` opened `steam://rungameid/`, which stops at Steam's "Select launch option" waiting for a
+  click; it runs `steam -applaunch` first now (an installed form only), the link after.
+- **A Lutris game run through Steam is Steam's game** (2026-10-30). Its `lutris-wrapper` only runs
+  `steam steam://rungameid/<appid>`, two seconds with Steam open and Steam itself with Steam closed, so it read the
+  game as running before it started and after it closed. `Launcher` starts, probes and stops such a `lutris:`
+  target as `steam:<appid>`, and so do the private display's `LaunchCommands.childLadder` and
+  `HostLauncherProbe.launchersOf`. The app id is `LutrisLibraryScanner.steamAppId`: the title's Steam game, only
+  when Lutris has a `steam-<appid>-*.yml` config of it (`LutrisLibrary.steamAppIds`); the picker lists by the same
+  rule.
+- **`steam:57` is no longer running while game 570 is** (2026-10-30): its running token is `AppId=<id> --`, the
+  form `stopOnHost` already used.
+
 - **A Heroic game's title decodes its JSON escapes** (2026-10-25): legendary writes a non-ASCII character as
   `–`, and the title kept it as written (`Firestone – Idle Clicker`). Every escape is decoded now.
 

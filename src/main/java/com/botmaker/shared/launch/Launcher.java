@@ -1,9 +1,11 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.game.LutrisLibraryScanner;
 import com.botmaker.shared.platform.Os;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
@@ -47,6 +49,13 @@ public final class Launcher {
         spec.notHere(Os.current()).ifPresent(refusal -> {
             throw new IllegalStateException(refusal);
         });
+        // Lutris hands a Steam game over as steam://rungameid/, which stops at Steam's "Select launch option"
+        // for a game with several (TrackMania, 2026-10-30); -applaunch starts the default one.
+        Optional<LaunchSpec> steam = steamGame(spec);
+        if (steam.isPresent()) {
+            Diag.log("[Target] " + spec.spec() + " is Lutris's Steam game: starting " + steam.get().spec());
+            return start(steam.get(), progress);
+        }
         switch (spec.kind()) {
             case STEAM -> GameLauncher.steam(spec.token());
             case EPIC -> GameLauncher.epic(spec.token());
@@ -169,6 +178,8 @@ public final class Launcher {
         if (spec == null) {
             return false;
         }
+        Optional<LaunchSpec> steam = steamGame(spec);
+        if (steam.isPresent()) return isRunning(steam.get(), game);
         if (spec.kind() == LaunchKind.STEAM && RunningProbe.steamReportsRunning(SteamIds.appId(spec.token()))) {
             Diag.log("[Target] " + spec.spec() + ": Steam reports it as the running app");
             return true;
@@ -219,6 +230,8 @@ public final class Launcher {
      * ({@link BottlesLibrary}).
      */
     static List<String> runningTokens(LaunchSpec spec) {
+        Optional<LaunchSpec> steam = steamGame(spec);
+        if (steam.isPresent()) return runningTokens(steam.get());
         switch (spec.kind()) {
             case HEROIC -> {
                 return HeroicLibrary.runningTokens(spec.token());
@@ -247,6 +260,11 @@ public final class Launcher {
      * kill, not a guess. Whether it had a token to stop by.
      */
     public static boolean stopOnHost(LaunchSpec spec) {
+        Optional<LaunchSpec> steam = spec == null ? Optional.empty() : steamGame(spec);
+        if (steam.isPresent()) {
+            Diag.log("[Target] " + spec.spec() + " is Lutris's Steam game: stopping " + steam.get().spec());
+            return stopOnHost(steam.get());
+        }
         String token = spec == null ? null : switch (spec.kind()) {
             case STEAM -> "AppId=" + SteamIds.appId(spec.token()) + " --";
             case EPIC, HEROIC, FAUGUS -> spec.token();
@@ -257,5 +275,17 @@ public final class Launcher {
         if (token == null || token.isBlank()) return false;
         GameLauncher.kill(token);
         return true;
+    }
+
+    /**
+     * The Steam game a {@code lutris:} target runs when Lutris hands it to Steam: Steam then starts it and says
+     * whether it runs. Its {@code lutris-wrapper} only runs {@code steam steam://rungameid/<appid>}: two seconds with Steam
+     * open, Steam itself with Steam closed, so it read a game as running before it started and after it closed
+     * (2026-10-30, TrackMania and Balatro). Empty for every other target, and for a title Steam's library lacks.
+     */
+    static Optional<LaunchSpec> steamGame(LaunchSpec spec) {
+        if (spec.kind() != LaunchKind.LUTRIS) return Optional.empty();
+        return LutrisLibraryScanner.steamAppId(LutrisLibrary.known(spec.token()))
+                .map(appId -> new LaunchSpec(LaunchKind.STEAM, appId));
     }
 }

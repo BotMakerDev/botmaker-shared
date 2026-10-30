@@ -89,6 +89,8 @@ public final class HostLauncherProbe {
      * Lutris was checked (2026-10-19, live). Empty for a kind no launcher stands behind.
      */
     public static List<LaunchKind> launchersOf(LaunchSpec spec) {
+        // One Steam knows by app id starts as Steam's (Launcher.start): Lutris stands nowhere in it.
+        if (spec != null && Launcher.steamGame(spec).isPresent()) return List.of(LaunchKind.STEAM);
         return launchersOf(spec, id -> {
             LutrisLibrary.Game game = LutrisLibrary.known(id);
             return game != null && game.throughSteam();

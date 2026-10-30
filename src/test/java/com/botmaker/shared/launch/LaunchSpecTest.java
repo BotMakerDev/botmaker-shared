@@ -46,7 +46,9 @@ class LaunchSpecTest {
     void steamMatchesItsWrapperNotItsBareId() {
         // `570` alone would match any command line carrying that number by accident; Steam's own reaper spells
         // it `SteamLaunch AppId=570 --`, which is what makes the command-line layer usable at all.
-        assertEquals("AppId=570", LaunchSpec.parse("steam:570").runningToken());
+        assertEquals("AppId=570 --", LaunchSpec.parse("steam:570").runningToken());
+        // The " --" ends the id: game 57's token is not in game 570's command line (2026-10-30).
+        assertFalse("reaper SteamLaunch AppId=570 -- proton".contains(LaunchSpec.parse("steam:57").runningToken()));
     }
 
     @Test
