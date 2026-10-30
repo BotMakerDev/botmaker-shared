@@ -25,6 +25,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- A launcher running in another private display BotMaker started is found (2026-10-30, TrackMania's launch while
+  Balatro's display ran Steam): `HostLauncherProbe.inSessions` names each session holding it and its display, and
+  `sessionRefusal` says so instead of "check your real desktop". `ProcessOrigin.sessionDraws` tells whether a
+  session still draws on a display, whatever other session reused its number.
 - `GitHubAuth` builds its HTTP client on its first request, one for every instance: Studio built one on the FX
   thread as its bot list showed, a few hundred ms of a 1.2 s stall (2026-10-30).
 - **A Steam game with several launch options starts** (2026-10-30, measured on TrackMania Nations Forever).

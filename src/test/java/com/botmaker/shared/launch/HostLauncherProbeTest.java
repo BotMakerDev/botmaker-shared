@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -93,6 +94,30 @@ class HostLauncherProbeTest {
         assertFalse(HostLauncherProbe.isRunning(LaunchKind.EXE));
         assertFalse(HostLauncherProbe.isRunning((LaunchSpec) null));
         assertTrue(HostLauncherProbe.routesThroughDaemon(LaunchKind.HEROIC));
+    }
+
+    @Test
+    void aLauncherInAPrivateSessionIsFoundOncePerSession() {
+        // Steam's main process and its web helper in Balatro's :1; one on the desktop, in no session.
+        Map<Long, String> session = Map.of(10L, "s1-1", 11L, "s1-1", 30L, "s1-2");
+        Map<Long, String> display = Map.of(11L, ":1", 30L, ":2");
+        List<HostLauncherProbe.InSession> found = HostLauncherProbe.inSessions(List.of(LaunchKind.STEAM),
+                kind -> List.of(10L, 11L, 20L, 30L), session::get, display::get);
+        assertEquals(List.of(new HostLauncherProbe.InSession(LaunchKind.STEAM, "s1-1", ":1"),
+                new HostLauncherProbe.InSession(LaunchKind.STEAM, "s1-2", ":2")), found);
+    }
+
+    @Test
+    void aLauncherOnlyOnTheDesktopIsInNoSession() {
+        assertTrue(HostLauncherProbe.inSessions(List.of(LaunchKind.STEAM), kind -> List.of(20L), pid -> null,
+                pid -> ":0").isEmpty());
+    }
+
+    @Test
+    void theSessionRefusalNamesTheLauncherAndItsDisplay() {
+        String message = HostLauncherProbe.sessionRefusal(LaunchSpec.parse("steam:11020"),
+                List.of(new HostLauncherProbe.InSession(LaunchKind.STEAM, "s1-1", ":1")));
+        assertTrue(message.startsWith("Steam runs in another private display BotMaker started (:1)"), message);
     }
 
     @Test

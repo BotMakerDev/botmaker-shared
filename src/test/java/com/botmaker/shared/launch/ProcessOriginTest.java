@@ -59,6 +59,15 @@ class ProcessOriginTest {
     }
 
     @Test
+    void aDisplayIsASessionsWhileOneOfItsProcessesDrawsOnIt() {
+        assertTrue(ProcessOrigin.sameDisplay("s1-1", ":1", "s1-1", ":1.0"));
+        assertFalse(ProcessOrigin.sameDisplay("s1-1", ":1", "s1-2", ":1"), "another session took :1");
+        assertFalse(ProcessOrigin.sameDisplay("s1-1", ":1", "s1-1", ":2"));
+        assertFalse(ProcessOrigin.sameDisplay("s1-1", ":1", "s1-1", null));
+        assertFalse(ProcessOrigin.sessionDraws(null, ":1"));
+    }
+
+    @Test
     void anUnreadableOrDisplaylessProcessCountsAsTheHost() throws Exception {
         // The direction that preserves behaviour where the reading is unavailable: no evidence of being elsewhere
         // is not evidence of being elsewhere. A dead pid is the extreme case of "nothing readable".

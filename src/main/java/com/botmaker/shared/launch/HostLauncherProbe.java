@@ -4,11 +4,16 @@ import com.botmaker.shared.Diag;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.LongFunction;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Whether a store launcher's own UI (Heroic, Steam, Faugus) is already running on the user's real desktop —
@@ -65,6 +70,62 @@ public final class HostLauncherProbe {
      * evidence", because refusing a launch we could have attempted is worse than attempting one that fails.
      */
     public static List<ProcessHandle> running(LaunchKind kind) {
+        return launcherUis(kind).stream().filter(p -> onHostDesktop(p, kind)).toList();
+    }
+
+    /**
+     * A launcher {@code spec}'s launch passes through, running in one of BotMaker's own private sessions: which
+     * launcher, the session's id and the display it draws on (empty when unreadable).
+     */
+    public record InSession(LaunchKind launcher, String session, String display) {}
+
+    /**
+     * The private sessions in which a launcher {@code spec}'s launch passes through runs, one each — what
+     * {@link #running(LaunchSpec)} leaves out. A launcher there takes the launch of a <em>new</em> private display
+     * as one on the desktop does: TrackMania's launch, brought up on {@code :2}, went to the Steam in Balatro's
+     * {@code :1}, which the project open before had left running, and mapped no window (2026-10-30). A session
+     * whose JVM is gone is left out: the next bring-up's sweep reaps it.
+     */
+    public static List<InSession> inSessions(LaunchSpec spec) {
+        return inSessions(launchersOf(spec), kind -> launcherUis(kind).stream().map(ProcessHandle::pid).toList(),
+                pid -> ProcessOrigin.isSessionRemnant(pid) ? null : ProcessOrigin.sessionIdOf(pid),
+                ProcessOrigin::displayOf);
+    }
+
+    /** {@link #inSessions(LaunchSpec)} over each launcher's pids, with where a pid is given. Pure. */
+    static List<InSession> inSessions(List<LaunchKind> launchers, Function<LaunchKind, List<Long>> pids,
+                                      LongFunction<String> sessionOf, LongFunction<String> displayOf) {
+        Map<String, InSession> found = new LinkedHashMap<>();
+        for (LaunchKind kind : launchers) {
+            for (long pid : pids.apply(kind)) {
+                String session = sessionOf.apply(pid);
+                if (session == null) continue;
+                String display = displayOf.apply(pid);
+                InSession seen = found.get(session);
+                if (seen == null || seen.display().isEmpty() && display != null) {
+                    found.put(session, new InSession(seen == null ? kind : seen.launcher(), session,
+                            display == null ? "" : display));
+                }
+            }
+        }
+        return List.copyOf(found.values());
+    }
+
+    /**
+     * Why a private launch of {@code spec} cannot go ahead while {@code found} hold its launcher: what Studio says
+     * when it may not close them, and a bot run without Studio stops with.
+     */
+    public static String sessionRefusal(LaunchSpec spec, List<InSession> found) {
+        String product = found.isEmpty() ? productName(spec.kind()) : productName(found.getFirst().launcher());
+        String where = found.stream().map(InSession::display).filter(d -> !d.isEmpty()).distinct()
+                .collect(Collectors.joining(", "));
+        return product + " runs in another private display BotMaker started" + (where.isEmpty() ? "" : " (" + where
+                + ")") + ": it is single-instance, so it would take this launch and start the game there. Close "
+                + "that display, or the bot that uses it, and try again.";
+    }
+
+    /** Every process of {@code kind}'s launcher UI, wherever it draws; best-effort and total. */
+    private static List<ProcessHandle> launcherUis(LaunchKind kind) {
         if (kind == null || !kind.routesThroughDaemon()) {
             return List.of();
         }
@@ -75,7 +136,6 @@ public final class HostLauncherProbe {
             return ProcessHandle.allProcesses()
                     .filter(p -> p.pid() != self)
                     .filter(p -> isLauncherUi(p, names, flatpakId))
-                    .filter(p -> onHostDesktop(p, kind))
                     .toList();
         } catch (Exception e) {
             Diag.log("[Session] host-launcher scan for " + kind.id() + " failed: " + e.getMessage());
@@ -256,9 +316,10 @@ public final class HostLauncherProbe {
     }
 
     /**
-     * Whether a launcher UI we found is on the <b>host desktop</b> — the only place it can swallow an isolated
-     * launch. A launcher running on one of our own private displays cannot: our child is handed that same
-     * private {@code DISPLAY}, so a single-instance handoff lands where we wanted it anyway.
+     * Whether a launcher UI we found is on the <b>host desktop</b>. A launcher running in the session being
+     * launched into cannot swallow the launch: our child is handed that same private {@code DISPLAY}, so a
+     * single-instance handoff lands where we wanted it anyway. One in <em>another</em> session can, and
+     * {@link #inSessions(LaunchSpec)} finds it.
      *
      * <p>Traced rather than silent, for the same reason {@link RunningProbe}'s deny-list is: a false "the
      * launcher is open" is indistinguishable from a launch that did nothing. Measured live — launching a game

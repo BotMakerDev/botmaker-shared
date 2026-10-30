@@ -162,6 +162,26 @@ public final class ProcessOrigin {
         return number.isBlank() ? null : number.toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Whether a process of BotMaker session {@code sessionId} draws on {@code display}: then that display is still
+     * the session's, and not another server that took its number since. False when either is unknown.
+     */
+    public static boolean sessionDraws(String sessionId, String display) {
+        if (sessionId == null || displayNumber(display) == null) return false;
+        try {
+            return ProcessHandle.allProcesses().anyMatch(p -> sameDisplay(sessionId, display, sessionIdOf(p.pid()),
+                    displayOf(p.pid())));
+        } catch (RuntimeException unreadable) {
+            return false;
+        }
+    }
+
+    /** {@link #sessionDraws} for one process, of session {@code theirSession} on {@code theirDisplay}. Pure. */
+    static boolean sameDisplay(String sessionId, String display, String theirSession, String theirDisplay) {
+        String number = displayNumber(theirDisplay);
+        return sessionId.equals(theirSession) && number != null && number.equals(displayNumber(display));
+    }
+
     /** {@code /proc/<pid>/environ} split on its NUL separators, or empty when it can't be read. */
     private static String[] environOf(long pid) {
         String raw = readProc(pid, "environ");
