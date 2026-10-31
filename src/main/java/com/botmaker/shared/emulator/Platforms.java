@@ -31,6 +31,7 @@ public final class Platforms {
             new MemuPlatform(),
             new MuMuPlatform(),
             new GameloopPlatform(),
+            new AvdPlatform(),
             new WaydroidPlatform(),
             new DevicePlatform());
 
@@ -112,7 +113,8 @@ public final class Platforms {
      * <p><b>An {@code emulator-<port>} serial is the adbd on the next loopback port</b> ({@link #adbdOf}), so LDPlayer
      * on {@code 127.0.0.1:5555} and the server's {@code emulator-5554} are one device too. A product that says its
      * instance is stopped claims no address: an installed LDPlayer must not hide the Android Studio emulator that
-     * answers on its port (2026-10-31).
+     * answers on its port (2026-10-31). A product may report the serial itself ({@link AvdPlatform}): both sides are
+     * compared as the adbd they reach.
      *
      * <p><b>Two products on one address both stay.</b> They are two instances that cannot run at once — BlueStacks,
      * LDPlayer's first instance and GameLoop all ask for {@code 127.0.0.1:5555} — and dropping the later one hid
@@ -122,7 +124,7 @@ public final class Platforms {
         Set<String> products = new HashSet<>();
         for (EmulatorInstance instance : instances) {
             if (instance.platformId() != PlatformId.PHYSICAL && instance.state() != EmulatorState.STOPPED) {
-                products.add(instance.endpoint());
+                products.add(adbdOf(instance.endpoint()));
             }
         }
         List<EmulatorInstance> unique = new ArrayList<>();

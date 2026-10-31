@@ -19,6 +19,8 @@ public class PlatformIdTest {
         assertEquals("memu", PlatformId.MEMU.id());
         assertEquals("mumu", PlatformId.MUMU.id());
         assertEquals("gameloop", PlatformId.GAMELOOP.id());
+        assertEquals("avd", PlatformId.AVD.id());
+        assertEquals("Android Studio emulator", PlatformId.AVD.displayName());
     }
 
     @Test

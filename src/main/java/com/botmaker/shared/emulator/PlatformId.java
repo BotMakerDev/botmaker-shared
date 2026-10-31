@@ -25,6 +25,12 @@ public enum PlatformId {
     GAMELOOP("gameloop", "Gameloop"),
 
     /**
+     * Android Studio's emulator: a virtual device (AVD) of the Android SDK, on any OS ({@link AvdPlatform}). Before
+     * 2026-10-31 a running one showed only as a {@link #PHYSICAL} row, named by its serial, and a stopped one not at all.
+     */
+    AVD("avd", "Android Studio emulator"),
+
+    /**
      * Waydroid — the odd one out. It is a Linux-native Android container rather than a Windows emulator
      * product, so it has no registry key, no install directory to scan and no per-instance config: there is
      * one container per machine. It is here anyway because from a bot's point of view it is exactly the same

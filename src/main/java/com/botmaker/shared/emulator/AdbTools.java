@@ -72,8 +72,15 @@ public final class AdbTools {
      * @param state  the raw state word: {@code device}, {@code offline}, {@code unauthorized}, …
      * @param model  {@code ro.product.model} as the server reports it (underscores and all), or {@code ""}
      * @param usb    whether the server reported a {@code usb:} path for it — i.e. it is on a cable
+     * @param transportId the server's number for this connection, or {@code ""}: a new emulator on a serial an
+     *                    earlier one used gets a new number
      */
-    public record ServerDevice(String serial, String state, String model, boolean usb) {
+    public record ServerDevice(String serial, String state, String model, boolean usb, String transportId) {
+
+        /** A device whose connection number is not known. */
+        public ServerDevice(String serial, String state, String model, boolean usb) {
+            this(serial, state, model, usb, "");
+        }
 
         /** Whether this device can actually be driven. {@code unauthorized} is the un-accepted RSA prompt. */
         public boolean online() {
@@ -203,7 +210,7 @@ public final class AdbTools {
                 }
             }
             devices.add(new ServerDevice(fields[0], fields[1], tags.getOrDefault("model", ""),
-                    tags.containsKey("usb")));
+                    tags.containsKey("usb"), tags.getOrDefault("transport_id", "")));
         }
         return devices;
     }
@@ -216,7 +223,7 @@ public final class AdbTools {
      *       file found is what runs, never its bare name),</li>
      *   <li>{@code $ANDROID_HOME}/{@code $ANDROID_SDK_ROOT}{@code /platform-tools} — the same two places dadb's
      *       own {@code AdbBinary} looks, single-sourced here so the availability answer and the hint agree;
-     *       on macOS with neither set, Android Studio's {@code ~/Library/Android/sdk},</li>
+     *       with neither set, Android Studio's own folder on each OS ({@link AndroidSdk#home()}),</li>
      *   <li>{@link ManagedTools#adb()}, the copy BotMaker downloaded for itself.</li>
      * </ol>
      *
@@ -230,20 +237,10 @@ public final class AdbTools {
         if (onPath.isPresent()) {
             return onPath;
         }
-        String home = System.getenv("ANDROID_HOME") != null
-                ? System.getenv("ANDROID_HOME")
-                : System.getenv("ANDROID_SDK_ROOT");
-        if ((home == null || home.isBlank()) && Os.current().isMac()) {
-            // Android Studio's own SDK folder: a Mac app gets no shell profile, so ANDROID_HOME is rarely set.
-            home = new File(System.getProperty("user.home", ""), "Library/Android/sdk").getPath();
-        }
-        if (home != null && !home.isBlank()) {
-            File candidate = new File(new File(home, "platform-tools"), binaryName());
-            if (candidate.isFile()) {
-                return Optional.of(candidate);
-            }
-        }
-        return ManagedTools.adb();
+        // Android Studio's own SDK folder when no variable names one: a desktop app gets no shell profile.
+        Optional<File> sdk = AndroidSdk.home().map(home -> home.resolve("platform-tools").resolve(binaryName()).toFile())
+                .filter(File::isFile);
+        return sdk.isPresent() ? sdk : ManagedTools.adb();
     }
 
     /**

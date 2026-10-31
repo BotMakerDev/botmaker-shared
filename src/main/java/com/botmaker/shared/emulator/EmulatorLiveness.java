@@ -147,7 +147,10 @@ public record EmulatorLiveness(EmulatorState state, String clash, boolean adbClo
                     && other.launchCommand().equals(instance.launchCommand());
             boolean up = other.state() == EmulatorState.RUNNING
                     || (starting && other.state() == EmulatorState.STARTING);
-            if (!same && up && other.endpoint().equals(instance.endpoint())) return other;
+            // As the adbd each reaches: an AVD's emulator-5554 is 127.0.0.1:5555.
+            if (!same && up && Platforms.adbdOf(other.endpoint()).equals(Platforms.adbdOf(instance.endpoint()))) {
+                return other;
+            }
         }
         return null;
     }

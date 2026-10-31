@@ -16,6 +16,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **Android Studio's emulators are a product** (2026-10-31, `AvdPlatform`, `PlatformId.AVD`).
+  - Every AVD is listed, running or not, as *Android Studio emulator: <id>*.
+  - Start runs `emulator -avd <id> -port <P>` and stop runs `adb -s emulator-<P> emu kill`.
+  - A running AVD is one row, never also the generic *Android device* row.
+  - Discovery starts no process: it reads the AVD files, the emulator processes' arguments and the adb server's
+    list.
+  - `AndroidSdk.home()` finds the SDK in Android Studio's folder on every OS, so an installed SDK's adb now wins over
+    the downloaded one on Linux and Windows too.
+
 - **An Android screen's accessibility tree** (2026-10-31, `emulator.tree`). `TreeReaders.open(AdbDevice)` reads it
   through openatx's `u2.jar` (MIT, 0.4.1, bundled with its `u2.jar.NOTICE`, pinned by sha256), pushed to
   `/data/local/tmp` beside BotMaker's `tree-stdio.jar` and run with `app_process`. Nothing is installed and **no

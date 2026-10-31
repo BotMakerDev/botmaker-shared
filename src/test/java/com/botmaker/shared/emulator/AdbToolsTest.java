@@ -119,7 +119,7 @@ class AdbToolsTest {
         assertTrue(ManagedTools.adb().isPresent(), "the managed copy is now installed");
 
         Optional<File> onPath = Executables.find(adbName());
-        boolean sdk = System.getenv("ANDROID_HOME") != null || System.getenv("ANDROID_SDK_ROOT") != null;
+        boolean sdk = AndroidSdk.home().isPresent();
         if (onPath.isPresent()) {
             assertEquals(onPath.get().getAbsolutePath(), AdbTools.binary().orElseThrow().getAbsolutePath());
             assertFalse(AdbTools.managed(), "PATH's adb is the user's, not ours");

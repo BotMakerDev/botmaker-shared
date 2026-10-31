@@ -43,6 +43,14 @@ instance and GameLoop; `STOPPED` when no process by the engine's name runs anywh
 two products both up on one address are both refused, and a product that says Android is up while its port is
 closed has its ADB off (`PlatformId.adbSetting` says where; LDPlayer 14 ships that way). `EmulatorProbe.isRunning`, `EmulatorReadiness.isReady` and the launcher all go
 through it, so nothing drives the emulator that happens to hold another's port.
+`AvdPlatform` (2026-10-31) lists Android Studio's virtual devices on every OS. The SDK is `AndroidSdk.home()`:
+`ANDROID_HOME`, else `ANDROID_SDK_ROOT`, else Android Studio's folder for the OS (adb's lookup uses it too). Each AVD
+is one `*.ini` in `AndroidSdk.avdHome()`, named by its id and reached at the adb server's `emulator-<port>`.
+- A running AVD's port comes from its emulator process's `-avd X -port P`, else from the AVD name its serial reports
+  (`ro.boot.qemu.avd_name`, read once per serial).
+- A stopped AVD is planned on the lowest free even port from 5554, and its start command passes that port, so its
+  identity is the same before and after it starts.
+- `dedupe` compares a product's address as the adbd it reaches, so the server's generic row of a running AVD drops.
 Beyond discovery, each
 `EmulatorInstance` also carries the host `launchCommand`/`stopCommand` its platform resolved (LDPlayer
 `ldconsole`, MuMu `MuMuManager`, MEmu `memuc`, BlueStacks `HD-Player --instance`, Gameloop engine exe), which

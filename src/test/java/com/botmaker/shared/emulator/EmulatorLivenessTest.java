@@ -35,6 +35,16 @@ class EmulatorLivenessTest {
         assertNull(bsNow.clash());
     }
 
+    /** An AVD's {@code emulator-5554} is the adbd on {@code 127.0.0.1:5555}: what answers there is the AVD. */
+    @Test
+    void aRunningAvdHoldsThePortItsAdbdIsOn() {
+        EmulatorInstance avd = AvdPlatform.instance("Pixel_7", 5554, EmulatorState.RUNNING, null, null);
+
+        EmulatorLiveness now = EmulatorLiveness.of(BLUESTACKS, List.of(avd, BLUESTACKS), true);
+        assertEquals(EmulatorState.STOPPED, now.state());
+        assertEquals("port 5555 is in use by Android Studio emulator: Pixel_7", now.clash());
+    }
+
     @Test
     void aStoppedInstanceWhosePortAnswersWithNoProductClaimingItBlamesAnotherProgram() {
         EmulatorInstance ld = LDPLAYER.withState(EmulatorState.STOPPED);

@@ -21,7 +21,10 @@ public final class EmulatorLauncher {
 
     /** Dispatches {@code instance}'s host launch command. {@code false} if it has none or the spawn fails. */
     public static boolean launch(EmulatorInstance instance) {
-        return instance != null && run(instance.launchCommand());
+        if (instance == null) return false;
+        // An AVD is reached through the adb server, which nothing else may have started on this login.
+        if (instance.platformId() == PlatformId.AVD && instance.canLaunch()) AdbTools.startServer();
+        return run(instance.launchCommand());
     }
 
     /** Dispatches {@code instance}'s host stop command. {@code false} if it has none or the spawn fails. */

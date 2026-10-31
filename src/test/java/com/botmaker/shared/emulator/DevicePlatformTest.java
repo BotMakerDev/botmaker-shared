@@ -128,6 +128,26 @@ class DevicePlatformTest {
         assertEquals(2, Platforms.dedupe(List.of(stopped, avd)).size());
     }
 
+    /** A running AVD is reported by its serial; the server's generic row of that serial is the same emulator. */
+    @Test
+    void aRunningAvdHidesItsGenericRow() {
+        EmulatorInstance avd = AvdPlatform.instance("Pixel_7", 5554, EmulatorState.RUNNING, null, null);
+        EmulatorInstance generic = DevicePlatform.fromServer(
+                new AdbTools.ServerDevice("emulator-5554", "device", "sdk_gphone64_x86_64", false));
+
+        assertEquals(List.of(avd), Platforms.dedupe(List.of(avd, generic)));
+    }
+
+    /** A stopped AVD planned on a port claims nothing: whatever answers there stays listed. */
+    @Test
+    void aStoppedAvdHidesNothing() {
+        EmulatorInstance avd = AvdPlatform.instance("Pixel_7", 5554, EmulatorState.STOPPED, null, null);
+        EmulatorInstance generic = DevicePlatform.fromServer(
+                new AdbTools.ServerDevice("emulator-5554", "device", "ASUS_I003DD", false));
+
+        assertEquals(2, Platforms.dedupe(List.of(avd, generic)).size());
+    }
+
     /** Discovery is total: with no server and no configured addresses it is simply empty. */
     @Test
     void discoveryNeverThrows() {
