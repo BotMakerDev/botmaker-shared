@@ -78,6 +78,56 @@ class DevicePlatformTest {
         assertEquals("R5CT30ABCDE", deduped.get(1).endpoint());
     }
 
+    /**
+     * An Android Studio emulator is only ever in the adb server's list, as {@code emulator-<console port>}: no product
+     * reports it, so it stays (2026-10-31: every AVD was hidden).
+     */
+    @Test
+    void anEmulatorSerialNoProductReportsIsListed() {
+        EmulatorInstance avd = DevicePlatform.fromServer(
+                new AdbTools.ServerDevice("emulator-5554", "device", "sdk_gphone64_x86_64", false));
+        EmulatorInstance waydroid =
+                new EmulatorInstance(PlatformId.WAYDROID, "Waydroid", "192.168.240.112", 5555);
+
+        List<EmulatorInstance> deduped = Platforms.dedupe(List.of(waydroid, avd));
+
+        assertEquals(2, deduped.size());
+        assertEquals("emulator-5554", deduped.get(1).endpoint());
+        assertEquals(PlatformId.PHYSICAL, deduped.get(1).platformId());
+    }
+
+    /**
+     * {@code emulator-5554} is the adbd on {@code 127.0.0.1:5555}, the address LDPlayer's first instance reports: the
+     * same device twice, and the product wins.
+     */
+    @Test
+    void anEmulatorSerialAProductReportsByItsAdbPortIsDropped() {
+        EmulatorInstance ldPlayer = new EmulatorInstance(PlatformId.LDPLAYER, "LDPlayer", "127.0.0.1", 5555);
+        EmulatorInstance sameDevice = DevicePlatform.fromServer(
+                new AdbTools.ServerDevice("emulator-5554", "device", "ASUS_I003DD", false));
+        EmulatorInstance another = DevicePlatform.fromServer(
+                new AdbTools.ServerDevice("emulator-5556", "device", "sdk_gphone64_x86_64", false));
+
+        List<EmulatorInstance> deduped = Platforms.dedupe(List.of(ldPlayer, sameDevice, another));
+
+        assertEquals(List.of("127.0.0.1:5555", "emulator-5556"),
+                deduped.stream().map(EmulatorInstance::endpoint).toList());
+    }
+
+    /**
+     * A product reports its instances installed but stopped too: a stopped LDPlayer on {@code 127.0.0.1:5555} is not
+     * the {@code emulator-5554} that answers, so the AVD stays.
+     */
+    @Test
+    void aStoppedProductHidesNoEmulatorOnItsPort() {
+        EmulatorInstance stopped = new EmulatorInstance(PlatformId.LDPLAYER, "LDPlayer",
+                new AdbEndpoint.Tcp("127.0.0.1", 5555), List.of(), List.of(), EmulatorState.STOPPED);
+        EmulatorInstance avd = DevicePlatform.fromServer(
+                new AdbTools.ServerDevice("emulator-5554", "device", "sdk_gphone64_x86_64", false));
+
+        assertEquals(2, Platforms.dedupe(List.of(stopped, avd)).size());
+    }
+
     /** Discovery is total: with no server and no configured addresses it is simply empty. */
     @Test
     void discoveryNeverThrows() {

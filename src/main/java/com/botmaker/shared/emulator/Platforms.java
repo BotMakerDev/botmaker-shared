@@ -109,6 +109,11 @@ public final class Platforms {
      * device, and two different {@link EmulatorInstance#identity()} values so nothing downstream could tell.
      * The product wins because it knows things the generic path cannot: the product, and how to launch and stop it.
      *
+     * <p><b>An {@code emulator-<port>} serial is the adbd on the next loopback port</b> ({@link #adbdOf}), so LDPlayer
+     * on {@code 127.0.0.1:5555} and the server's {@code emulator-5554} are one device too. A product that says its
+     * instance is stopped claims no address: an installed LDPlayer must not hide the Android Studio emulator that
+     * answers on its port (2026-10-31).
+     *
      * <p><b>Two products on one address both stay.</b> They are two instances that cannot run at once — BlueStacks,
      * LDPlayer's first instance and GameLoop all ask for {@code 127.0.0.1:5555} — and dropping the later one hid
      * every emulator but the first from a machine that has several.
@@ -116,17 +121,35 @@ public final class Platforms {
     static List<EmulatorInstance> dedupe(List<EmulatorInstance> instances) {
         Set<String> products = new HashSet<>();
         for (EmulatorInstance instance : instances) {
-            if (instance.platformId() != PlatformId.PHYSICAL) products.add(instance.endpoint());
+            if (instance.platformId() != PlatformId.PHYSICAL && instance.state() != EmulatorState.STOPPED) {
+                products.add(instance.endpoint());
+            }
         }
         List<EmulatorInstance> unique = new ArrayList<>();
         Set<String> phones = new HashSet<>();
         for (EmulatorInstance instance : instances) {
             boolean phone = instance.platformId() == PlatformId.PHYSICAL;
-            if (!phone || (!products.contains(instance.endpoint()) && phones.add(instance.endpoint()))) {
+            String address = adbdOf(instance.endpoint());
+            if (!phone || (!products.contains(address) && phones.add(address))) {
                 unique.add(instance);
             }
         }
         return List.copyOf(unique);
+    }
+
+    /**
+     * The adbd an address reaches: the adb server names a local emulator {@code emulator-<console port>}, whose adbd
+     * listens on the next port of loopback, the address a product reports ({@code emulator-5554} is
+     * {@code 127.0.0.1:5555}). Any other address is itself.
+     */
+    static String adbdOf(String endpoint) {
+        String prefix = "emulator-";
+        if (!endpoint.startsWith(prefix)) return endpoint;
+        try {
+            return "127.0.0.1:" + (Integer.parseInt(endpoint.substring(prefix.length())) + 1);
+        } catch (NumberFormatException e) {
+            return endpoint;
+        }
     }
 
     /**

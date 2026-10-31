@@ -14,9 +14,10 @@ import java.util.List;
  * <p>Two sources, and neither of them scans anything:
  *
  * <ol>
- *   <li><b>A running adb server's device list</b> ({@link AdbTools#devices()}), minus the {@code emulator-*}
- *       serials the real products discover for themselves. This is the only route to a device on a
- *       <b>USB cable</b>, and to Android 11+ TLS wireless debugging. It needs no binary when a server is
+ *   <li><b>A running adb server's device list</b> ({@link AdbTools#devices()}), {@code emulator-*} serials
+ *       included: {@link Platforms#dedupe} drops one a product already reports at its adbd. This is the only
+ *       route to a device on a <b>USB cable</b>, to an Android Studio emulator, and to Android 11+ TLS wireless
+ *       debugging. It needs no binary when a server is
  *       already up, and it is skipped entirely when one is not.</li>
  *   <li><b>Addresses the user saved</b> ({@link SavedDevices}), for a phone in legacy {@code adb tcpip} mode,
  *       which {@link AdbDevice} dials directly with no server and no binary at all — plus the
@@ -66,16 +67,21 @@ public final class DevicePlatform implements EmulatorPlatform {
             }
         }
         for (AdbTools.ServerDevice device : AdbTools.devices()) {
-            if (device.emulator()) {
-                continue;
-            }
-            EmulatorInstance instance = new EmulatorInstance(PLATFORM_ID, device.displayName(),
-                    new AdbEndpoint.Server(device.serial()));
+            EmulatorInstance instance = fromServer(device);
             if (!containsEndpoint(found, instance)) {
                 found.add(instance);
             }
         }
         return List.copyOf(found);
+    }
+
+    /**
+     * One device of the adb server's list, by its serial. An {@code emulator-*} serial is listed too: an Android
+     * Studio emulator is reached no other way, and {@link Platforms#dedupe} drops it when a product reports the same
+     * adbd (2026-10-31; it used to be skipped here, which hid every AVD).
+     */
+    static EmulatorInstance fromServer(AdbTools.ServerDevice device) {
+        return new EmulatorInstance(PLATFORM_ID, device.displayName(), new AdbEndpoint.Server(device.serial()));
     }
 
     /**

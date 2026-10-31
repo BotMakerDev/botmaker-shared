@@ -25,6 +25,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- Android Studio emulators are found (2026-10-31): `DevicePlatform` lists the adb server's `emulator-*` devices it
+  used to skip, and `Platforms.dedupe` drops one only when a product reports its adbd (`emulator-5554` is
+  `127.0.0.1:5555`, `Platforms.adbdOf`).
 - A launcher running in another private display BotMaker started is found (2026-10-30, TrackMania's launch while
   Balatro's display ran Steam): `HostLauncherProbe.inSessions` names each session holding it and its display, and
   `sessionRefusal` says so instead of "check your real desktop". `ProcessOrigin.sessionDraws` tells whether a

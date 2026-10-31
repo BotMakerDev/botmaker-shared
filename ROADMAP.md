@@ -5,6 +5,9 @@ also holds `botmaker-session`'s history before 2026-07-30).
 
 ## Open
 
+- **An Android Studio emulator is saved by its serial** (`physical@emulator-5554`, 2026-10-31): the console port
+  goes to whichever emulator starts first, so with two AVDs a saved target can name the other one next session. Key
+  it by the AVD's name (`adb -s emulator-5554 emu avd name`) and show that name in the picker.
 - **Delete the launch paths Lutris replaced on Linux** (retired 2026-10-29): `FaugusEntries`, `FaugusLibraryScanner`,
   `BottlesLibrary`, `BottlesLibraryScanner`, the Linux halves of `HeroicLibrary` and the Ubisoft/Battle.net link
   scanners, and the `FAUGUS`/`BOTTLES` kinds, once no machine's run properties name them. Kept for now so an old

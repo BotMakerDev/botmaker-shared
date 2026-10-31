@@ -81,9 +81,9 @@ public final class AdbTools {
         }
 
         /**
-         * Whether this is one of the emulators the {@link Platforms} products discover for themselves. The adb
-         * server names a local Android emulator {@code emulator-<port>}; a physical device never looks like
-         * that. See {@link DevicePlatform} for why this filter is the difference between one phone and two.
+         * Whether this is a local Android emulator: the adb server names one {@code emulator-<port>}; a physical
+         * device never looks like that. A product may report the same device at its adbd ({@link Platforms#adbdOf}),
+         * an Android Studio emulator only shows here.
          */
         public boolean emulator() {
             return serial.startsWith("emulator-");
