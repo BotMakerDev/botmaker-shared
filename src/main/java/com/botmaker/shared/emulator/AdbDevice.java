@@ -534,14 +534,6 @@ public final class AdbDevice implements AutoCloseable {
     }
 
     /**
-     * A free port on this computer's loopback that reaches {@code devicePort} on the device; closing it removes it.
-     * See {@link LoopbackForward} for why this is not dadb's own forward.
-     */
-    public LoopbackForward forward(int devicePort) throws IOException {
-        return new LoopbackForward(() -> openService("tcp:" + devicePort));
-    }
-
-    /**
      * The package of the window that has focus, which is the app a bot means: a permission dialog's package
      * while one is up, rather than the activity behind it {@link #currentApp()} reads. Empty when unknown.
      */

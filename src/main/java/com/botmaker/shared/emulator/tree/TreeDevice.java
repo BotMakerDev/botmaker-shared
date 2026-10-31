@@ -1,10 +1,12 @@
 package com.botmaker.shared.emulator.tree;
 
 import com.botmaker.shared.emulator.AdbDevice;
-import com.botmaker.shared.emulator.LoopbackForward;
+import com.botmaker.shared.emulator.DeviceStream;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /** The part of an {@link AdbDevice} a {@link TreeReader} uses; a seam so the readers are tested with no device. */
 interface TreeDevice {
@@ -15,12 +17,14 @@ interface TreeDevice {
     /** {@link AdbDevice#push}: whether the file landed. */
     boolean push(File file, String remotePath);
 
-    /** {@link AdbDevice#forward}: a loopback port reaching {@code devicePort}. */
-    Forward forward(int devicePort) throws IOException;
+    /** A process started on the device, its stdin and stdout as the stream; closing it ends the process's input. */
+    Channel exec(String command) throws IOException;
 
-    /** A forward's loopback port; closing it removes the forward. */
-    interface Forward extends AutoCloseable {
-        int port();
+    /** A running process's stdout ({@link #in}) and stdin ({@link #out}). */
+    interface Channel extends AutoCloseable {
+        InputStream in();
+
+        OutputStream out();
 
         @Override
         void close();
@@ -39,17 +43,23 @@ interface TreeDevice {
             }
 
             @Override
-            public Forward forward(int devicePort) throws IOException {
-                LoopbackForward forward = device.forward(devicePort);
-                return new Forward() {
+            public Channel exec(String command) throws IOException {
+                // exec: carries bytes as they are, where shell: may add a terminal's line endings.
+                DeviceStream stream = device.openService("exec:" + command);
+                return new Channel() {
                     @Override
-                    public int port() {
-                        return forward.port();
+                    public InputStream in() {
+                        return stream.in();
+                    }
+
+                    @Override
+                    public OutputStream out() {
+                        return stream.out();
                     }
 
                     @Override
                     public void close() {
-                        forward.close();
+                        stream.close();
                     }
                 };
             }

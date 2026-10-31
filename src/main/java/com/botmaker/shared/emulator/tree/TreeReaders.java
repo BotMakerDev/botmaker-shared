@@ -54,7 +54,7 @@ public final class TreeReaders {
                     Optional<UiTree> again = restartOnce();
                     if (again.isPresent()) return again;
                 }
-                u2.abandon();
+                u2.stop();
                 u2 = null;
             }
             return dump.read();

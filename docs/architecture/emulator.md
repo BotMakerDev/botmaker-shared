@@ -71,11 +71,13 @@ its address or `<instance>._adb-tls-connect._tcp`, which is how `unconnected` te
 and `adb pair` takes the password as the code.
 **The screen's accessibility tree** (`emulator.tree`, 2026-10-31) is what an app's inputs are found by, beside
 pictures. `TreeReaders.open` gives one reader per device: `U2Reader` pushes the bundled `u2.jar` (openatx, MIT,
-pinned by sha256; only when the device's copy differs) and starts it with `app_process`, then asks
-`dumpWindowHierarchy` over JSON-RPC through `AdbDevice.forward`, a loopback-only port (dadb's `tcpForward` binds
-every interface, which would hand the device's taps to the network). Answers are gzipped: 75 KB of XML is 4 KB, and
-dadb's transport costs about 60 ms for the plain one. A server already answering is used and left running (a
-second BotMaker on the device owns it). One failed read restarts u2 once; after that, or when it never starts,
+pinned by sha256) and BotMaker's own `tree-stdio.jar` (`src/android`, rebuilt by `src/android/build.sh`), each only
+when the device's copy differs, and runs `TreeStdio` with `app_process` over an `exec:` stream. **No port is
+opened:** u2's own server listens on every interface with no password, so anything that reaches it (the Wi-Fi, an
+app on the device, a web page reaching an emulator's address) could tap, type and read the screen. `TreeStdio`
+builds u2's tree reader instead and answers on the stream's stdin and stdout: a line asks, a length-prefixed
+gzipped frame answers (75 KB of XML is 4 KB). Closing the stream ends the process, so nothing outlives the reader,
+even a BotMaker that died. One failed read restarts it once; after that, or when it never starts,
 `DumpReader` (`uiautomator dump`, 2 s, waits for idle) answers. A tree is never written anywhere: it holds what the
 screen shows. `UiTree.app(focusedPackage)` drops systemui's and the keyboard's windows.
 dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of

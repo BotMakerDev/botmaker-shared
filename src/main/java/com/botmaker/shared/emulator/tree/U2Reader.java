@@ -1,56 +1,66 @@
 package com.botmaker.shared.emulator.tree;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.zip.GZIPInputStream;
 
 /**
- * Reads the tree through openatx's {@code u2.jar} (bundled, {@code u2.jar.NOTICE}), run on the device with
- * {@code app_process}: a UiAutomator server answering JSON-RPC, 30–60 ms a read where {@code uiautomator dump}
- * takes 2 s, and it does not wait for the screen to be idle. Nothing is installed: the jar sits in
- * {@code /data/local/tmp}, and the process stops on {@link #stop()}.
+ * Reads the tree with openatx's {@code u2.jar} (bundled, {@code u2.jar.NOTICE}): 30–60 ms a read where
+ * {@code uiautomator dump} takes 2 s, and it does not wait for the screen to be idle. Nothing is installed: the
+ * jars sit in {@code /data/local/tmp}.
  *
- * <p>A server already answering on the device's port (another BotMaker on the same device, or one a crashed run
- * left) is used as it is, and not stopped: it is not this reader's.
+ * <p><b>No port.</b> u2's own server listens on every interface of the device with no password, and anyone who
+ * reaches it (the Wi-Fi, any app on the device, a web page reaching an emulator's address) can tap, type and
+ * read the screen. So u2's server is never started: BotMaker's own {@code TreeStdio} ({@code src/android},
+ * bundled as {@code tree-stdio.jar}) builds u2's tree reader and answers on the stdin and stdout of the adb
+ * stream that started it. Closing the stream ends the process, so nothing is left running, even when BotMaker
+ * dies.
  */
 final class U2Reader {
 
-    static final String RESOURCE = "/com/botmaker/shared/emulator/tree/u2.jar";
+    static final String U2_RESOURCE = "/com/botmaker/shared/emulator/tree/u2.jar";
     /** openatx/android-uiautomator-server-jar release 0.4.1, the one the uiautomator2 Python package pins. */
-    static final String JAR_SHA256 = "87c8ac9505970d42aa5922baa90114808fda6f47f9e5fbd4caa0f621c2c8d30d";
-    static final String REMOTE_JAR = "/data/local/tmp/u2.jar";
-    static final int DEVICE_PORT = 9008;
+    static final String U2_SHA256 = "87c8ac9505970d42aa5922baa90114808fda6f47f9e5fbd4caa0f621c2c8d30d";
+    /** Not uiautomator2's own {@code u2.jar} path: a Python user's copy is neither overwritten nor counted on. */
+    static final String REMOTE_U2 = "/data/local/tmp/botmaker-u2.jar";
+    static final String STDIO_RESOURCE = "/com/botmaker/shared/emulator/tree/tree-stdio.jar";
+    /** {@code src/android/build.sh}'s output; it prints the new value. */
+    static final String STDIO_SHA256 = "8fc09eda414b171cd0d7541470d0e3341e77cdc44fcf4499991325741f172eb5";
+    static final String REMOTE_STDIO = "/data/local/tmp/botmaker-tree-stdio.jar";
+    static final String MAIN = "com.botmaker.android.TreeStdio";
+    static final String READY = "BOTMAKER-TREE 1";
 
-    private static final String REQUEST =
-            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"dumpWindowHierarchy\",\"params\":[false,50]}";
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
-    private static final ObjectMapper JSON = new ObjectMapper();
+    /** Lines skipped before {@link #READY}, should anything print first. */
+    private static final int MAX_NOISE_LINES = 64;
+    private static final int MAX_FRAME = 64 << 20;
+    private static final int EMPTY_RETRIES = 3;
 
     private final TreeDevice device;
     private final Duration startTimeout;
-    /** One for every reader: a client holds a selector thread until it is collected. */
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-            .version(HttpClient.Version.HTTP_1_1)
-            .connectTimeout(Duration.ofSeconds(2))
-            .build();
 
-    private TreeDevice.Forward forward;
-    /** The process this reader started, or {@code null} when it uses one already there. */
-    private String pid;
+    private TreeDevice.Channel channel;
+    private DataInputStream in;
+    private OutputStream out;
 
     U2Reader(TreeDevice device, Duration startTimeout) {
         this.device = device;
@@ -58,125 +68,127 @@ final class U2Reader {
     }
 
     boolean running() {
-        return forward != null;
+        return channel != null;
     }
 
-    /** Forwards a port, then uses the server already there or pushes the jar and starts one, and waits for it. */
+    /** Copies the jars that differ, starts {@code TreeStdio} and waits for its ready line. */
     void start() throws IOException {
-        forward = device.forward(DEVICE_PORT);
-        try {
-            read();
-            return;
-        } catch (IOException nobodyThere) {
-            // start ours
-        }
-        if (!device.shell("sha256sum " + REMOTE_JAR + " 2>/dev/null").startsWith(JAR_SHA256)
-                && !device.push(localJar().toFile(), REMOTE_JAR)) {
-            throw new IOException("u2.jar could not be copied to the device");
-        }
-        pid = lastNumber(device.shell("CLASSPATH=" + REMOTE_JAR
-                + " nohup app_process / com.wetest.uia2.Main -p " + DEVICE_PORT + " >/dev/null 2>&1 & echo $!"));
-        long deadline = System.nanoTime() + startTimeout.toNanos();
-        IOException last;
-        do {
-            try {
-                read();
-                return;
-            } catch (IOException notYet) {
-                last = notYet;
+        install(U2_RESOURCE, U2_SHA256, REMOTE_U2);
+        install(STDIO_RESOURCE, STDIO_SHA256, REMOTE_STDIO);
+        channel = device.exec("CLASSPATH=" + REMOTE_U2 + ":" + REMOTE_STDIO + " app_process / " + MAIN + " 2>/dev/null");
+        DataInputStream from = new DataInputStream(new BufferedInputStream(channel.in()));
+        in = from;
+        out = channel.out();
+        timed(startTimeout, () -> {
+            for (int i = 0; i < MAX_NOISE_LINES; i++) {
+                if (line(from).equals(READY)) return null;
             }
-            sleep();
-        } while (System.nanoTime() < deadline);
-        throw new IOException("u2.jar did not answer within " + startTimeout.toMillis() + " ms", last);
-    }
-
-    /** One tree over JSON-RPC. */
-    UiTree read() throws IOException {
-        if (forward == null) throw new IOException("not started");
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + forward.port() + "/jsonrpc/0"))
-                .timeout(READ_TIMEOUT)
-                .header("Content-Type", "application/json")
-                // A tree is ~75 KB of XML and ~4 KB gzipped; over dadb's transport that is 70 ms against 20.
-                .header("Accept-Encoding", "gzip")
-                .POST(HttpRequest.BodyPublishers.ofString(REQUEST))
-                .build();
-        HttpResponse<byte[]> response;
-        try {
-            response = HTTP.send(request, HttpResponse.BodyHandlers.ofByteArray());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("interrupted", e);
-        }
-        if (response.statusCode() != 200) throw new IOException("u2.jar answered " + response.statusCode());
-        boolean gzip = response.headers().firstValue("Content-Encoding").orElse("").equalsIgnoreCase("gzip");
-        JsonNode reply = gzip
-                ? JSON.readTree(new GZIPInputStream(new ByteArrayInputStream(response.body())))
-                : JSON.readTree(response.body());
-        JsonNode result = reply.get("result");
-        if (result == null || !result.isTextual()) throw new IOException("u2.jar answered no tree: " + reply.get("error"));
-        try {
-            return UiTree.parse(result.asText());
-        } catch (IllegalArgumentException e) {
-            throw new IOException(e.getMessage(), e);
-        }
+            throw new IOException("TreeStdio never said it was ready");
+        });
     }
 
     /**
-     * Gives u2 up for the dump: stops it, and kills any u2 left on the device too, whoever started it, since a
-     * server that stopped answering still holds UiAutomation and {@code uiautomator dump} would fail beside it.
-     * Never throws.
+     * One tree: a line asks, a gzipped frame answers. An empty frame is a dump that failed (windows changing
+     * mid-read), asked again on the same process before the read fails.
      */
-    void abandon() {
-        stop();
-        try {
-            device.shell("pkill -f com.wetest.uia2.Main");
-        } catch (RuntimeException ignored) {
-            // the device is gone
-        }
-    }
-
-    /** Kills the process this reader started and removes the forward. Never throws. */
-    void stop() {
-        if (pid != null) {
-            try {
-                device.shell("kill " + pid);
-            } catch (RuntimeException ignored) {
-                // the device is gone, and the process with it
+    UiTree read() throws IOException {
+        if (channel == null) throw new IOException("not started");
+        DataInputStream from = in;
+        OutputStream to = out;
+        return timed(READ_TIMEOUT, () -> {
+            int length = 0;
+            for (int ask = 0; ask < EMPTY_RETRIES && length == 0; ask++) {
+                to.write('\n');
+                to.flush();
+                length = from.readInt();
             }
-        }
-        pid = null;
-        if (forward != null) forward.close();
-        forward = null;
+            if (length <= 0 || length > MAX_FRAME) throw new IOException("TreeStdio answered no tree");
+            byte[] frame = from.readNBytes(length);
+            if (frame.length < length) throw new EOFException("TreeStdio ended mid-tree");
+            String xml;
+            try (InputStream gz = new GZIPInputStream(new ByteArrayInputStream(frame))) {
+                xml = new String(gz.readAllBytes(), StandardCharsets.UTF_8);
+            }
+            try {
+                return UiTree.parse(xml);
+            } catch (IllegalArgumentException e) {
+                throw new IOException(e.getMessage(), e);
+            }
+        });
     }
 
-    /** The last number in {@code echo $!}'s output, past any job-control line ({@code [1] 4242}); null if none. */
-    static String lastNumber(String out) {
-        Matcher m = Pattern.compile("\\d+").matcher(out == null ? "" : out);
-        String last = null;
-        while (m.find()) last = m.group();
-        return last;
+    /**
+     * Closes the stream, which ends {@code TreeStdio}. Never throws. Nothing else on the device is killed: another
+     * reader's {@code TreeStdio} (Studio's picker beside a running bot) or a user's own uiautomator2 is not this
+     * reader's, and each ends with its own stream.
+     */
+    void stop() {
+        if (channel != null) channel.close();
+        channel = null;
+        in = null;
+        out = null;
     }
 
-    private static void sleep() throws IOException {
+    /**
+     * Runs {@code work} with a deadline; past it the stream is closed, which ends a blocked read. A read on an
+     * adb stream has no timeout of its own.
+     */
+    private <T> T timed(Duration timeout, Callable<T> work) throws IOException {
+        FutureTask<T> task = new FutureTask<>(work);
+        Thread.ofVirtual().name("tree-read").start(task);
         try {
-            Thread.sleep(100);
+            return await(task, timeout);
+        } catch (IOException e) {
+            stop();
+            throw e;
+        }
+    }
+
+    private static <T> T await(Future<T> task, Duration timeout) throws IOException {
+        try {
+            return task.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            task.cancel(true);
+            throw new IOException("TreeStdio did not answer within " + timeout.toMillis() + " ms");
         } catch (InterruptedException e) {
+            task.cancel(true);
             Thread.currentThread().interrupt();
             throw new IOException("interrupted", e);
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof IOException io) throw io;
+            throw new IOException(String.valueOf(e.getCause()), e.getCause());
         }
     }
 
-    private static Path extracted;
+    /** One ASCII line, without its end; EOF before a line is an error. */
+    static String line(InputStream in) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        for (int b; (b = in.read()) != '\n'; ) {
+            if (b < 0) throw new EOFException("TreeStdio ended");
+            if (bytes.size() < 4096 && b != '\r') bytes.write(b);
+        }
+        return bytes.toString(StandardCharsets.US_ASCII);
+    }
 
-    /** The bundled jar as a file, copied out once per JVM: a push needs a file. */
-    private static synchronized Path localJar() throws IOException {
-        if (extracted != null && Files.isRegularFile(extracted)) return extracted;
-        try (InputStream in = U2Reader.class.getResourceAsStream(RESOURCE)) {
-            if (in == null) throw new IOException("u2.jar is not bundled");
-            Path file = Files.createTempFile("botmaker-u2-", ".jar");
+    private void install(String resource, String sha256, String remote) throws IOException {
+        if (device.shell("sha256sum " + remote + " 2>/dev/null").startsWith(sha256)) return;
+        if (!device.push(localJar(resource).toFile(), remote)) {
+            throw new IOException(remote + " could not be copied to the device");
+        }
+    }
+
+    private static final Map<String, Path> EXTRACTED = new HashMap<>();
+
+    /** A bundled jar as a file, copied out once per JVM: a push needs a file. */
+    private static synchronized Path localJar(String resource) throws IOException {
+        Path known = EXTRACTED.get(resource);
+        if (known != null && Files.isRegularFile(known)) return known;
+        try (InputStream in = U2Reader.class.getResourceAsStream(resource)) {
+            if (in == null) throw new IOException(resource + " is not bundled");
+            Path file = Files.createTempFile("botmaker-tree-", ".jar");
             file.toFile().deleteOnExit();
             Files.copy(in, file, StandardCopyOption.REPLACE_EXISTING);
-            extracted = file;
+            EXTRACTED.put(resource, file);
             return file;
         }
     }
