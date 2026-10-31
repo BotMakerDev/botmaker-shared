@@ -89,11 +89,19 @@ public final class AvdPlatform implements EmulatorPlatform {
     }
 
     /**
-     * Whether this machine's emulator will refuse to boot for want of KVM: on Linux, {@code /dev/kvm} missing or
-     * not readable and writable by this user. False on other OSes, which accelerate otherwise.
+     * What this machine's emulator lacks to boot, or null: on Linux, {@code /dev/kvm} missing or not readable and
+     * writable by this user. Null on other OSes, which accelerate otherwise.
      */
-    public static boolean kvmMissing() {
-        return Os.current().isLinux() && !(Files.isReadable(KVM) && Files.isWritable(KVM));
+    public static String kvmNeed() {
+        return kvmNeed(Os.current(), KVM);
+    }
+
+    /** No device is no group's doing: joining {@code kvm} would change nothing, so each case says its own fix. */
+    static String kvmNeed(Os os, Path kvm) {
+        if (!os.isLinux()) return null;
+        if (!Files.exists(kvm)) return "Needs KVM: turn on virtualization in the BIOS and load the kvm module";
+        return Files.isReadable(kvm) && Files.isWritable(kvm)
+                ? null : "Needs KVM: add yourself to the kvm group, then log in again";
     }
 
     /** The AVD ids in {@code avdHome}: one per {@code *.ini} file, by its name, sorted. Empty when it is missing. */

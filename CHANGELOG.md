@@ -24,6 +24,7 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
     list.
   - `AndroidSdk.home()` finds the SDK in Android Studio's folder on every OS, so an installed SDK's adb now wins over
     the downloaded one on Linux and Windows too.
+  - `AvdPlatform.kvmNeed()` says what a Linux machine lacks to boot one: no `/dev/kvm`, or no access to it.
 
 - **An Android screen's accessibility tree** (2026-10-31, `emulator.tree`). `TreeReaders.open(AdbDevice)` reads it
   through openatx's `u2.jar` (MIT, 0.4.1, bundled with its `u2.jar.NOTICE`, pinned by sha256), pushed to

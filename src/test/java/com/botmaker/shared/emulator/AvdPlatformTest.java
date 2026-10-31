@@ -1,5 +1,6 @@
 package com.botmaker.shared.emulator;
 
+import com.botmaker.shared.platform.Os;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -10,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Android Studio's emulators: every AVD listed by its id, where it runs read from its process or its serial. */
@@ -119,6 +121,19 @@ class AvdPlatformTest {
                 """);
 
         assertEquals("7", devices.getFirst().transportId());
+    }
+
+    @Test
+    void kvmSaysWhatIsWrong(@TempDir Path dir) throws Exception {
+        Path kvm = Files.writeString(dir.resolve("kvm"), "");
+
+        assertNull(AvdPlatform.kvmNeed(Os.LINUX, kvm));
+        assertNull(AvdPlatform.kvmNeed(Os.WINDOWS, dir.resolve("gone")), "only Linux asks for it");
+        assertEquals("Needs KVM: turn on virtualization in the BIOS and load the kvm module",
+                AvdPlatform.kvmNeed(Os.LINUX, dir.resolve("gone")));
+        Files.setPosixFilePermissions(kvm, Set.of());
+        assertEquals("Needs KVM: add yourself to the kvm group, then log in again",
+                AvdPlatform.kvmNeed(Os.LINUX, kvm));
     }
 
     @Test
