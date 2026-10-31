@@ -11,6 +11,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -530,6 +531,43 @@ public final class AdbDevice implements AutoCloseable {
      */
     public DeviceStream openService(String service) throws IOException {
         return new DeviceStream(dadb.open(service));
+    }
+
+    /**
+     * A free port on this computer's loopback that reaches {@code devicePort} on the device; closing it removes it.
+     * See {@link LoopbackForward} for why this is not dadb's own forward.
+     */
+    public LoopbackForward forward(int devicePort) throws IOException {
+        return new LoopbackForward(() -> openService("tcp:" + devicePort));
+    }
+
+    /**
+     * The package of the window that has focus, which is the app a bot means: a permission dialog's package
+     * while one is up, rather than the activity behind it {@link #currentApp()} reads. Empty when unknown.
+     */
+    public Optional<String> focusedPackage() {
+        try {
+            return parseFocusedPackage(shell("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'"));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    // `mCurrentFocus=Window{1a2b u0 com.foo/com.foo.Main}`; `mFocusedApp=ActivityRecord{3c4d u0 com.foo/.Main t12}`.
+    private static final Pattern CURRENT_FOCUS = Pattern.compile("mCurrentFocus=Window\\{\\S+ \\S+ ([\\w.]+)/");
+    private static final Pattern FOCUSED_APP = Pattern.compile("mFocusedApp=\\S*\\{\\S+ \\S+ ([\\w.]+)/");
+
+    /**
+     * The focused window's package from {@code dumpsys window}, else the focused activity's: a window with no
+     * component ({@code StatusBar}, a {@code PopupWindow}) names no package.
+     */
+    static Optional<String> parseFocusedPackage(String dumpsys) {
+        if (dumpsys == null) return Optional.empty();
+        for (Pattern pattern : List.of(CURRENT_FOCUS, FOCUSED_APP)) {
+            Matcher m = pattern.matcher(dumpsys);
+            if (m.find()) return Optional.of(m.group(1));
+        }
+        return Optional.empty();
     }
 
     /**

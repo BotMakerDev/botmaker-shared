@@ -3,6 +3,7 @@ package com.botmaker.shared.emulator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -50,6 +51,18 @@ class AdbDeviceTest {
         assertEquals("'ab'", AdbDevice.inputTextArgument("a\nbé"));
         assertEquals("", AdbDevice.inputTextArgument("\n\t"));
         assertEquals("", AdbDevice.inputTextArgument(null));
+    }
+
+    @Test
+    void focusedPackageReadsTheFocusedWindowThenTheFocusedApp() {
+        assertEquals(Optional.of("com.android.permissioncontroller"), AdbDevice.parseFocusedPackage("""
+                  mCurrentFocus=Window{9f8e u0 com.android.permissioncontroller/com.android.Grant}
+                  mFocusedApp=ActivityRecord{3c4d u0 com.foo.game/.MainActivity t12}"""));
+        assertEquals(Optional.of("com.foo.game"), AdbDevice.parseFocusedPackage("""
+                  mCurrentFocus=Window{9f8e u0 PopupWindow:5a1}
+                  mFocusedApp=ActivityRecord{3c4d u0 com.foo.game/.MainActivity t12}"""));
+        assertEquals(Optional.empty(), AdbDevice.parseFocusedPackage("  mCurrentFocus=null\n  mFocusedApp=null"));
+        assertEquals(Optional.empty(), AdbDevice.parseFocusedPackage(null));
     }
 
     @Test

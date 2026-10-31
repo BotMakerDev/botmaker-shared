@@ -69,5 +69,14 @@ pairing screen is open and `_adb-tls-connect._tcp` while Wireless debugging is o
 its address or `<instance>._adb-tls-connect._tcp`, which is how `unconnected` tells the two apart. QR pairing
 (`pairByQr`) shows `WIFI:T:ADB;S:<name>;P:<password>;;`; the phone announces its pairing port under `<name>`,
 and `adb pair` takes the password as the code.
+**The screen's accessibility tree** (`emulator.tree`, 2026-10-31) is what an app's inputs are found by, beside
+pictures. `TreeReaders.open` gives one reader per device: `U2Reader` pushes the bundled `u2.jar` (openatx, MIT,
+pinned by sha256; only when the device's copy differs) and starts it with `app_process`, then asks
+`dumpWindowHierarchy` over JSON-RPC through `AdbDevice.forward`, a loopback-only port (dadb's `tcpForward` binds
+every interface, which would hand the device's taps to the network). Answers are gzipped: 75 KB of XML is 4 KB, and
+dadb's transport costs about 60 ms for the plain one. A server already answering is used and left running (a
+second BotMaker on the device owns it). One failed read restarts u2 once; after that, or when it never starts,
+`DumpReader` (`uiautomator dump`, 2 s, waits for idle) answers. A tree is never written anywhere: it holds what the
+screen shows. `UiTree.app(focusedPackage)` drops systemui's and the keyboard's windows.
 dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
 shipping no adb binary.

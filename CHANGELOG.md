@@ -14,6 +14,17 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **An Android screen's accessibility tree** (2026-10-31, `emulator.tree`). `TreeReaders.open(AdbDevice)` reads it
+  through openatx's `u2.jar` (MIT, 0.4.1, bundled with its `u2.jar.NOTICE`, pinned by sha256), pushed to
+  `/data/local/tmp` and run with `app_process`; nothing is installed, and `close()` kills the process and removes the
+  forward. 60–90 ms a read on Waydroid (gzipped answers), where `uiautomator dump`, the fallback once u2 cannot
+  start or dies twice, takes 2 s. `UiTree.parse` gives immutable `UiNode`s (ids, text, label, bounds, `Trait`s);
+  `app(package)` keeps the focused app's windows, `at(point)` the nodes under a point, smallest first.
+  `AdbDevice.forward(devicePort)` is a loopback-only port to the device (`LoopbackForward`; dadb's own listens on
+  every interface), and `AdbDevice.focusedPackage()` reads the focused window's package.
+
 ### Changed
 
 - **Linux launches games through Lutris** (2026-10-29). `LaunchKind.runsOn(LINUX)` is false for Heroic, Faugus,
