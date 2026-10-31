@@ -34,7 +34,7 @@ jobs:
   # or input.
   macos:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
 
