@@ -22,6 +22,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   Google Play image and memory (≥ 4096 MB). Each `CheckResult` says whether BotMaker's Fix can repair it, else the
   commands. Android's version and boot are read over adb (a nested session answers "stopped" to `waydroid prop`),
   else from the config's binder protocol. `WaydroidCli` is public.
+- **Swapping Waydroid's ARM translator** (`TranslatorPins`, `TranslatorScripts`, `RootScript`): libndk and
+  libhoudini for Android 11 and 13, pinned by sha256 and unpacked as the user into the cache; one root script
+  saves the old translator's files and properties under `/var/lib/waydroid/botmaker-backup/<stamp>/`, copies the
+  new one into the overlay, edits `[properties]` (adding it when absent) and runs `waydroid upgrade --offline`;
+  the undo script puts back exactly what it saved. `RootScript` runs a script through `pkexec /bin/sh -s` and
+  reads 126 as cancelled, 127 as no password window.
 - **The user's OK to download from APKPure is kept** (`ApkDownload.acknowledged()`/`acknowledge(boolean)`), as a
   file in `UserDirs.config()`. Only Studio's Game dialog sets it.
 - **`emulator.PlayStoreSetup`**: the steps that give an emulator Google Play, per product (Waydroid's GAPPS image and
