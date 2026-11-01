@@ -38,6 +38,10 @@ final class ApkLabel {
     private static final int TYPE_STRING = 0x03;
     /** {@code android:label}'s attribute id, which names it in the manifest whatever its string says. */
     private static final int ATTR_LABEL = 0x01010001;
+    /** {@code android:versionCode} and {@code android:versionName}, on {@code <manifest>}. */
+    private static final int ATTR_VERSION_CODE = 0x0101021b, ATTR_VERSION_NAME = 0x0101021c;
+    /** A decimal or hexadecimal integer: the types a {@code versionCode} is compiled as. */
+    private static final int TYPE_INT_DEC = 0x10, TYPE_INT_HEX = 0x11;
     private static final int NO_ENTRY = 0xFFFFFFFF;
 
     private ApkLabel() {}
@@ -103,6 +107,48 @@ final class ApkLabel {
         return null;
     }
 
+    /**
+     * An app's version as its manifest says it.
+     *
+     * @param code the {@code versionCode} Android compares to tell newer from older, {@code 0} when absent
+     * @param name the {@code versionName} people read, or {@code null}
+     */
+    record Version(long code, String name) {
+        static final Version NONE = new Version(0, null);
+    }
+
+    /** {@code <manifest android:versionCode android:versionName>} in a compiled manifest. Pure, for the tests. */
+    static Version manifestVersion(byte[] xml) {
+        Element manifest = element(xml, "manifest");
+        if (manifest == null) return Version.NONE;
+        int ext = manifest.ext();
+        int start = uint16(xml, ext + 8);
+        int width = uint16(xml, ext + 10);
+        int count = uint16(xml, ext + 12);
+        long code = 0;
+        String name = null;
+        for (int i = 0; i < count; i++) {
+            int a = ext + start + i * width;
+            int attribute = int32(xml, a + 4);
+            int dataType = xml[a + 15] & 0xFF;
+            int data = int32(xml, a + 16);
+            if (named(manifest, attribute, ATTR_VERSION_CODE, "versionCode")) {
+                if (dataType == TYPE_INT_DEC || dataType == TYPE_INT_HEX) code = Integer.toUnsignedLong(data);
+            } else if (named(manifest, attribute, ATTR_VERSION_NAME, "versionName")) {
+                String text = manifest.strings().get(dataType == TYPE_STRING ? data : int32(xml, a + 8));
+                name = text == null || text.isBlank() ? null : text;
+            }
+        }
+        return new Version(code, name);
+    }
+
+    /** Whether attribute name {@code index} is the framework attribute {@code id}, by its id or else its name. */
+    private static boolean named(Element element, int index, int id, String name) {
+        int[] ids = element.ids();
+        return (index >= 0 && index < ids.length && ids[index] == id)
+                || (name.equals(element.strings().get(index)) && (index < 0 || index >= ids.length || ids[index] == 0));
+    }
+
     /** A start element: where its attribute extension begins, and the document's strings and resource ids. */
     private record Element(int ext, StringPool strings, int[] ids) {}
 
@@ -139,17 +185,18 @@ final class ApkLabel {
             var entries = ApkZip.entries(reader);
             ApkZip.Entry manifestEntry = ApkZip.find(entries, "AndroidManifest.xml");
             if (manifestEntry == null) return null;
-            String pkg = manifestPackage(ApkZip.bytes(reader, manifestEntry, MANIFEST_MAX));
+            byte[] manifest = ApkZip.bytes(reader, manifestEntry, MANIFEST_MAX);
+            String pkg = manifestPackage(manifest);
             if (pkg == null) return null;
             String label = read(reader, entries);
-            return new ApkFacts(pkg, label == null || label.isEmpty() ? null : label);
+            return new ApkFacts(pkg, label == null || label.isEmpty() ? null : label, manifestVersion(manifest));
         } catch (Exception e) {
             return null;
         }
     }
 
-    /** An APK's package and its name ({@code null} when it declares none). */
-    record ApkFacts(String packageName, String label) {}
+    /** An APK's package, its name ({@code null} when it declares none) and its version. */
+    record ApkFacts(String packageName, String label, Version version) {}
 
     private static Label attribute(byte[] xml, int ext, StringPool strings, int[] ids) {
         int start = uint16(xml, ext + 8);

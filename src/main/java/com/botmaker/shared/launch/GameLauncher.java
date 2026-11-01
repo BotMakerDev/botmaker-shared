@@ -190,6 +190,12 @@ public final class GameLauncher {
         return runFirstInstalled(LaunchCommands.lutrisWindow());
     }
 
+    /** Opens Lutris's installer for one game ({@link LaunchCommands#lutrisInstall}); returns whether it started. */
+    public static boolean openLutrisInstaller(String idOrSlug) {
+        Diag.log("[Game] openLutrisInstaller " + idOrSlug);
+        return runFirstInstalled(LaunchCommands.lutrisInstall(idOrSlug));
+    }
+
     /**
      * {@link #runFirst} over the forms of {@code ladder} that are there, each looked for only when reached:
      * {@code flatpak run} of an app Flatpak lacks spawns, then fails, and would read as started.

@@ -12,6 +12,31 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Added
+
+- **Games install and update from any launcher** (2026-11-01, `launch.GameInstall`). Each target gets `readiness()`, `install(progress)`, `update(progress)` and `source()`. The result is a typed `Outcome` and a sentence to show the user.
+  - **Android:** `AndroidInstall` tries four sources in order:
+    1. The APK library.
+    2. Google Play, where the user presses Install or Update.
+    3. APKPure through apkeep, once the user has accepted APKPure's risk.
+    4. A store page opened in the browser, with the file picked up from Downloads.
+  - **Steam:** `steam://install` and `steam://validate`.
+  - **Lutris:** Lutris's own installer. Lutris has no update command, and the result says so.
+  - **Heroic:** an Epic game installs and updates through the `legendary` that Heroic bundles. A GOG or Amazon game is handed to Heroic's window.
+- **The APK library** (`emulator.ApkLibrary`): `<data>/apps/<package>/<versionCode>_<versionName>.<apk|xapk|apks>`, keeping the two newest versions of each package. It can also find a file the user just downloaded.
+- **`emulator.ApkDownload`:** downloads a game with EFF's apkeep from APKPure, but only with the user's acknowledgement (`ApkDownload.DANGERS`). It also gives the APKPure and APKMirror search pages.
+- **`ManagedTools` pins apkeep 1.1.0** by sha256 for Linux x86_64, Linux aarch64 and Windows x86_64. macOS has no release binary, so it uses one on `PATH`.
+- **Versions are read:**
+  - `ApkFile` gains `versionCode` and `versionName`, read from the binary manifest, or from an XAPK's `manifest.json`.
+  - `AdbDevice.installedVersion` gives the installed version.
+  - `EmulatorInstall.facts` reports the installed version, whether Play is present, and the ABI.
+  - `EmulatorInstall.openStorePage` opens the game's Play page.
+  - `EmulatorInstall.fromFile` refuses a version older than the installed one.
+- **`GameReadiness`** now also answers for a Lutris game, from Lutris's installed list, and for an emulator app, from the apps last read off its instance.
+- **`Spawn.streamed`** runs a long child process and hands back each line as it is written.
+
 ## [0.6.1] — 2026-11-01
 
 ### Changed

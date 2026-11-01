@@ -92,6 +92,16 @@ public final class LaunchCommands {
         return ladder(LaunchKind.LUTRIS, "lutris", List.of("lutris:rungameid/" + require(id)));
     }
 
+    /**
+     * Lutris's installer for one game: {@code lutris:install/<slug>} for a game named by its lutris.net slug, else
+     * {@code lutris:rungameid/<id>}, which for a library game not installed yet opens the same installer.
+     */
+    public static List<List<String>> lutrisInstall(String idOrSlug) {
+        String token = require(idOrSlug);
+        return ladder(LaunchKind.LUTRIS, "lutris",
+                List.of(token.matches("\\d+") ? "lutris:rungameid/" + token : "lutris:install/" + token));
+    }
+
     /** Lutris's own window, where a game is added or installed: the native launcher, then its Flatpak form. */
     public static List<List<String>> lutrisWindow() {
         return ladder(LaunchKind.LUTRIS, "lutris", List.of());

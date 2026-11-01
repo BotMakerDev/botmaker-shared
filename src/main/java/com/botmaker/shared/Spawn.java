@@ -1,14 +1,18 @@
 package com.botmaker.shared;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * The two safe ways to start a child process, because the unsafe one is invisible.
@@ -120,6 +124,49 @@ public final class Spawn {
                 // init, where descendants() can no longer reach them. A shell that could not exec-optimize the
                 // command (dash forks where bash execs; any pipeline forks everywhere) would otherwise leave the
                 // real worker running — the leak this timeout exists to prevent, traded for the hang.
+                List<ProcessHandle> tree = p.descendants().toList();
+                p.destroyForcibly();
+                tree.forEach(ProcessHandle::destroyForcibly);
+            }
+        }
+    }
+
+    /**
+     * A long download or install whose every line someone reads as it comes: {@code lines} gets each non-blank
+     * line (stdout and stderr merged) on a drain thread, and the child gets {@code env} on top of ours. The answer's
+     * {@code output} is the last line, which is what a failing CLI says why in. Bounded like {@link #run}: past
+     * {@code timeout}, or interrupted, the child's whole tree is killed; a timeout answers {@code null}.
+     */
+    public static Completed streamed(Duration timeout, List<String> command, Map<String, String> env,
+                                     Consumer<String> lines) throws IOException, InterruptedException {
+        ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
+        builder.environment().putAll(env);
+        Process p = builder.start();
+        AtomicReference<String> last = new AtomicReference<>("");
+        Thread drain = new Thread(() -> {
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(p.getInputStream(),
+                    StandardCharsets.UTF_8))) {
+                for (String line; (line = in.readLine()) != null; ) {
+                    if (line.isBlank()) continue;
+                    last.set(line.strip());
+                    try {
+                        if (lines != null) lines.accept(line.strip());
+                    } catch (RuntimeException listenerFailed) {
+                        // keep draining: a dead reader would leave the child blocked on a full pipe
+                    }
+                }
+            } catch (IOException closedUnderUs) {
+                // the child was killed mid-line
+            }
+        }, "spawn-stream");
+        drain.setDaemon(true);
+        drain.start();
+        try {
+            if (!p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) return null;
+            drain.join(DRAIN_GRACE_MS);
+            return new Completed(p.exitValue(), last.get());
+        } finally {
+            if (p.isAlive()) {
                 List<ProcessHandle> tree = p.descendants().toList();
                 p.destroyForcibly();
                 tree.forEach(ProcessHandle::destroyForcibly);

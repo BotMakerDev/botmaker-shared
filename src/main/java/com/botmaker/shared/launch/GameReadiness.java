@@ -1,10 +1,18 @@
 package com.botmaker.shared.launch;
 
+import com.botmaker.shared.emulator.AdbDevice;
+import com.botmaker.shared.emulator.EmulatorAppCache;
+import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.EmulatorInstances;
+import com.botmaker.shared.emulator.EmulatorProbe;
+import com.botmaker.shared.emulator.EmulatorReadiness;
 import com.botmaker.shared.game.SteamLibraryScanner;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -14,7 +22,9 @@ import java.util.regex.Pattern;
 /**
  * Whether a launch target's game can start now, read off its launcher's files on this computer: installed, an
  * update pending or running, the launcher signed out. Steam is read whole ({@code appmanifest_<id>.acf}'s
- * {@code StateFlags}, {@code config/loginusers.vdf}); a Heroic game is checked installed; every other kind is
+ * {@code StateFlags}, {@code config/loginusers.vdf}); a Heroic or Lutris game is checked installed, and an emulator
+ * app against its running instance's packages, else the apps last read off it (an emulator scan, so not for a hot
+ * path); every other kind is
  * {@link State#UNKNOWN}, which launches as before. Reads no network and no password; never throws.
  *
  * @param state  what the launcher's files say
@@ -87,6 +97,8 @@ public record GameReadiness(State state, String reason) {
             return switch (spec.kind()) {
                 case STEAM -> steam(spec, SteamLibraryScanner.root(), HostLauncherProbe.isRunning(LaunchKind.STEAM));
                 case HEROIC -> heroic(spec);
+                case LUTRIS -> lutris(spec, LutrisLibrary.games());
+                case EMULATOR_APP -> emulatorApp(spec);
                 default -> unknown();
             };
         } catch (RuntimeException e) {
@@ -162,6 +174,47 @@ public record GameReadiness(State state, String reason) {
         if (HeroicLibrary.configRoots().isEmpty() || HeroicLibrary.games().isEmpty()) return unknown();
         return HeroicLibrary.find(spec.token()) != null ? ready()
                 : new GameReadiness(State.NOT_INSTALLED, spec.describe() + " isn't installed in Heroic on this computer.");
+    }
+
+    /**
+     * A Lutris game by its library id in {@code installed} ({@code lutris -l -o}: installed games only). An empty
+     * list is no Lutris, or one that wouldn't answer: nothing known. Pure, for the tests.
+     */
+    static GameReadiness lutris(LaunchSpec spec, Map<String, LutrisLibrary.Game> installed) {
+        if (installed.isEmpty()) return unknown();
+        return installed.containsKey(spec.token().trim()) ? ready()
+                : new GameReadiness(State.NOT_INSTALLED, spec.describe() + " isn't installed in Lutris on this computer.");
+    }
+
+    /**
+     * An emulator app: a running instance is asked for its packages; a stopped one answers from the apps last read
+     * off it ({@link EmulatorAppCache}), which can only say yes — an app installed since by another tool is missing
+     * there, and a missing app must not block a run.
+     */
+    private static GameReadiness emulatorApp(LaunchSpec spec) {
+        Optional<EmulatorInstance> instance = EmulatorInstances.find(spec.emulatorInstance());
+        if (instance.isEmpty()) return unknown();
+        if (EmulatorReadiness.isReady(instance.get())) {
+            try (AdbDevice device = AdbDevice.connect(instance.get().adb())) {
+                return emulatorApp(spec, instance.get().name(), device.installedApps(), true);
+            } catch (RuntimeException unreachable) {
+                // the cache, below
+            }
+        }
+        List<String> apps = EmulatorAppCache.shared().packages(instance.get()).stream()
+                .map(EmulatorProbe.InstalledApp::packageName).toList();
+        return emulatorApp(spec, instance.get().name(), apps, false);
+    }
+
+    /**
+     * {@link #emulatorApp(LaunchSpec)} over the packages {@code apps} seen on {@code instance}: {@code asked} when
+     * the device itself listed them now, else they are the cache, which never says an app is missing. Pure.
+     */
+    static GameReadiness emulatorApp(LaunchSpec spec, String instance, List<String> apps, boolean asked) {
+        if (apps.contains(spec.emulatorPackage())) return ready();
+        return asked && !apps.isEmpty()
+                ? new GameReadiness(State.NOT_INSTALLED, spec.describe() + " isn't installed on " + instance + ".")
+                : unknown();
     }
 
     /**

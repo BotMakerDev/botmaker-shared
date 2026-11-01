@@ -31,8 +31,11 @@ import java.util.zip.ZipFile;
  * @param apks        the APK files to install together: one for a plain {@code .apk}, the base and its splits
  * @param obbs        expansion files to copy to the device after the install
  * @param extracted   the temporary folder an archive was extracted to, or {@code null} for a plain {@code .apk}
+ * @param versionCode the {@code versionCode} Android compares, {@code 0} when the file says none
+ * @param versionName the version people read, or {@code null}
  */
-public record ApkFile(String packageName, String label, List<Path> apks, List<Obb> obbs, Path extracted)
+public record ApkFile(String packageName, String label, List<Path> apks, List<Obb> obbs, Path extracted,
+                      long versionCode, String versionName)
         implements AutoCloseable {
 
     /** One expansion file: where it was extracted, and where on the device it goes. */
@@ -40,6 +43,8 @@ public record ApkFile(String packageName, String label, List<Path> apks, List<Ob
 
     private static final Pattern JSON_PACKAGE = Pattern.compile("\"package_name\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern JSON_NAME = Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"");
+    private static final Pattern JSON_VERSION_CODE = Pattern.compile("\"version_code\"\\s*:\\s*\"?(\\d+)");
+    private static final Pattern JSON_VERSION_NAME = Pattern.compile("\"version_name\"\\s*:\\s*\"([^\"]+)\"");
     private static final String OBB_PREFIX = "Android/obb/";
 
     public ApkFile {
@@ -56,7 +61,8 @@ public record ApkFile(String packageName, String label, List<Path> apks, List<Ob
         if (name.endsWith(".apk")) {
             ApkLabel.ApkFacts facts = facts(file);
             if (facts == null) throw new IOException(file.getFileName() + " isn't an Android app (no manifest in it).");
-            return new ApkFile(facts.packageName(), facts.label(), List.of(file), List.of(), null);
+            return new ApkFile(facts.packageName(), facts.label(), List.of(file), List.of(), null,
+                    facts.version().code(), facts.version().name());
         }
         if (name.endsWith(".xapk") || name.endsWith(".apks")) return openArchive(file);
         throw new IOException(file.getFileName() + " isn't an .apk, .xapk or .apks file.");
@@ -93,16 +99,23 @@ public record ApkFile(String packageName, String label, List<Path> apks, List<Ob
             if (apks.isEmpty()) throw new IOException(file.getFileName() + " holds no APK.");
             String pkg = null;
             String label = null;
+            long code = 0;
+            String version = null;
             for (Path apk : apks) {
                 ApkLabel.ApkFacts facts = facts(apk);
                 if (facts == null) continue;
                 if (pkg == null) pkg = facts.packageName();
                 if (label == null) label = facts.label();
+                // Every split repeats the base's versionCode; the name is on the base only.
+                if (code == 0) code = facts.version().code();
+                if (version == null) version = facts.version().name();
             }
             if (pkg == null) pkg = group(JSON_PACKAGE, manifestJson);
             if (label == null) label = group(JSON_NAME, manifestJson);
+            if (code == 0) code = number(group(JSON_VERSION_CODE, manifestJson));
+            if (version == null) version = group(JSON_VERSION_NAME, manifestJson);
             if (pkg == null) throw new IOException(file.getFileName() + " doesn't say which app it is.");
-            return new ApkFile(pkg, label, apks, obbs, folder);
+            return new ApkFile(pkg, label, apks, obbs, folder, code, version);
         } catch (IOException | RuntimeException e) {
             delete(folder);
             throw e instanceof IOException io ? io : new IOException(file.getFileName() + " can't be read: "
@@ -183,6 +196,19 @@ public record ApkFile(String packageName, String label, List<Path> apks, List<Ob
         if (text == null) return null;
         Matcher m = pattern.matcher(text);
         return m.find() ? m.group(1) : null;
+    }
+
+    private static long number(String digits) {
+        try {
+            return digits == null ? 0 : Long.parseLong(digits);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /** What a person reads for the version: its name, else its code, else nothing. */
+    public String version() {
+        return versionName != null ? versionName : versionCode > 0 ? Long.toString(versionCode) : "";
     }
 
     private static long sizeOf(Path file) {

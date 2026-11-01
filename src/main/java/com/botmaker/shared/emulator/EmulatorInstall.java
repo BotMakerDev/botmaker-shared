@@ -125,6 +125,11 @@ public final class EmulatorInstall {
             if (ready.isEmpty()) return Result.failed(EmulatorReadiness.notReady(instance));
             EmulatorInstance live = ready.get();
             try (AdbDevice device = AdbDevice.connect(live.adb())) {
+                long installed = device.installedVersion(apk.packageName());
+                if (apk.versionCode() > 0 && installed > apk.versionCode()) {
+                    return Result.failed(apk.display() + " " + apk.version() + " is older than the version on "
+                            + live.name() + " (" + installed + "): Android won't go back to it.");
+                }
                 report(progress, "Installing " + apk.display() + " (" + megabytes(apk.size()) + ") on " + live.name() + "…");
                 Diag.log("[Emulator] installing " + apk.packageName() + " from " + file + " on " + live.name());
                 device.install(apk.apks().stream().map(Path::toFile).toList());
@@ -142,6 +147,58 @@ public final class EmulatorInstall {
             } catch (IOException | RuntimeException e) {
                 return Result.failed("Android refused " + apk.display() + " on " + live.name() + ": " + reason(e));
             }
+        }
+    }
+
+    /**
+     * What an instance says about one app, asked once it is up: what an update compares against.
+     *
+     * @param live             the running instance, or {@code null} when it couldn't be brought up
+     * @param installedVersion the app's {@code versionCode} there, {@code -1} when it isn't installed
+     * @param hasPlay          whether the instance has Google Play
+     * @param abi              its processor ({@code x86_64}, {@code arm64-v8a}…), blank when unknown
+     * @param problem          why nothing was read, a sentence; blank when {@code live} is set
+     */
+    public record DeviceFacts(EmulatorInstance live, long installedVersion, boolean hasPlay, String abi,
+                              String problem) {
+
+        public boolean ok() {
+            return live != null;
+        }
+    }
+
+    /** Starts {@code instance} when stopped and reads what it says about {@code packageName}. */
+    public static DeviceFacts facts(EmulatorInstance instance, String packageName, Consumer<String> progress) {
+        Optional<EmulatorInstance> ready = EmulatorReadiness.bringUp(instance, progress);
+        if (ready.isEmpty()) return new DeviceFacts(null, -1, false, "", EmulatorReadiness.notReady(instance));
+        EmulatorInstance live = ready.get();
+        try (AdbDevice device = AdbDevice.connect(live.adb())) {
+            return new DeviceFacts(live, device.installedVersion(packageName), listed(device, PLAY_STORE),
+                    device.shell("getprop ro.product.cpu.abi").strip(), "");
+        } catch (RuntimeException e) {
+            return new DeviceFacts(null, -1, false, "", "Couldn't talk to " + live.name() + " over ADB: "
+                    + e.getMessage());
+        }
+    }
+
+    /**
+     * Opens {@code packageName}'s Google Play page on a running instance and returns at once: for an update, which
+     * the user presses there. Says why when it can't.
+     */
+    public static Result openStorePage(EmulatorInstance live, String packageName, String name) {
+        if (packageName == null || !PlayStoreSearch.PACKAGE.matcher(packageName).matches()) {
+            return Result.failed("\"" + packageName + "\" isn't an Android package name.");
+        }
+        String shown = name == null || name.isBlank() ? packageName : name;
+        try (AdbDevice device = AdbDevice.connect(live.adb())) {
+            String opened = device.shell(storeIntent(packageName));
+            if (opened != null && opened.contains("Error")) {
+                return Result.failed("Google Play on " + live.name() + " wouldn't open " + shown + ": " + opened.strip());
+            }
+            return new Result(true, packageName, shown, "Google Play is open on " + live.name() + " at " + shown
+                    + ": press Update there (Play shows Open instead when it is up to date).");
+        } catch (RuntimeException e) {
+            return Result.failed("Couldn't talk to " + live.name() + " over ADB: " + e.getMessage());
         }
     }
 

@@ -591,6 +591,27 @@ public final class AdbDevice implements AutoCloseable {
         else dadb.installMultiple(apks, "-r");
     }
 
+    /**
+     * The {@code versionCode} of {@code packageName} as installed, or {@code -1} when it isn't installed. Throws when
+     * the question itself fails, so a dropped connection never reads as "not installed".
+     */
+    public long installedVersion(String packageName) {
+        return parseVersionCode(shell("dumpsys package " + packageName.replaceAll("[^A-Za-z0-9._]", "")));
+    }
+
+    private static final Pattern VERSION_CODE = Pattern.compile("\\bversionCode=(\\d+)");
+
+    /**
+     * The first {@code versionCode=} in {@code dumpsys package <pkg>}, or {@code -1}: a package not installed prints
+     * no {@code Packages:} entry for it. With several (an update over a system app), the first is the one running.
+     * Pure, for the tests.
+     */
+    static long parseVersionCode(String dumpsys) {
+        if (dumpsys == null) return -1;
+        Matcher m = VERSION_CODE.matcher(dumpsys);
+        return m.find() ? Long.parseLong(m.group(1)) : -1;
+    }
+
     /** Copies a local file to {@code remotePath}, readable, creating its folders; throws when it can't. */
     public void pushData(java.io.File file, String remotePath) throws IOException {
         int slash = remotePath.lastIndexOf('/');

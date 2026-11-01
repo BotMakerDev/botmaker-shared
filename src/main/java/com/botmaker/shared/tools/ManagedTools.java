@@ -1,5 +1,7 @@
 package com.botmaker.shared.tools;
 
+import com.botmaker.shared.Executables;
+
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -160,6 +162,67 @@ public final class ManagedTools {
                 "https://dl.google.com/android/repository/platform-tools_r"
                         + PLATFORM_TOOLS_REVISION + "-" + suffix + ".zip",
                 Downloads.Digest.SHA_1, sha1, size);
+    }
+
+    /** The apkeep release pinned below. */
+    public static final String APKEEP_VERSION = "1.1.0";
+
+    /**
+     * EFF's {@code apkeep}, which downloads an Android app by its package (2026-11-01, the user's pick for getting a
+     * game's APK without a browser). One binary per OS and processor, digests taken from the release's own files.
+     * Unlike scrcpy-server it is fetched only when a person asks for a download; macOS has no release binary, so
+     * there it is the user's own ({@code brew}/{@code cargo}) or none.
+     */
+    static Downloads.Remote apkeep(String osName, String arch) {
+        String os = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
+        String cpu = arch == null ? "" : arch.toLowerCase(Locale.ROOT);
+        boolean x64 = cpu.equals("amd64") || cpu.equals("x86_64");
+        boolean arm64 = cpu.equals("aarch64") || cpu.equals("arm64");
+        if (os.contains("win") && x64) {
+            return apkeepRemote("x86_64-pc-windows-msvc.exe",
+                    "fb61e52fa48c321bbbb6d899dd06abf1705e3dbd74f07813bd2784279766ff6f", 12_098_560);
+        }
+        if (os.contains("nux") && x64) {
+            return apkeepRemote("x86_64-unknown-linux-gnu",
+                    "badd7ad9fa7d2f32abe01eaf33b7ff086361a95bbc000a33bf44b630d4bf2140", 16_939_544);
+        }
+        if (os.contains("nux") && arm64) {
+            return apkeepRemote("aarch64-unknown-linux-gnu",
+                    "1a2e959842bbca4bc8db455b8132cc6f37534d70f2384409096268d8fc442ae8", 15_811_960);
+        }
+        return null;
+    }
+
+    private static Downloads.Remote apkeepRemote(String target, String sha256, long size) {
+        return new Downloads.Remote("https://github.com/EFForg/apkeep/releases/download/" + APKEEP_VERSION
+                + "/apkeep-" + target, Downloads.Digest.SHA_256, sha256, size);
+    }
+
+    /** Where BotMaker's own apkeep goes, whether or not it is there. */
+    public static Path apkeepPath() {
+        return directory().resolve("apkeep").resolve((windows() ? "apkeep-" + APKEEP_VERSION + ".exe"
+                : "apkeep-" + APKEEP_VERSION));
+    }
+
+    /** BotMaker's own apkeep when it was installed, else one on the user's {@code PATH}. */
+    public static Optional<Path> apkeepInstalled() {
+        Path own = apkeepPath();
+        if (Files.isExecutable(own)) return Optional.of(own);
+        return Executables.find("apkeep").map(File::toPath);
+    }
+
+    /**
+     * Downloads the pinned apkeep for this computer when none is installed; returns it, or empty on an OS with no
+     * release binary or when the download failed.
+     */
+    public static Optional<Path> installApkeep(Downloads.Progress progress) {
+        Optional<Path> installed = apkeepInstalled();
+        if (installed.isPresent()) return installed;
+        Downloads.Remote remote = apkeep(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
+        Path target = apkeepPath();
+        if (remote == null || !Downloads.fetch(remote, target, progress)) return Optional.empty();
+        if (!target.toFile().setExecutable(true, true)) return Optional.empty();
+        return Optional.of(target);
     }
 
     private static boolean windows() {

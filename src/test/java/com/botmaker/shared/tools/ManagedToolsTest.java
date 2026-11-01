@@ -27,7 +27,19 @@ class ManagedToolsTest {
         return List.of(ManagedTools.SCRCPY_SERVER,
                 ManagedTools.platformTools("Linux"),
                 ManagedTools.platformTools("Mac OS X"),
-                ManagedTools.platformTools("Windows 11"));
+                ManagedTools.platformTools("Windows 11"),
+                ManagedTools.apkeep("Linux", "amd64"),
+                ManagedTools.apkeep("Linux", "aarch64"),
+                ManagedTools.apkeep("Windows 11", "amd64"));
+    }
+
+    @Test
+    void apkeepIsPinnedPerOsAndProcessorAndMacHasNone() {
+        assertTrue(ManagedTools.apkeep("Linux", "x86_64").url().endsWith("-x86_64-unknown-linux-gnu"));
+        assertTrue(ManagedTools.apkeep("Linux", "arm64").url().endsWith("-aarch64-unknown-linux-gnu"));
+        assertTrue(ManagedTools.apkeep("Windows 11", "amd64").url().endsWith(".exe"));
+        assertNull(ManagedTools.apkeep("Mac OS X", "aarch64"));
+        assertNull(ManagedTools.apkeep("Linux", "riscv64"));
     }
 
     @Test

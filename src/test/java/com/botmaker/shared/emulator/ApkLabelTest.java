@@ -97,9 +97,22 @@ class ApkLabelTest {
                 "the manifest's own attributes don't hide the application's");
 
         byte[] apk = ApkIconTest.zip(new String[]{"AndroidManifest.xml"}, new byte[][]{manifest});
-        assertEquals(new ApkLabel.ApkFacts("com.example.solitaire", "Solitaire"),
+        assertEquals(new ApkLabel.ApkFacts("com.example.solitaire", "Solitaire", ApkLabel.Version.NONE),
                 ApkLabel.facts(new ApkIconTest.ArrayReader(apk)));
         assertNull(ApkLabel.facts(new ApkIconTest.ArrayReader(new byte[64])));
+    }
+
+    @Test
+    void theManifestSaysTheVersionAndAManifestWithoutOneSaysNone() {
+        assertEquals(new ApkLabel.Version(42, "1.2.3"), ApkLabel.manifestVersion(manifestWithVersion(42)));
+        assertEquals(ApkLabel.Version.NONE, ApkLabel.manifestVersion(manifestWithPackage(literal())));
+        assertEquals(ApkLabel.Version.NONE, ApkLabel.manifestVersion(new byte[8]));
+    }
+
+    /** {@code <manifest package="com.example.solitaire" versionCode="<code>" versionName="1.2.3">}. */
+    static byte[] manifestWithVersion(int code) {
+        return manifest(new byte[][]{attribute(5, 6, 0x03, 6), attribute(7, -1, 0x10, code),
+                attribute(8, 9, 0x03, 9)}, literal());
     }
 
     // --- builders -----------------------------------------------------------------------------------------
@@ -124,7 +137,7 @@ class ApkLabelTest {
 
     private static byte[] manifest(byte[][] manifestAttributes, byte[] applicationAttribute) {
         List<String> strings = List.of("manifest", "application", "label", "Solitaire", "android", "package",
-                "com.example.solitaire");
+                "com.example.solitaire", "versionCode", "versionName", "1.2.3");
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         write(body, pool(strings, false));
         ByteBuffer map = le(8 + 12);

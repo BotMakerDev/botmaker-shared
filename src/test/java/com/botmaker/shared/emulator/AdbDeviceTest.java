@@ -27,6 +27,15 @@ class AdbDeviceTest {
     }
 
     @Test
+    void theInstalledVersionIsTheFirstVersionCodeAndNoneIsMinusOne() {
+        String dumpsys = "Packages:\n  Package [com.foo.game] (1a2b):\n    versionCode=1203 minSdk=24 targetSdk=34\n"
+                + "    versionName=1.2.3\n  Package [com.foo.game] (3c4d):\n    versionCode=1100 minSdk=24\n";
+        assertEquals(1203, AdbDevice.parseVersionCode(dumpsys));
+        assertEquals(-1, AdbDevice.parseVersionCode("Dexopt state:\n"));
+        assertEquals(-1, AdbDevice.parseVersionCode(null));
+    }
+
+    @Test
     void parsePackageListEmptyOnBlank() {
         assertTrue(AdbDevice.parsePackageList("").isEmpty());
         assertTrue(AdbDevice.parsePackageList(null).isEmpty());
