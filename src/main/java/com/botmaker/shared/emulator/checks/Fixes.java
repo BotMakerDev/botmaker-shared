@@ -121,7 +121,7 @@ public final class Fixes {
     }
 
     private static Fix translator(Context context) {
-        AtomicReference<Path> prebuilts = new AtomicReference<>();
+        AtomicReference<TranslatorPins.Archive> prebuilts = new AtomicReference<>();
         AtomicReference<WaydroidChecks.TranslatorSwap> swap = new AtomicReference<>();
         return new Fix(EmulatorCheck.ARM_TRANSLATOR, List.of(
                 new Fix.AsUser("Downloading the translator", words -> {
@@ -130,8 +130,8 @@ public final class Fixes {
                             instance == null ? null : instance.adb());
                     if (wanted == null) return "BotMaker can't tell which translator this Android needs.";
                     swap.set(wanted);
-                    Optional<Path> folder = TranslatorPins.unpacked(wanted.target(), wanted.release(),
-                            percent(words, wanted.target()));
+                    Optional<TranslatorPins.Archive> folder = TranslatorPins.downloaded(wanted.target(),
+                            wanted.release(), percent(words, wanted.target()));
                     if (folder.isEmpty()) return "The " + wanted.target().displayName() + " download failed or did "
                             + "not match its checksum: nothing was changed.";
                     prebuilts.set(folder.get());
@@ -206,13 +206,16 @@ public final class Fixes {
             return "echo 'This machine has no default route to send Android'\"'\"'s traffic out of.' >&2\nexit 2\n";
         }
         List<String> commands = WaydroidChecks.routeCommands(iface);
-        // The firewall is down while the rule goes in, and back up however the script ends, only if it was up.
+        // The firewall is down while the rule goes in, and back up however the script ends, only if it was up: a
+        // signal (Studio gone, a closed pipe) runs the EXIT trap too, and a firewall that stays down is an error.
         // --force: `ufw enable` may ask for a yes, and its stdin is the rest of this script.
         StringBuilder sh = new StringBuilder("set -e\n")
+                .append("trap 'exit 129' HUP\ntrap 'exit 130' INT\ntrap 'exit 141' PIPE\ntrap 'exit 143' TERM\n")
                 .append("case \"$(ufw status 2>/dev/null || true)\" in\n")
                 .append("  *'Status: active'*)\n")
-                .append("    ufw disable >/dev/null </dev/null\n")
-                .append("    trap 'ufw --force enable >/dev/null 2>&1 </dev/null || true' EXIT ;;\n")
+                .append("    trap 'ufw --force enable >/dev/null 2>&1 </dev/null || { echo \"The firewall could not "
+                        + "be turned back on: run ufw enable.\" >&2; exit 4; }' EXIT\n")
+                .append("    ufw disable >/dev/null </dev/null ;;\n")
                 .append("esac\n");
         for (int i = 0; i < commands.size(); i++) {
             sh.append("echo 'STEP ").append(i + 1).append('/').append(commands.size())

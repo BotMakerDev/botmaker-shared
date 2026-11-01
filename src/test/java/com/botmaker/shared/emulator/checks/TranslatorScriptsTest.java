@@ -6,14 +6,18 @@ import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -64,9 +68,12 @@ class TranslatorScriptsTest {
 
     @Test
     void theInstallScriptBacksUpFirstAndNumbersItsSteps() {
-        String script = TranslatorScripts.install(Translator.LIBNDK, Translator.LIBHOUDINI, Path.of("/c/p"), STAMP);
+        String script = TranslatorScripts.install(Translator.LIBNDK, Translator.LIBHOUDINI,
+                new TranslatorPins.Archive(Path.of("/c/a.zip"), "abc", "p"), STAMP);
         assertTrue(script.contains("B=\"$BACKUPS\"/'" + STAMP + "'"));
-        assertTrue(script.contains("P='/c/p'"));
+        assertTrue(script.contains("Z='/c/a.zip'"));
+        assertTrue(script.indexOf("cp -- \"$Z\"") < script.indexOf("sha256sum"), "the copy is what gets checked");
+        assertTrue(script.indexOf("sha256sum") < script.indexOf("-m zipfile"), "checked before it is unpacked");
         assertTrue(script.contains("'lib/libhoudini.so'"), "the old translator's files are removed");
         assertTrue(script.contains("'lib/libndk'*"), "a pattern stays a pattern");
         assertTrue(script.contains("\"$WAYDROID\" upgrade --offline"));
@@ -79,7 +86,7 @@ class TranslatorScriptsTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
+    @EnabledOnOs(OS.LINUX)
     void libndkReplacesLibhoudiniAndUndoPutsItBack(@TempDir Path root) throws Exception {
         Path overlay = root.resolve("overlay");
         Files.createDirectories(overlay.resolve("lib/arm"));
@@ -87,10 +94,13 @@ class TranslatorScriptsTest {
         Files.writeString(overlay.resolve("lib/arm/old.so"), "old arm");
         Files.writeString(overlay.resolve("unrelated"), "keep");
         Path cfg = Files.writeString(root.resolve("waydroid.cfg"), CFG_HOUDINI);
-        Path prebuilts = ndkPrebuilts(root);
+        TranslatorPins.Archive prebuilts = ndkPrebuilts(root);
 
         run(root, TranslatorScripts.install(Translator.LIBNDK, Translator.LIBHOUDINI, prebuilts, STAMP));
 
+        try (var left = Files.list(root.resolve("backups"))) {
+            assertEquals(List.of(STAMP), left.map(path -> path.getFileName().toString()).toList(), "no unpacked copy left");
+        }
         assertFalse(Files.exists(overlay.resolve("lib/libhoudini.so")));
         assertFalse(Files.exists(overlay.resolve("lib/arm/old.so")), "a shared folder is replaced, not merged");
         assertEquals("ndk", Files.readString(overlay.resolve("lib/libndk_translation.so")));
@@ -118,10 +128,10 @@ class TranslatorScriptsTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
+    @EnabledOnOs(OS.LINUX)
     void aCfgWithoutPropertiesGainsTheSectionAndUndoRemovesIt(@TempDir Path root) throws Exception {
         Path cfg = Files.writeString(root.resolve("waydroid.cfg"), CFG_BARE);
-        Path prebuilts = ndkPrebuilts(root);
+        TranslatorPins.Archive prebuilts = ndkPrebuilts(root);
 
         run(root, TranslatorScripts.install(Translator.LIBNDK, Translator.NONE, prebuilts, STAMP));
 
@@ -141,7 +151,7 @@ class TranslatorScriptsTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
+    @EnabledOnOs(OS.LINUX)
     void aCrlfCfgKeepsOneSection(@TempDir Path root) throws Exception {
         Path cfg = Files.writeString(root.resolve("waydroid.cfg"), CFG_HOUDINI.replace("\n", "\r\n"));
         run(root, TranslatorScripts.install(Translator.LIBNDK, Translator.LIBHOUDINI, ndkPrebuilts(root), STAMP));
@@ -160,7 +170,7 @@ class TranslatorScriptsTest {
         Files.createSymbolicLink(bin.resolve("awk"), busybox);
         Path cfg = Files.writeString(root.resolve("waydroid.cfg"), CFG_HOUDINI);
         String path = "PATH=" + TranslatorScripts.quote(bin + ":" + System.getenv("PATH")) + "\n";
-        Path prebuilts = ndkPrebuilts(root);
+        TranslatorPins.Archive prebuilts = ndkPrebuilts(root);
 
         run(root, path + TranslatorScripts.install(Translator.LIBNDK, Translator.LIBHOUDINI, prebuilts, STAMP));
         assertEquals(1, Files.readString(cfg).split("\\[properties]", -1).length - 1);
@@ -169,13 +179,12 @@ class TranslatorScriptsTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
+    @EnabledOnOs(OS.LINUX)
     void libhoudiniGetsItsInitFragment(@TempDir Path root) throws Exception {
         Files.writeString(root.resolve("waydroid.cfg"), CFG_BARE);
-        Path prebuilts = Files.createDirectories(root.resolve("houdini/prebuilts/lib"));
-        Files.writeString(prebuilts.resolve("libhoudini.so"), "houdini");
+        TranslatorPins.Archive archive = archive(root, Map.of("prebuilts/lib/libhoudini.so", "houdini"));
 
-        run(root, TranslatorScripts.install(Translator.LIBHOUDINI, Translator.NONE, prebuilts.getParent(), STAMP));
+        run(root, TranslatorScripts.install(Translator.LIBHOUDINI, Translator.NONE, archive, STAMP));
 
         String rc = Files.readString(root.resolve("overlay/etc/init/houdini.rc"));
         assertEquals(TranslatorPins.HOUDINI_RC, rc);
@@ -185,27 +194,55 @@ class TranslatorScriptsTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
+    @EnabledOnOs(OS.LINUX)
     void missingFilesStopTheScriptBeforeItChangesAnything(@TempDir Path root) throws Exception {
         Path cfg = Files.writeString(root.resolve("waydroid.cfg"), CFG_HOUDINI);
         List<String> lines = new ArrayList<>();
         RootScript.Outcome outcome = RootScript.run(List.of("/bin/sh", "-s"), env(root)
-                + TranslatorScripts.install(Translator.LIBNDK, Translator.LIBHOUDINI, root.resolve("nope"), STAMP),
+                + TranslatorScripts.install(Translator.LIBNDK, Translator.LIBHOUDINI,
+                new TranslatorPins.Archive(root.resolve("nope"), "abc", "prebuilts"), STAMP),
                 lines::add);
         assertEquals(RootScript.Outcome.FAILED, outcome);
         assertEquals(List.of("The translator files are missing."), lines);
         assertEquals(CFG_HOUDINI, Files.readString(cfg));
     }
 
-    /** A fake libndk archive's {@code prebuilts}. */
-    private static Path ndkPrebuilts(Path root) throws IOException {
-        Path prebuilts = root.resolve("ndk/prebuilts");
-        Files.createDirectories(prebuilts.resolve("lib/arm"));
-        Files.createDirectories(prebuilts.resolve("bin/arm"));
-        Files.writeString(prebuilts.resolve("lib/libndk_translation.so"), "ndk");
-        Files.writeString(prebuilts.resolve("lib/arm/new.so"), "ndk arm");
-        Files.writeString(prebuilts.resolve("bin/arm/runner"), "runner");
-        return prebuilts;
+    @Test
+    @EnabledOnOs(OS.LINUX)
+    void anArchiveSwappedAfterItsDownloadChangesNothing(@TempDir Path root) throws Exception {
+        Path cfg = Files.writeString(root.resolve("waydroid.cfg"), CFG_HOUDINI);
+        Path overlay = Files.createDirectories(root.resolve("overlay/lib"));
+        Files.writeString(overlay.resolve("libhoudini.so"), "houdini");
+        TranslatorPins.Archive archive = ndkPrebuilts(root);
+        Files.writeString(archive.zip(), "swapped by something else this user ran");
+        List<String> lines = new ArrayList<>();
+        assertEquals(RootScript.Outcome.FAILED, RootScript.run(List.of("/bin/sh", "-s"), env(root)
+                + TranslatorScripts.install(Translator.LIBNDK, Translator.LIBHOUDINI, archive, STAMP), lines::add));
+        assertEquals(List.of("The translator archive did not match its checksum: nothing was changed."), lines);
+        assertEquals(CFG_HOUDINI, Files.readString(cfg));
+        assertEquals("houdini", Files.readString(overlay.resolve("libhoudini.so")));
+        try (var left = Files.list(root.resolve("backups"))) {
+            assertEquals(0, left.count(), "no copy left behind");
+        }
+    }
+
+    /** A fake libndk archive. */
+    private static TranslatorPins.Archive ndkPrebuilts(Path root) throws Exception {
+        return archive(root, Map.of("prebuilts/lib/libndk_translation.so", "ndk", "prebuilts/lib/arm/new.so", "ndk arm",
+                "prebuilts/bin/arm/runner", "runner"));
+    }
+
+    private static TranslatorPins.Archive archive(Path root, Map<String, String> files) throws Exception {
+        Path zip = root.resolve("translator.zip");
+        try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zip))) {
+            for (Map.Entry<String, String> file : files.entrySet()) {
+                out.putNextEntry(new ZipEntry(file.getKey()));
+                out.write(file.getValue().getBytes(StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+        }
+        String sha256 = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(zip)));
+        return new TranslatorPins.Archive(zip, sha256, "prebuilts");
     }
 
     private static void run(Path root, String script) {

@@ -4,6 +4,8 @@ import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.PlayStoreSetup;
 import com.botmaker.shared.emulator.WaydroidResolution;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
@@ -86,10 +88,28 @@ class FixesTest {
         assertTrue(script.startsWith("set -e\n"));
         for (String command : WaydroidChecks.routeCommands("enp3s0")) assertTrue(script.contains(command + "\n"));
         assertFalse(script.contains("ufw disable || true"), "the firewall comes back only if it was on");
-        assertTrue(script.contains("trap 'ufw --force enable"));
+        assertTrue(script.indexOf("trap 'ufw --force enable") < script.indexOf("ufw disable"), "armed before it goes down");
         assertTrue(script.contains("grep -qF 'oifname \"enp3s0\" masquerade' || nft add rule"), "no second rule");
         assertFalse(Fixes.internetScript(null).contains("nft"));
         assertFalse(Fixes.internetScript("x\"; rm -rf /; \"").contains("rm -rf"), "text from `ip route` in a root script");
+    }
+
+    @Test
+    @EnabledOnOs(OS.LINUX)
+    void aKilledInternetFixTurnsTheFirewallBackOn(@TempDir Path root) throws Exception {
+        Path log = root.resolve("ufw.log");
+        Path bin = Files.createDirectories(root.resolve("bin"));
+        fake(bin, "ufw", "case \"$1\" in status) echo 'Status: active' ;; *) echo \"$1\" >> '" + log + "' ;; esac");
+        fake(bin, "nft", "kill -TERM $PPID");
+        String script = "PATH=" + TranslatorScripts.quote(bin + ":" + System.getenv("PATH")) + "\n"
+                + Fixes.internetScript("enp3s0");
+        assertEquals(RootScript.Outcome.FAILED, RootScript.run(List.of("/bin/sh", "-s"), script, null));
+        assertEquals(List.of("disable", "--force"), Files.readAllLines(log));
+    }
+
+    private static void fake(Path bin, String name, String body) throws Exception {
+        Path file = Files.writeString(bin.resolve(name), "#!/bin/sh\n" + body + "\n");
+        assertTrue(file.toFile().setExecutable(true));
     }
 
     @Test

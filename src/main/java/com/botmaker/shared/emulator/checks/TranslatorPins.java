@@ -1,18 +1,13 @@
 package com.botmaker.shared.emulator.checks;
 
 import com.botmaker.shared.tools.Downloads;
-import com.botmaker.shared.tools.Unzip;
 import com.botmaker.shared.tools.UserDirs;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 /**
  * Each ARM translator BotMaker can put into a Waydroid: the archive it comes from, pinned by sha256, the files
@@ -121,29 +116,23 @@ public final class TranslatorPins {
     }
 
     /**
-     * Downloads {@code translator}'s archive for {@code release} into the user's cache, checked by its sha256,
-     * and unpacks it there, as the user. Returns the folder to copy from; empty when there is no pin, the
-     * download failed or did not match, or the archive would not unpack.
+     * An archive for the root script to take in: it lives where the user can write, so the script copies it to a
+     * folder only root can reach and checks {@code sha256} on that copy before unpacking it (2026-11-02).
+     *
+     * @param prefix the folder inside it whose contents go to the overlay's {@code system}
      */
-    public static Optional<Path> unpacked(Translator translator, String release, Downloads.Progress progress) {
+    public record Archive(Path zip, String sha256, String prefix) {}
+
+    /**
+     * Downloads {@code translator}'s archive for {@code release} into the user's cache, checked by its sha256.
+     * Empty when there is no pin, or the download failed or did not match.
+     */
+    public static Optional<Archive> downloaded(Translator translator, String release, Downloads.Progress progress) {
         Optional<Downloads.Remote> remote = remote(translator, release);
         if (remote.isEmpty()) return Optional.empty();
-        Path folder = UserDirs.cache().resolve("translators");
-        String name = translator.id() + "-" + release.trim();
-        Path zip = folder.resolve(name + ".zip");
-        Path unpacked = folder.resolve(name);
-        Path complete = unpacked.resolve(".complete");
-        Path prebuilts = unpacked.resolve(prefix(translator, release));
+        Path zip = UserDirs.cache().resolve("translators").resolve(translator.id() + "-" + release.trim() + ".zip");
         if (!Downloads.fetch(remote.get(), zip, progress)) return Optional.empty();
-        if (Files.isRegularFile(complete) && Files.isDirectory(prebuilts)) return Optional.of(prebuilts);
-        try {
-            delete(unpacked);
-            if (!Unzip.extract(zip, unpacked) || !Files.isDirectory(prebuilts)) return Optional.empty();
-            Files.createFile(complete);
-            return Optional.of(prebuilts);
-        } catch (IOException e) {
-            return Optional.empty();
-        }
+        return Optional.of(new Archive(zip, remote.get().hex(), prefix(translator, release)));
     }
 
     private static Optional<Pin> pin(Translator translator, String release) {
@@ -157,12 +146,5 @@ public final class TranslatorPins {
         abis.put("ro.product.cpu.abilist32", "x86,armeabi-v7a,armeabi");
         abis.put("ro.product.cpu.abilist64", "x86_64,arm64-v8a");
         return abis;
-    }
-
-    private static void delete(Path folder) throws IOException {
-        if (!Files.exists(folder)) return;
-        try (Stream<Path> paths = Files.walk(folder)) {
-            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
-        }
     }
 }

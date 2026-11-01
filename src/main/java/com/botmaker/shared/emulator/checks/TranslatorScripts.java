@@ -36,11 +36,14 @@ public final class TranslatorScripts {
     private TranslatorScripts() {}
 
     /**
-     * Replaces {@code current} with {@code target}: files copied from {@code prebuilts} (the archive's unpacked
-     * {@code prebuilts}, {@link TranslatorPins#unpacked}) into the overlay, properties set in {@code waydroid.cfg},
-     * the old ones saved first under {@code BACKUPS/<stamp>}, then {@code waydroid upgrade --offline}.
+     * Replaces {@code current} with {@code target}: files copied from {@code archive} into the overlay, properties
+     * set in {@code waydroid.cfg}, the old ones saved first under {@code BACKUPS/<stamp>}, then {@code waydroid
+     * upgrade --offline}. The archive is in the user's cache, so what root installs is a copy taken into a folder
+     * only root can reach, its sha256 checked there and unpacked there: nothing the user's processes can swap once
+     * checked, and no link in it followed. Python's zipfile, since Waydroid needs Python and {@code unzip} may be
+     * absent.
      */
-    public static String install(Translator target, Translator current, Path prebuilts, String stamp) {
+    public static String install(Translator target, Translator current, TranslatorPins.Archive archive, String stamp) {
         Set<String> touched = new LinkedHashSet<>(TranslatorPins.files(current));
         touched.addAll(TranslatorPins.files(target));
         Map<String, String> targetProps = TranslatorPins.props(target);
@@ -49,9 +52,19 @@ public final class TranslatorScripts {
 
         StringBuilder sh = header();
         sh.append("B=\"$BACKUPS\"/").append(quote(stamp)).append('\n')
-                .append("P=").append(quote(prebuilts.toString())).append('\n')
-                .append("[ -d \"$P\" ] || { echo 'The translator files are missing.' >&2; exit 2; }\n")
-                .append("[ -f \"$CFG\" ] || { echo 'waydroid.cfg is missing.' >&2; exit 2; }\n");
+                .append("Z=").append(quote(archive.zip().toString())).append('\n')
+                .append("[ -f \"$Z\" ] || { echo 'The translator files are missing.' >&2; exit 2; }\n")
+                .append("[ -f \"$CFG\" ] || { echo 'waydroid.cfg is missing.' >&2; exit 2; }\n")
+                .append("mkdir -p \"$BACKUPS\"\n")
+                .append("W=$(mktemp -d \"$BACKUPS/.unpack.XXXXXX\")\n")
+                .append("trap 'rm -rf \"$W\"' EXIT\n")
+                .append("trap 'exit 129' HUP\ntrap 'exit 130' INT\ntrap 'exit 143' TERM\n")
+                .append("cp -- \"$Z\" \"$W/archive.zip\"\n")
+                .append("[ \"$(sha256sum \"$W/archive.zip\" | cut -d' ' -f1)\" = ").append(quote(archive.sha256()))
+                .append(" ] || { echo 'The translator archive did not match its checksum: nothing was changed.' >&2; exit 2; }\n")
+                .append("python3 -I -m zipfile -e \"$W/archive.zip\" \"$W/unpacked\" </dev/null\n")
+                .append("P=\"$W/unpacked\"/").append(quote(archive.prefix())).append('\n')
+                .append("[ -d \"$P\" ] || { echo 'The translator files are missing.' >&2; exit 2; }\n");
 
         step(sh, 1, INSTALL_STEPS, "Stopping the Waydroid session");
         sh.append("\"$WAYDROID\" session stop </dev/null >/dev/null 2>&1 || true\n");

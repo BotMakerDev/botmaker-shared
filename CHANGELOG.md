@@ -22,6 +22,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   Google Play image and memory (≥ 4096 MB). Each `CheckResult` says whether BotMaker's Fix can repair it, else the
   commands. Android's version and boot are read over adb (a nested session answers "stopped" to `waydroid prop`),
   else from the config's binder protocol. `WaydroidCli` is public.
+- **A translator install trusts nothing the user's processes can reach**: the root script copies the archive to a folder
+  only root can read, checks its sha256 there and unpacks it there (`TranslatorPins.downloaded`, `Archive`). The Internet
+  fix turns ufw back on when it is killed too, and fails when ufw will not come back.
 - **A Fix for each fixable emulator check** (`Fix`, `Fixes`, `FixRunner`, `Backups`): `Fixes.of` gives a failed
   check's steps, `Fixes.undo` restores the newest translator backup, and `FixRunner` runs one at a time per
   emulator, then reads the check again and says when the Fix did not take. Google Play's Fix asks for the password
