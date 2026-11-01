@@ -12,6 +12,12 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Changed
+
+- **The macOS CI jobs run on `macos-15`** (2026-11-01). The macOS 14 runner images retire on 2026-11-02, and their brownout had cancelled the macOS package leg of Studio's v1.11.0 tag. The change is to `.github/workflows/ci.yml` and one line of `pom.xml`. No API or behaviour of the jar changes.
+
 ## [0.6.0] — 2026-11-01
 
 ### Added
