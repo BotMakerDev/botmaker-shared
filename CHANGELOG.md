@@ -40,6 +40,25 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   - `EmulatorInstall.fromFile` refuses a version older than the installed one.
 - **`GameReadiness`** now also answers for a Lutris game, from Lutris's installed list, and for an emulator app, from the apps last read off its instance.
 - **`Spawn.streamed`** runs a long child process and hands back each line as it is written.
+- **`emulator.SystemDialog`** tells Android's own dialogs over an app from the focused window: "isn't responding",
+  "keeps stopping" and a runtime permission. It also says whether the dialog is about the app in focus, and where its
+  button is (Wait, Close app, Don't allow). `AdbDevice.systemDialog()` asks the device.
+- **`emulator.QuietRun`** turns Do Not Disturb on for a run and puts it back afterwards. It also denies an app's
+  notification permission for good, so the app never asks.
+
+### Fixed
+
+- **The focused app is read from each display's focus now** (`AdbDevice.focusedPackage`). `dumpsys window` starts
+  with a snapshot taken at the last ANR, and its focus line kept naming the app long after. A dialog over the app
+  then read as the app.
+- **A tree read's first answer has a WebView's nodes** (`TreeReaders`). A new `u2.jar` server reads the tree once
+  before it answers, because a WebView builds its accessibility nodes only once a client asks. A game's consent
+  page was nearly empty on its first read.
+- **Installing from Google Play waits as long as Play is downloading** (`EmulatorInstall.fromStore`). The 15
+  minutes are counted from the install session's last progress, read from `dumpsys package`, not from the press of
+  Install. A 3 GB game failed while Play was still downloading it.
+- **Waydroid's Google Play steps work on an X11 desktop** (`PlayStoreSetup`). They stop the session and let
+  BotMaker start Waydroid again. They no longer run `waydroid session start`, which needs Wayland.
 
 ## [0.6.1] — 2026-11-01
 

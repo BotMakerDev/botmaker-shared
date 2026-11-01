@@ -38,6 +38,9 @@ class TreeReadersTest {
 
     private static final String U2_XML =
             "<hierarchy rotation=\"0\"><node text=\"from u2\" package=\"p\" bounds=\"[0,0][9,9]\"/></hierarchy>";
+    /** A new process's first tree: a WebView's nodes not built yet. */
+    private static final String COLD_XML =
+            "<hierarchy rotation=\"0\"><node text=\"cold\" package=\"p\" bounds=\"[0,0][9,9]\"/></hierarchy>";
     private static final String DUMP_XML = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>"
             + "<hierarchy rotation=\"0\"><node text=\"from dump\" package=\"p\" bounds=\"[0,0][9,9]\"/></hierarchy>";
 
@@ -55,6 +58,8 @@ class TreeReadersTest {
         volatile int emptyFrames;
         /** The next process ends after this many trees, as one killed does; -1 never. */
         volatile int framesBeforeDying = -1;
+        /** Each process's first tree is {@link #COLD_XML}, as Android's is before a WebView builds its nodes. */
+        volatile boolean coldFirst;
         /** What the process prints before its ready line. */
         String noise = "";
         boolean saysReady = true;
@@ -129,7 +134,7 @@ class TreeReadersTest {
                     if (b != '\n') continue;
                     sent++;
                     boolean empty = broken || emptyFrames-- > 0;
-                    byte[] frame = empty ? new byte[0] : gzip(U2_XML);
+                    byte[] frame = empty ? new byte[0] : gzip(coldFirst && sent == 1 ? COLD_XML : U2_XML);
                     out.writeInt(frame.length);
                     out.write(frame);
                     out.flush();
@@ -246,9 +251,22 @@ class TreeReadersTest {
     }
 
     @Test
+    void aNewProcessFirstTreeIsReadAgain() {
+        FakeDevice device = new FakeDevice();
+        device.coldFirst = true;
+        device.framesBeforeDying = 3;
+        try (TreeReader reader = TreeReaders.open(device, Duration.ofSeconds(5))) {
+            assertEquals("from u2", text(reader.read()), "the first tree lacks a WebView's nodes: read again");
+            assertEquals("from u2", text(reader.read()));
+            assertEquals("from u2", text(reader.read()), "the restarted process is warmed up too");
+        }
+        assertEquals(2, device.execs);
+    }
+
+    @Test
     void aProcessThatDiesIsStartedAgainAndKeepsReading() {
         FakeDevice device = new FakeDevice();
-        device.framesBeforeDying = 1;
+        device.framesBeforeDying = 2; // the warm-up tree and one answer
         try (TreeReader reader = TreeReaders.open(device, Duration.ofSeconds(5))) {
             assertEquals("from u2", text(reader.read()));
             assertEquals("from u2", text(reader.read()), "the restart answers");

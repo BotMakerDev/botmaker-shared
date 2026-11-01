@@ -45,7 +45,12 @@ public final class TreeReaders {
             if (closed) return Optional.empty();
             if (u2 != null) {
                 try {
-                    if (!u2.running()) u2.start();
+                    if (!u2.running()) {
+                        u2.start();
+                        // A WebView builds its accessibility tree only once a client asks: the first read of a new
+                        // server lacks its nodes, the next has them (a game's consent page, Waydroid, 2026-11-01).
+                        u2.read();
+                    }
                     UiTree tree = u2.read();
                     answered = true;
                     return Optional.of(tree);
@@ -67,6 +72,7 @@ public final class TreeReaders {
             u2.stop();
             try {
                 u2.start();
+                u2.read(); // the warm-up read a new server needs (read())
                 return Optional.of(u2.read());
             } catch (IOException | RuntimeException failedAgain) {
                 return Optional.empty();

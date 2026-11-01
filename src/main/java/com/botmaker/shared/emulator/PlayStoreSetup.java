@@ -33,12 +33,15 @@ public record PlayStoreSetup(String summary, List<Step> steps) {
                     new Step("Re-initialise Waydroid with the Google Play image. This replaces its system image: back "
                             + "up anything you keep inside it first. It asks for your password.",
                             "sudo waydroid init -s GAPPS -f", null),
-                    new Step("Restart Waydroid's session.", "waydroid session stop && waydroid session start", null),
+                    // No "waydroid session start": it needs a Wayland desktop, and BotMaker starts Waydroid nested
+                    // in its own display on an X11 one, where that command fails (KDE on X11, 2026-11-01).
+                    new Step("Stop Waydroid's session, then start Waydroid again: ▶ Launch game in BotMaker starts "
+                            + "it.", "waydroid session stop", null),
                     new Step("Read its Android ID (a long number).", "sudo waydroid shell -- sqlite3 "
                             + "/data/data/com.google.android.gsf/databases/gservices.db "
                             + "\"select value from main where name = 'android_id';\"", null),
                     new Step("Register that ID with Google, signed in to your Google account, then wait a few minutes "
-                            + "and restart Waydroid's session again.", null, REGISTER),
+                            + "and stop and start Waydroid again as above.", null, REGISTER),
                     new Step("Open Google Play in Waydroid and sign in.", null, null)));
             case AVD -> new PlayStoreSetup("An Android Studio emulator has Google Play only when it was made from a "
                     + "Google Play system image.", List.of(

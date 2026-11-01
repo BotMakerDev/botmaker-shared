@@ -71,4 +71,25 @@ class PlayStoreSearchTest {
         assertEquals("am start -a android.intent.action.VIEW -d 'market://details?id=com.supercell.hayday' "
                 + "-p com.android.vending", EmulatorInstall.storeIntent("com.supercell.hayday"));
     }
+
+    @Test
+    void aDownloadStillRunningIsToldByItsSessionsProgress() {
+        String sessions = """
+                Active install sessions:
+                  Session 1186339502:
+                    userId=0 mOriginalInstallerUid=10086 installerPackageName=com.android.vending
+                    mClientProgress=0.12 mProgress=0.1 committed=false
+                    mode=1 installFlags=0x400000 appPackageName=com.other.game
+                  Session 1186339503:
+                    userId=0 mOriginalInstallerUid=10086 installerPackageName=com.android.vending
+                    mClientProgress=0.42 mProgress=0.4 committed=false
+                    mode=1 installFlags=0x400000 appPackageName=com.zjcs.android.us appIcon=null
+                Finalized install sessions:
+                """;
+        assertEquals(Optional.of("mClientProgress=0.42 mProgress=0.4"),
+                EmulatorInstall.sessionProgress(sessions, "com.zjcs.android.us"));
+        assertEquals(Optional.empty(), EmulatorInstall.sessionProgress(sessions, "com.zjcs.android"),
+                "a package whose name another's starts with is not that one");
+        assertEquals(Optional.empty(), EmulatorInstall.sessionProgress("Active install sessions:\n  \n", "a.b"));
+    }
 }

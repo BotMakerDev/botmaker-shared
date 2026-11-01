@@ -539,7 +539,23 @@ public final class AdbDevice implements AutoCloseable {
      */
     public Optional<String> focusedPackage() {
         try {
-            return parseFocusedPackage(shell("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'"));
+            return parseFocusedPackage(shell(FOCUS));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * The focus lines of each display, now. Not the whole {@code dumpsys window}: its first section is the last ANR's
+     * snapshot, whose focus line stays the app's long after, so a dialog over it read as the app (Waydroid,
+     * 2026-11-01).
+     */
+    static final String FOCUS = "dumpsys window displays | grep -E 'mCurrentFocus|mFocusedApp'";
+
+    /** Android's own dialog in focus over the app ({@link SystemDialog}), or empty, also when the shell fails. */
+    public Optional<SystemDialog.Shown> systemDialog() {
+        try {
+            return SystemDialog.over(shell(FOCUS));
         } catch (Exception e) {
             return Optional.empty();
         }

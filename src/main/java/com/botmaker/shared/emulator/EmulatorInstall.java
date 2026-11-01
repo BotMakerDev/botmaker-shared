@@ -7,6 +7,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Puts a game on an emulator instance or a phone: from Google Play, where the user presses Install inside Android,
@@ -20,7 +22,7 @@ public final class EmulatorInstall {
 
     /** Google Play's package: an instance without it has no store to open. */
     static final String PLAY_STORE = "com.android.vending";
-    /** How long the user has to press Install and Play has to download the game. */
+    /** How long Play may go with no progress: the user pressing Install, or a download that stalled. */
     private static final Duration STORE_TIMEOUT = Duration.ofMinutes(15);
     private static final long STORE_POLL_MS = 3_000;
 
@@ -44,7 +46,7 @@ public final class EmulatorInstall {
     /**
      * Opens {@code packageName}'s page in Google Play on {@code instance} and waits for the user to install it
      * there: Play needs a signed-in Google account, which only the user can provide. Returns once
-     * {@code pm list packages} lists it, or after fifteen minutes.
+     * {@code pm list packages} lists it, or after fifteen minutes in which its install session made no progress.
      *
      * @param progress optional narration, called on the calling thread
      */
@@ -74,14 +76,22 @@ public final class EmulatorInstall {
             }
             report(progress, "Google Play is open on " + live.name() + " at " + shown + ": press Install there (sign "
                     + "in with a Google account first if it asks). Waiting for it to finish…");
+            // Fifteen minutes with nothing moving, not in all: a game of several gigabytes takes longer to download,
+            // and its install session's progress says Play is still at it (Sword x Staff, 3 GB, 2026-11-01).
             long deadline = System.currentTimeMillis() + STORE_TIMEOUT.toMillis();
+            Optional<String> moved = Optional.empty();
             while (System.currentTimeMillis() < deadline) {
                 Thread.sleep(STORE_POLL_MS);
                 if (listed(device, packageName)) {
                     return done(live, packageName, shown, shown + " is installed on " + live.name() + ".");
                 }
+                Optional<String> now = sessionProgress(device.shell(ACTIVE_SESSIONS), packageName);
+                if (now.isPresent() && !now.equals(moved)) {
+                    deadline = System.currentTimeMillis() + STORE_TIMEOUT.toMillis();
+                    moved = now;
+                }
             }
-            return Result.failed(shown + " wasn't installed on " + live.name() + " within "
+            return Result.failed(shown + " wasn't installed on " + live.name() + ": Google Play did nothing for "
                     + STORE_TIMEOUT.toMinutes() + " minutes. Install it in Google Play, then pick it in the game "
                     + "dialog.");
         } catch (InterruptedException e) {
@@ -100,6 +110,32 @@ public final class EmulatorInstall {
     private static boolean listed(AdbDevice device, String packageName) {
         return AdbDevice.parsePackageList(device.shell("pm list packages " + packageName)).contains(packageName);
     }
+
+    /** The install sessions open now, and nothing else of {@code dumpsys package}'s thirty thousand lines. */
+    static final String ACTIVE_SESSIONS = "dumpsys package | sed -n '/^Active install sessions:/,"
+            + "/^Finalized install sessions:/p'";
+
+    /**
+     * How far the open install session of {@code packageName} has got, as {@code dumpsys package} prints its
+     * progress ({@code mClientProgress=0.42 … mProgress=0.4}), or empty when no session installs it. Only compared
+     * with the last answer: a change is Play still downloading.
+     */
+    static Optional<String> sessionProgress(String activeSessions, String packageName) {
+        if (activeSessions == null) return Optional.empty();
+        String needle = "appPackageName=" + packageName;
+        for (String session : activeSessions.split("(?m)^\\s*Session \\d+:")) {
+            if (!session.contains(needle + " ") && !session.contains(needle + "\n") && !session.endsWith(needle)) {
+                continue;
+            }
+            Matcher progress = PROGRESS.matcher(session);
+            StringBuilder said = new StringBuilder();
+            while (progress.find()) said.append(progress.group()).append(' ');
+            return Optional.of(said.toString().strip());
+        }
+        return Optional.empty();
+    }
+
+    private static final Pattern PROGRESS = Pattern.compile("m(?:Client)?Progress=[0-9.]+");
 
     /** The shell command that opens an app's page in Google Play. {@code packageName} is a checked package. */
     static String storeIntent(String packageName) {
