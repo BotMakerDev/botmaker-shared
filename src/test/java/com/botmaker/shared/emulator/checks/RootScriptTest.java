@@ -26,6 +26,17 @@ class RootScriptTest {
 
     @Test
     @EnabledOnOs({OS.LINUX, OS.MAC})
+    void aCallerThatThrowsDoesNotEndTheRunWhileTheScriptGoesOn() {
+        List<String> lines = new ArrayList<>();
+        assertEquals(RootScript.Outcome.DONE, RootScript.run(List.of("/bin/sh", "-s"), "echo one\necho two\n", text -> {
+            lines.add(text);
+            throw new IllegalStateException("a row gone");
+        }));
+        assertEquals(List.of("one", "two"), lines);
+    }
+
+    @Test
+    @EnabledOnOs({OS.LINUX, OS.MAC})
     void everyLineReachesTheCallerInOrder() {
         List<String> lines = new ArrayList<>();
         assertEquals(RootScript.Outcome.DONE, RootScript.run(List.of("/bin/sh", "-s"),

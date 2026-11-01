@@ -16,6 +16,12 @@ public record PlayStoreSetup(String summary, List<Step> steps) {
     /** Google's page that registers an uncertified device by its Android ID. */
     public static final String REGISTER = "https://www.google.com/android/uncertified";
 
+    /** Google services' database inside Android, where the ID {@link #REGISTER} asks for is kept. */
+    public static final String GSERVICES_DB = "/data/data/com.google.android.gsf/databases/gservices.db";
+
+    /** Reads that ID from {@link #GSERVICES_DB}. */
+    public static final String ANDROID_ID_QUERY = "select value from main where name = 'android_id';";
+
     /**
      * One step.
      *
@@ -38,8 +44,7 @@ public record PlayStoreSetup(String summary, List<Step> steps) {
                     new Step("Stop Waydroid's session, then start Waydroid again: ▶ Launch game in BotMaker starts "
                             + "it.", "waydroid session stop", null),
                     new Step("Read its Android ID (a long number).", "sudo waydroid shell -- sqlite3 "
-                            + "/data/data/com.google.android.gsf/databases/gservices.db "
-                            + "\"select value from main where name = 'android_id';\"", null),
+                            + GSERVICES_DB + " \"" + ANDROID_ID_QUERY + "\"", null),
                     new Step("Register that ID with Google, signed in to your Google account, then wait a few minutes "
                             + "and stop and start Waydroid again as above.", null, REGISTER),
                     new Step("Open Google Play in Waydroid and sign in.", null, null)));

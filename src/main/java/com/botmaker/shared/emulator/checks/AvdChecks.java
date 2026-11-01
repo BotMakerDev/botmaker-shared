@@ -7,6 +7,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The checks on an Android Studio emulator (AVD): an image with Google Play, and enough memory for a game.
@@ -16,6 +18,8 @@ public final class AvdChecks {
 
     /** The memory, in MB, below which a 3D game stalls or is killed. */
     static final int MIN_RAM_MB = 4096;
+
+    private static final Pattern RAM_LINE = Pattern.compile("(?m)^[ \\t]*hw\\.ramSize[ \\t]*=[^\\r\\n]*");
 
     private AvdChecks() {}
 
@@ -59,6 +63,14 @@ public final class AvdChecks {
         if (mb >= MIN_RAM_MB) return CheckResult.ok(EmulatorCheck.AVD_MEMORY, mb + " MB of memory.");
         return CheckResult.fixable(EmulatorCheck.AVD_MEMORY, "Only " + mb + " MB of memory: games need "
                 + MIN_RAM_MB + " MB.", "Fix sets it to " + MIN_RAM_MB + " MB while the emulator is stopped.");
+    }
+
+    /** {@code config} with {@code hw.ramSize} set to {@code mb}, every other line as it was. */
+    static String withMemory(String config, int mb) {
+        Matcher line = RAM_LINE.matcher(config);
+        String wanted = "hw.ramSize=" + mb;
+        if (line.find()) return line.replaceFirst(wanted);
+        return config + (config.isEmpty() || config.endsWith("\n") ? "" : "\n") + wanted + "\n";
     }
 
     /** {@code 2048}, {@code 2048M}, {@code 2048MB} or {@code 4G} in MB; -1 when absent or unreadable. */

@@ -22,6 +22,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   Google Play image and memory (≥ 4096 MB). Each `CheckResult` says whether BotMaker's Fix can repair it, else the
   commands. Android's version and boot are read over adb (a nested session answers "stopped" to `waydroid prop`),
   else from the config's binder protocol. `WaydroidCli` is public.
+- **A Fix for each fixable emulator check** (`Fix`, `Fixes`, `FixRunner`, `Backups`): `Fixes.of` gives a failed
+  check's steps, `Fixes.undo` restores the newest translator backup, and `FixRunner` runs one at a time per
+  emulator, then reads the check again and says when the Fix did not take. Google Play's Fix asks for the password
+  twice: the ID Google wants can only be read as root once Android has started.
 - **Swapping Waydroid's ARM translator** (`TranslatorPins`, `TranslatorScripts`, `RootScript`): libndk and
   libhoudini for Android 11 and 13, pinned by sha256 and unpacked as the user into the cache; one root script
   saves the old translator's files and properties under `/var/lib/waydroid/botmaker-backup/<stamp>/`, copies the

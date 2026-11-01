@@ -70,7 +70,8 @@ public final class WaydroidChecks {
         if (!rows.getLast().failed()) {
             rows.add(internet(read(IP_FORWARD), WaydroidCli.run("ip", "route")));
             rows.add(googlePlay(hasPlay(config)));
-            rows.add(translator(read(CPUINFO), config, prop(adb, "ro.build.version.release")));
+            rows.add(translator(read(CPUINFO), config, prop(adb, "ro.build.version.release"))
+                    .withUndo(Backups.newest().isPresent()));
             CheckResult size = resolution(WaydroidResolution.read(), expected);
             if (size != null) rows.add(size);
         }
@@ -176,16 +177,25 @@ public final class WaydroidChecks {
                 commands, "https://docs.waydro.id/debugging/networking-issues");
     }
 
-    /** The commands that give Android internet through {@code iface}; Fix runs them as root. */
+    /** The commands that give Android internet through {@code iface}, to run by hand as root. */
     public static List<String> internetCommands(String iface) {
-        return List.of("ufw disable || true",
-                "nft add table ip nat",
+        List<String> commands = new ArrayList<>();
+        commands.add("ufw disable || true");
+        commands.addAll(routeCommands(iface));
+        commands.add("ufw enable || true");
+        return List.copyOf(commands);
+    }
+
+    /** {@link #internetCommands} without the firewall, which Fix puts back only if it was on. Safe to run twice. */
+    static List<String> routeCommands(String iface) {
+        String masquerade = "oifname \"" + iface + "\" masquerade";
+        return List.of("nft add table ip nat",
                 "nft add chain ip nat postrouting { type nat hook postrouting priority 100 \\; }",
-                "nft add rule ip nat postrouting oifname \"" + iface + "\" masquerade",
+                "nft list chain ip nat postrouting | grep -qF '" + masquerade + "' || "
+                        + "nft add rule ip nat postrouting " + masquerade,
                 "sysctl -w net.ipv4.ip_forward=1",
                 "grep -qx 'net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf",
-                "systemctl restart waydroid-container",
-                "ufw enable || true");
+                "systemctl restart waydroid-container");
     }
 
     /**
@@ -245,6 +255,34 @@ public final class WaydroidChecks {
         return CheckResult.fixable(EmulatorCheck.ARM_TRANSLATOR, reason, "Fix installs " + target
                 + (current == Translator.NONE ? "" : " in place of " + current.displayName())
                 + " and restarts Waydroid (it asks for your password). Undo puts the old one back.");
+    }
+
+    /**
+     * The translator check as it reads now, Android's version from the config: a Fix leaves the session stopped,
+     * and adb has nothing to ask.
+     */
+    static CheckResult translatorNow() {
+        return translator(read(CPUINFO), read(CONFIG), null);
+    }
+
+    /** What a translator Fix replaces with what, for which Android. */
+    record TranslatorSwap(Translator target, Translator current, String release) {}
+
+    /**
+     * What this machine's translator Fix would swap; null when it can't tell.
+     *
+     * @param adb where Android answers, for its version, or {@code null} to take it from the config alone
+     */
+    static TranslatorSwap translatorSwap(AdbEndpoint adb) {
+        return translatorSwap(read(CPUINFO), read(CONFIG), prop(adb, "ro.build.version.release"));
+    }
+
+    static TranslatorSwap translatorSwap(String cpuinfo, String config, String release) {
+        String android = androidRelease(release, config);
+        if (android == null || !Translator.pinned(android)) return null;
+        Translator suited = Translator.suitedTo(CpuVendor.of(cpuinfo));
+        return new TranslatorSwap(suited == Translator.UNKNOWN ? Translator.LIBHOUDINI : suited,
+                Translator.ofBridgeProp(setting(config, "properties", Translator.BRIDGE_PROP)), android);
     }
 
     /** Why Fix cannot install a translator here, or null when it can. */

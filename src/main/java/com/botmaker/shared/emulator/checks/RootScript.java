@@ -114,7 +114,12 @@ public final class RootScript {
             try (BufferedReader out = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 for (String text; (text = out.readLine()) != null; ) {
-                    if (line != null) line.accept(text);
+                    if (line == null) continue;
+                    try {
+                        line.accept(text);
+                    } catch (RuntimeException e) {
+                        // Keep reading: leaving now would call the run over while the root script still goes on.
+                    }
                 }
             }
             return outcomeOf(process.waitFor());
