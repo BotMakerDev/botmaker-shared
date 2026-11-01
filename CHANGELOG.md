@@ -45,6 +45,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   button is (Wait, Close app, Don't allow). `AdbDevice.systemDialog()` asks the device.
 - **`emulator.QuietRun`** turns Do Not Disturb on for a run and puts it back afterwards. It also denies an app's
   notification permission for good, so the app never asks.
+- **`emulator.PlayDownload`** gets an Android game's own Google Play files with goopdl, through Aurora Store's
+  anonymous accounts: the base APK, its splits and asset packs, and its OBB files, packed into one `.xapk` in the APK
+  library. It tries the device's processors in order (`ro.product.cpu.abilist`), so an ARM game reaches Waydroid's
+  x86_64. `ManagedTools.installGoopdl` makes BotMaker's own venv for it with Python 3.11+, every wheel pinned by its
+  digest. `AndroidInstall` now tries the library, goopdl, the Play app, APKPure, then a store page, and every result
+  ends with where the file came from (`AndroidInstall.Source`). `EmulatorInstall.DeviceFacts` carries `abis`.
 
 ### Fixed
 

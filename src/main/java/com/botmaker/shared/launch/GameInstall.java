@@ -10,7 +10,8 @@ import java.util.function.Supplier;
 /**
  * Installs and updates a launch target's game, whatever launcher it comes from (2026-11-01, the user: "Botmaker
  * should be able to handle installation/update of a game for any platform"). One implementation per kind that has
- * a way in: an Android app ({@link AndroidInstall}: the APK library, Google Play, apkeep, a store page), Steam, Lutris
+ * a way in: an Android app ({@link AndroidInstall}: the APK library, Google Play's files through goopdl, the Play app,
+ * apkeep, a store page), Steam, Lutris
  * and Heroic ({@link HeroicInstall}); every other kind says it can't. Studio's game dialog and the assistant's
  * {@code setup} actions both go through here.
  *
@@ -73,7 +74,7 @@ public sealed interface GameInstall permits AndroidInstall, HeroicInstall, GameI
     /** Brings the game up to date; a game not installed yet is installed. */
     Result update(Consumer<String> progress);
 
-    /** Where the game comes from, a phrase for the user ("Steam", "Google Play or apkeep (APKPure)"). */
+    /** Where the game comes from, a phrase for the user ("Steam", "Google Play (goopdl or the Play app) or a store page"). */
     String source();
 
     /**

@@ -34,6 +34,14 @@ class GameInstallTest {
         LaunchSpec spec = new LaunchSpec(LaunchKind.EMULATOR_APP, "com.foo.game@Waydroid");
         assertFalse(GameInstall.of(spec, false).source().contains("APKPure"));
         assertTrue(GameInstall.of(spec, true).source().contains("APKPure"));
+        assertTrue(GameInstall.of(spec, false).source().contains("goopdl"));
+    }
+
+    @Test
+    void anAndroidResultSaysWhichSourceServedIt() {
+        assertEquals("X is installed on Waydroid. From Google Play's files, through goopdl.",
+                AndroidInstall.Source.GOOGLE_PLAY_FILES.said("X is installed on Waydroid."));
+        assertEquals("Up to date. From BotMaker's APK library.", AndroidInstall.Source.LIBRARY.said("Up to date"));
     }
 
     @Test

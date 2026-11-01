@@ -1,12 +1,19 @@
 package com.botmaker.shared.tools;
 
 import com.botmaker.shared.Executables;
+import com.botmaker.shared.Spawn;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 /**
  * <b>The two host tools BotMaker can install for itself</b> — Google's {@code adb} and Genymobile's
@@ -223,6 +230,142 @@ public final class ManagedTools {
         if (remote == null || !Downloads.fetch(remote, target, progress)) return Optional.empty();
         if (!target.toFile().setExecutable(true, true)) return Optional.empty();
         return Optional.of(target);
+    }
+
+    /** The goopdl release pinned below. */
+    public static final String GOOPDL_VERSION = "1.3.1";
+
+    /**
+     * goopdl and everything it imports, each wheel pinned by its PyPI digest (2026-11-01): goopdl gets Google Play's
+     * own files for a package through Aurora Store's anonymous accounts (the user's pick, phase 6). pip installs
+     * exactly these and nothing else ({@code --require-hashes --no-deps}); a digest that no longer matches fails the
+     * install, never fetches another version. The set was read from a working install on Python 3.12; Python 3.10
+     * would also need {@code exceptiongroup}, so 3.11 is the floor.
+     */
+    static final List<String> GOOPDL_REQUIREMENTS = List.of(
+            "goopdl==1.3.1 --hash=sha256:47a4920ecce25b695ac887645a3e952e9b7a5308aba17d2fb049ae20af76328a",
+            "annotated-doc==0.0.5 --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101",
+            "anyio==4.16.0 --hash=sha256:c66ae634e0b8228396b801741beb3294326d4b6102f7bba4041c0dfb58c29026",
+            "certifi==2026.10.23 --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1",
+            "h11==0.16.0 --hash=sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86",
+            "httpcore==1.0.9 --hash=sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55",
+            "httpx==0.28.1 --hash=sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad",
+            "idna==3.20 --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c",
+            "markdown-it-py==4.2.0 --hash=sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a",
+            "mdurl==0.1.2 --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8",
+            "Pygments==2.21.0 --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9",
+            "rich==15.0.0 --hash=sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb",
+            "shellingham==1.5.4 --hash=sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686",
+            "typer==0.27.3 --hash=sha256:e50022f28b82a86313e54501317a1db64bf8f8d036ff8cfe5ca7e47675454aff",
+            "typing_extensions==4.16.0 --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+            "websocket-client==1.9.2 --hash=sha256:e1a673830a9c7bfa47b1cd3d5e4178f4c9651d80a4eab02c9c23a1c3ec6250ce");
+
+    /** The file whose presence says pip finished: a venv pip failed in is no goopdl. */
+    private static final String GOOPDL_DONE = "botmaker-installed";
+
+    /** The venv BotMaker owns for goopdl, whether or not it is there. */
+    public static Path goopdlVenv() {
+        return directory().resolve("goopdl-" + GOOPDL_VERSION);
+    }
+
+    /** goopdl's command in a venv at {@code venv}. */
+    static Path goopdlIn(Path venv, boolean windows) {
+        return windows ? venv.resolve("Scripts").resolve("goopdl.exe") : venv.resolve("bin").resolve("goopdl");
+    }
+
+    /**
+     * BotMaker's own goopdl when its venv is complete. Never one on the user's {@code PATH}: theirs may be another
+     * version, and its token files are theirs to manage.
+     */
+    public static Optional<Path> goopdlInstalled() {
+        Path venv = goopdlVenv();
+        Path goopdl = goopdlIn(venv, windows());
+        return Files.isRegularFile(venv.resolve(GOOPDL_DONE)) && Files.isRegularFile(goopdl) ? Optional.of(goopdl)
+                : Optional.empty();
+    }
+
+    /** pip's command line that installs {@link #GOOPDL_REQUIREMENTS} from {@code requirements}. Pure, for the tests. */
+    static List<String> goopdlPip(Path python, Path requirements) {
+        return List.of(python.toString(), "-m", "pip", "install", "--disable-pip-version-check", "--no-input",
+                "--require-hashes", "--no-deps", "--only-binary=:all:", "-r", requirements.toString());
+    }
+
+    /**
+     * Makes BotMaker's goopdl venv with this computer's Python 3.11 or newer when there is none; returns goopdl, or
+     * empty with {@code why} told the reason. Blocking: pip downloads about 3 MB. One at a time: the dialog and the
+     * assistant installing together would each delete the other's half-made venv.
+     */
+    public static synchronized Optional<Path> installGoopdl(Consumer<String> why) {
+        Optional<Path> installed = goopdlInstalled();
+        if (installed.isPresent()) return installed;
+        Optional<Path> python = python311();
+        if (python.isEmpty()) {
+            why.accept("goopdl needs Python 3.11 or newer, and none is on this computer.");
+            return Optional.empty();
+        }
+        Path venv = goopdlVenv();
+        try {
+            deleteTree(venv);
+            Spawn.Completed made = Spawn.run(PIP_TIMEOUT, python.get().toString(), "-m", "venv", venv.toString());
+            if (made == null || !made.ok()) {
+                why.accept("Python couldn't make goopdl's venv: " + (made == null ? "it took too long" : made.output()));
+                return Optional.empty();
+            }
+            Path requirements = venv.resolve("requirements.txt");
+            Files.writeString(requirements, String.join("\n", GOOPDL_REQUIREMENTS) + "\n");
+            Path venvPython = windows() ? venv.resolve("Scripts").resolve("python.exe")
+                    : venv.resolve("bin").resolve("python");
+            Spawn.Completed pip = Spawn.run(PIP_TIMEOUT, goopdlPip(venvPython, requirements));
+            if (pip == null || !pip.ok()) {
+                why.accept("pip couldn't install goopdl " + GOOPDL_VERSION + ": " + (pip == null ? "it took too long"
+                        : lastLine(pip.output())));
+                deleteTree(venv);
+                return Optional.empty();
+            }
+            Files.writeString(venv.resolve(GOOPDL_DONE), GOOPDL_VERSION + "\n");
+            return goopdlInstalled();
+        } catch (IOException e) {
+            why.accept("Couldn't install goopdl: " + e.getMessage());
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            // The venv has no done-file yet: the next install starts it again.
+            Thread.currentThread().interrupt();
+            why.accept("Stopped installing goopdl.");
+            return Optional.empty();
+        }
+    }
+
+    private static final Duration PIP_TIMEOUT = Duration.ofMinutes(5);
+
+    /** {@code python3}, else {@code python}, when it is 3.11 or newer. */
+    private static Optional<Path> python311() {
+        for (String name : List.of("python3", "python")) {
+            Optional<File> found = Executables.find(name);
+            if (found.isEmpty()) continue;
+            try {
+                Spawn.Completed version = Spawn.run(Duration.ofSeconds(10), found.get().getPath(), "-c",
+                        "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)");
+                if (version != null && version.ok()) return Optional.of(found.get().toPath());
+            } catch (IOException e) {
+                // try the next name
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static String lastLine(String output) {
+        String[] lines = output == null ? new String[0] : output.strip().split("\\R");
+        return lines.length == 0 ? "" : lines[lines.length - 1];
+    }
+
+    private static void deleteTree(Path folder) throws IOException {
+        if (!Files.exists(folder)) return;
+        try (Stream<Path> walk = Files.walk(folder)) {
+            for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+        }
     }
 
     private static boolean windows() {

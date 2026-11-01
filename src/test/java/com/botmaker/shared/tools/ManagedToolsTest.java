@@ -34,6 +34,19 @@ class ManagedToolsTest {
     }
 
     @Test
+    void goopdlIsEveryWheelPinnedByDigestAndPipInstallsOnlyThose() {
+        assertTrue(ManagedTools.GOOPDL_REQUIREMENTS.getFirst().startsWith("goopdl==" + ManagedTools.GOOPDL_VERSION
+                + " "));
+        for (String line : ManagedTools.GOOPDL_REQUIREMENTS) {
+            assertTrue(line.matches("[A-Za-z0-9_.-]+==[0-9.]+ --hash=sha256:[0-9a-f]{64}"), line);
+        }
+        List<String> pip = ManagedTools.goopdlPip(Path.of("/v/bin/python"), Path.of("/v/req.txt"));
+        assertTrue(pip.containsAll(List.of("--require-hashes", "--no-deps", "--only-binary=:all:")), pip.toString());
+        assertEquals(Path.of("/v/bin/goopdl"), ManagedTools.goopdlIn(Path.of("/v"), false));
+        assertEquals(Path.of("/v/Scripts/goopdl.exe"), ManagedTools.goopdlIn(Path.of("/v"), true));
+    }
+
+    @Test
     void apkeepIsPinnedPerOsAndProcessorAndMacHasNone() {
         assertTrue(ManagedTools.apkeep("Linux", "x86_64").url().endsWith("-x86_64-unknown-linux-gnu"));
         assertTrue(ManagedTools.apkeep("Linux", "arm64").url().endsWith("-aarch64-unknown-linux-gnu"));

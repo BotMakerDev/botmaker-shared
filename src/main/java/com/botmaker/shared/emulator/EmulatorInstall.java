@@ -5,6 +5,8 @@ import com.botmaker.shared.Diag;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -192,27 +194,44 @@ public final class EmulatorInstall {
      * @param live             the running instance, or {@code null} when it couldn't be brought up
      * @param installedVersion the app's {@code versionCode} there, {@code -1} when it isn't installed
      * @param hasPlay          whether the instance has Google Play
-     * @param abi              its processor ({@code x86_64}, {@code arm64-v8a}…), blank when unknown
+     * @param abis             the processors it runs, best first ({@code x86_64}, {@code arm64-v8a}…; Waydroid's
+     *                         ARM translation adds the ARM ones), empty when unknown
      * @param problem          why nothing was read, a sentence; blank when {@code live} is set
      */
-    public record DeviceFacts(EmulatorInstance live, long installedVersion, boolean hasPlay, String abi,
+    public record DeviceFacts(EmulatorInstance live, long installedVersion, boolean hasPlay, List<String> abis,
                               String problem) {
+
+        public DeviceFacts {
+            abis = List.copyOf(abis);
+        }
 
         public boolean ok() {
             return live != null;
         }
+
+        /** Its own processor, blank when unknown. */
+        public String abi() {
+            return abis.isEmpty() ? "" : abis.getFirst();
+        }
+    }
+
+    /** {@code ro.product.cpu.abilist}'s ABIs, else the one {@code ro.product.cpu.abi}; each once. Pure. */
+    static List<String> abis(String abilist, String abi) {
+        String said = abilist == null || abilist.isBlank() ? (abi == null ? "" : abi) : abilist;
+        return Arrays.stream(said.strip().split("\\s*,\\s*")).filter(one -> !one.isBlank()).distinct().toList();
     }
 
     /** Starts {@code instance} when stopped and reads what it says about {@code packageName}. */
     public static DeviceFacts facts(EmulatorInstance instance, String packageName, Consumer<String> progress) {
         Optional<EmulatorInstance> ready = EmulatorReadiness.bringUp(instance, progress);
-        if (ready.isEmpty()) return new DeviceFacts(null, -1, false, "", EmulatorReadiness.notReady(instance));
+        if (ready.isEmpty()) return new DeviceFacts(null, -1, false, List.of(), EmulatorReadiness.notReady(instance));
         EmulatorInstance live = ready.get();
         try (AdbDevice device = AdbDevice.connect(live.adb())) {
             return new DeviceFacts(live, device.installedVersion(packageName), listed(device, PLAY_STORE),
-                    device.shell("getprop ro.product.cpu.abi").strip(), "");
+                    abis(device.shell("getprop ro.product.cpu.abilist"), device.shell("getprop ro.product.cpu.abi")),
+                    "");
         } catch (RuntimeException e) {
-            return new DeviceFacts(null, -1, false, "", "Couldn't talk to " + live.name() + " over ADB: "
+            return new DeviceFacts(null, -1, false, List.of(), "Couldn't talk to " + live.name() + " over ADB: "
                     + e.getMessage());
         }
     }
