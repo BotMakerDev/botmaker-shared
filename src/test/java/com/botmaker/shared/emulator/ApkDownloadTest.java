@@ -36,6 +36,26 @@ class ApkDownloadTest {
     }
 
     @Test
+    void theUsersOkIsKeptUntilWithdrawn(@TempDir Path dir) throws Exception {
+        Path config = dir.resolve("config");
+        assertFalse(ApkDownload.acknowledged(config));
+        ApkDownload.acknowledge(config, true);
+        assertTrue(ApkDownload.acknowledged(config));
+        ApkDownload.acknowledge(config, false);
+        assertFalse(ApkDownload.acknowledged(config));
+        ApkDownload.acknowledge(config, false);
+    }
+
+    @Test
+    void googlePlayIsStepsTheUserTakesPerEmulator() {
+        PlayStoreSetup waydroid = PlayStoreSetup.of(PlatformId.WAYDROID, "Waydroid");
+        assertEquals("sudo waydroid init -s GAPPS -f", waydroid.steps().getFirst().command());
+        assertTrue(waydroid.text().contains(PlayStoreSetup.REGISTER), waydroid.text());
+        assertTrue(PlayStoreSetup.of(PlatformId.BLUESTACKS, "Pie64").text().contains("Pie64"));
+        assertTrue(PlayStoreSetup.of(PlatformId.PHYSICAL, "Pixel").steps().isEmpty());
+    }
+
+    @Test
     void thePagesSearchApkPureThenApkMirrorForThePackage() {
         assertEquals(List.of("https://apkpure.com/search?q=com.foo.game",
                         "https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=com.foo.game"),

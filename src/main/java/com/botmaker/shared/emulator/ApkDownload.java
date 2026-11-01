@@ -4,6 +4,7 @@ import com.botmaker.shared.Diag;
 import com.botmaker.shared.Spawn;
 import com.botmaker.shared.tools.Downloads;
 import com.botmaker.shared.tools.ManagedTools;
+import com.botmaker.shared.tools.UserDirs;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -11,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -38,7 +40,38 @@ public final class ApkDownload {
     /** apkeep's own page on what APKPure may do, which a UI links when it asks. */
     public static final String DANGERS = "https://github.com/EFForg/apkeep/blob/master/USAGE-apkpure.md";
 
+    /** The file whose presence is the user's OK to download from APKPure, under {@link UserDirs#config()}. */
+    private static final String ACKNOWLEDGED = "apkpure-acknowledged";
+
     private ApkDownload() {}
+
+    /**
+     * Whether the user accepted APKPure's risk ({@link #DANGERS}) on this computer. Only the user gives it, in Studio;
+     * the assistant reads it and never sets it.
+     */
+    public static boolean acknowledged() {
+        return acknowledged(UserDirs.config());
+    }
+
+    static boolean acknowledged(Path config) {
+        return Files.isRegularFile(config.resolve(ACKNOWLEDGED));
+    }
+
+    /** Records the user's answer: {@code yes} keeps it, {@code false} withdraws it. */
+    public static void acknowledge(boolean yes) throws IOException {
+        acknowledge(UserDirs.config(), yes);
+    }
+
+    static void acknowledge(Path config, boolean yes) throws IOException {
+        Path file = config.resolve(ACKNOWLEDGED);
+        if (!yes) {
+            Files.deleteIfExists(file);
+            return;
+        }
+        Files.createDirectories(config);
+        Files.writeString(file, "Downloading from APKPure accepted on " + LocalDate.now() + ", knowing "
+                + DANGERS + "\n");
+    }
 
     /**
      * What a download did.

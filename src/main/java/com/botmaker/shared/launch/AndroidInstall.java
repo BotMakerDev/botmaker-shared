@@ -2,6 +2,7 @@ package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.emulator.ApkDownload;
+import com.botmaker.shared.emulator.ApkFile;
 import com.botmaker.shared.emulator.ApkLibrary;
 import com.botmaker.shared.emulator.EmulatorInstall;
 import com.botmaker.shared.emulator.EmulatorInstance;
@@ -74,19 +75,23 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
     }
 
     /**
-     * Adds {@code file}, which the user named, to the library and installs it: an older version than the installed
-     * one is refused, the same version reinstalled.
+     * Adds {@code file}, which the user named, to the library and installs it: another game's file is refused and not
+     * kept, an older version than the installed one refused, the same version reinstalled.
      */
     public Result fromFile(Path file, Consumer<String> progress) {
         ApkLibrary.Entry entry;
         try {
+            // Read before it is kept: another game's file never enters the library, where a later install of that
+            // game would take it ahead of Play and APKPure.
+            try (ApkFile apk = ApkFile.open(file)) {
+                if (!pkg().equals(apk.packageName())) {
+                    return new Result(Outcome.FAILED, file.getFileName() + " is " + apk.packageName() + ", not "
+                            + pkg() + ".");
+                }
+            }
             entry = library.add(file);
         } catch (IOException e) {
             return new Result(Outcome.FAILED, e.getMessage());
-        }
-        if (!entry.packageName().equals(pkg())) {
-            return new Result(Outcome.FAILED, file.getFileName() + " is " + entry.packageName() + ", not " + pkg()
-                    + ". It is kept in the library under its own name.");
         }
         Device device = device(progress);
         if (device.problem() != null) return device.problem();

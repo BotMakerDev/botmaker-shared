@@ -16,6 +16,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **The user's OK to download from APKPure is kept** (`ApkDownload.acknowledged()`/`acknowledge(boolean)`), as a
+  file in `UserDirs.config()`. Only Studio's Game dialog sets it.
+- **`emulator.PlayStoreSetup`**: the steps that give an emulator Google Play, per product (Waydroid's GAPPS image and
+  Google's device registration, an Android Studio Play image, the Windows emulators' built-in Play).
 - **Games install and update from any launcher** (2026-11-01, `launch.GameInstall`). Each target gets `readiness()`, `install(progress)`, `update(progress)` and `source()`. The result is a typed `Outcome` and a sentence to show the user.
   - **Android:** `AndroidInstall` tries four sources in order:
     1. The APK library.
