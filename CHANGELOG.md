@@ -16,6 +16,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **Emulator checks** (`emulator.checks`): `EmulatorChecks.run(instance, size)` answers, in order, whether Waydroid is
+  installed, running, booted and online, has Google Play, an ARM translator suited to the processor
+  (`CpuVendor`, `Translator`: libndk on AMD, libhoudini on Intel) and the bot's size; an Android Studio emulator's
+  Google Play image and memory (≥ 4096 MB). Each `CheckResult` says whether BotMaker's Fix can repair it, else the
+  commands. Android's version and boot are read over adb (a nested session answers "stopped" to `waydroid prop`),
+  else from the config's binder protocol. `WaydroidCli` is public.
 - **The user's OK to download from APKPure is kept** (`ApkDownload.acknowledged()`/`acknowledge(boolean)`), as a
   file in `UserDirs.config()`. Only Studio's Game dialog sets it.
 - **`emulator.PlayStoreSetup`**: the steps that give an emulator Google Play, per product (Waydroid's GAPPS image and
@@ -51,6 +57,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   x86_64. `ManagedTools.installGoopdl` makes BotMaker's own venv for it with Python 3.11+, every wheel pinned by its
   digest. `AndroidInstall` now tries the library, goopdl, the Play app, APKPure, then a store page, and every result
   ends with where the file came from (`AndroidInstall.Source`). `EmulatorInstall.DeviceFacts` carries `abis`.
+
+### Removed
+
+- **`WaydroidDiagnostics`**: its probes are `WaydroidChecks`, and its rule that nothing runs a remedy is gone
+  (2026-11-01): a fix runs on the user's click.
 
 ### Fixed
 

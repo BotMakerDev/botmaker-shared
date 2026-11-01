@@ -13,10 +13,10 @@ import java.util.List;
  * private copies of it would be three different timeouts.
  *
  * <p>Everything here is <b>read-only or session-scoped</b>: nothing in this class runs a privileged command.
- * The remedies that need {@code sudo} are strings in {@link WaydroidDiagnostics}, shown to the user and never
- * executed — see that class for why.
+ * The fixes that need root run elsewhere, on the user's click, through {@code pkexec}
+ * ({@code com.botmaker.shared.emulator.checks}).
  */
-final class WaydroidCli {
+public final class WaydroidCli {
 
     /** The binary every method here goes through; also the installed-ness probe. */
     static final String WAYDROID = "waydroid";
@@ -36,7 +36,7 @@ final class WaydroidCli {
      * so "is the command there" is both the most portable test and exactly the condition under which anything
      * else here can work.
      */
-    static boolean onPath(String binary) {
+    public static boolean onPath(String binary) {
         String path = System.getenv("PATH");
         if (binary == null || path == null || path.isBlank()) {
             return false;
@@ -64,7 +64,7 @@ final class WaydroidCli {
      * run, timed out, or exited non-zero. Callers treat {@code null} as "no answer", never as an error to
      * propagate: a scan must survive a half-installed Waydroid.
      */
-    static String waydroid(String... args) {
+    public static String waydroid(String... args) {
         String[] command = new String[args.length + 1];
         command[0] = WAYDROID;
         System.arraycopy(args, 0, command, 1, args.length);
@@ -72,7 +72,7 @@ final class WaydroidCli {
     }
 
     /** As {@link #waydroid}, for any command. {@code null} on failure, timeout or a non-zero exit. */
-    static String run(String... command) {
+    public static String run(String... command) {
         try {
             Spawn.Completed done = Spawn.run(TIMEOUT, List.of(command));
             return done == null || !done.ok() ? null : done.output().trim();
@@ -88,7 +88,7 @@ final class WaydroidCli {
      * As {@link #run}, but keeps the output of a non-zero exit too. {@code systemctl is-active} answers
      * "inactive" <em>and</em> exits 3, so the useful word would be thrown away by the stricter form.
      */
-    static String runAnyExit(String... command) {
+    public static String runAnyExit(String... command) {
         try {
             Spawn.Completed done = Spawn.run(TIMEOUT, List.of(command));
             return done == null ? null : done.output().trim();

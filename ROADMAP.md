@@ -95,7 +95,7 @@ also holds `botmaker-session`'s history before 2026-07-30).
 - **`capture.source` grammar**: `desktop`, `monitor:<i>`, `window:<t>` still spell themselves at each site;
   a sealed `CaptureSourceSpec` owning the whole grammar is the eventual answer.
 - **Nothing tells the user gamescope was sized to the default** because nothing could say the project's
-  resolution; `WaydroidDiagnostics.resolutionMismatch` is the only after-the-fact comparison.
+  resolution; `WaydroidChecks.resolution` is the only after-the-fact comparison.
 - **Waydroid cold start**: the session-start budget is 300 s; if cold starts get slower, add a progress
   callback rather than a bigger number. `WaydroidResolution.read()` misses a size changed outside BotMaker
   until the next live read.
