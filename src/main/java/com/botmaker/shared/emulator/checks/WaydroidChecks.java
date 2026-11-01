@@ -33,6 +33,9 @@ public final class WaydroidChecks {
     /** Waydroid's own install guide: BotMaker does not install Waydroid (user, 2026-11-01). */
     public static final String INSTALL_PAGE = "https://docs.waydro.id/usage/install-on-desktops";
 
+    /** The one failure of the running check a launch repairs by itself: it starts the session. */
+    static final String SESSION_STOPPED = "Waydroid's session is stopped, so there is no Android yet.";
+
     /** The kernel flag that has to be on for the container's traffic to be routed out of the host. */
     static final Path IP_FORWARD = Path.of("/proc/sys/net/ipv4/ip_forward");
 
@@ -138,7 +141,7 @@ public final class WaydroidChecks {
         // An empty status is `waydroid status` not answering: no reading, not a stopped session.
         if (status != null && !status.fields().isEmpty() && !status.sessionRunning()) {
             return CheckResult.fixable(EmulatorCheck.WAYDROID_RUNNING,
-                    "Waydroid's session is stopped, so there is no Android yet.",
+                    SESSION_STOPPED,
                     "Fix starts Waydroid, as ▶ Launch game does.");
         }
         return CheckResult.ok(EmulatorCheck.WAYDROID_RUNNING, "The container and the session are running.");

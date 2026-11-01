@@ -16,6 +16,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `EmulatorChecks.stoppingLaunch(results)`: the failure a launch cannot get past (Waydroid missing or never set up, its
+  container service down), not a stopped session, which a launch starts.
 - **Emulator checks** (`emulator.checks`): `EmulatorChecks.run(instance, size)` answers, in order, whether Waydroid is
   installed, running, booted and online, has Google Play, an ARM translator suited to the processor
   (`CpuVendor`, `Translator`: libndk on AMD, libhoudini on Intel) and the bot's size; an Android Studio emulator's

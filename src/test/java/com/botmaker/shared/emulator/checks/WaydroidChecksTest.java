@@ -179,4 +179,16 @@ class WaydroidChecksTest {
         assertEquals(Translator.UNKNOWN, Translator.ofBridgeProp("libfoo.so"));
         assertEquals(CpuVendor.UNKNOWN, CpuVendor.of(null));
     }
+
+    @Test
+    void onlyWhatALaunchCannotGetPastStopsIt() {
+        CheckResult stopped = WaydroidChecks.running("active", null, WaydroidStatus.parse("Session:\tSTOPPED"));
+        assertTrue(EmulatorChecks.stoppingLaunch(List.of(stopped)).isEmpty(), "a launch starts the session");
+        CheckResult down = WaydroidChecks.running("inactive", null, null);
+        assertEquals(down, EmulatorChecks.stoppingLaunch(List.of(down)).orElseThrow());
+        CheckResult missing = WaydroidChecks.installed(false, false);
+        assertEquals(missing, EmulatorChecks.stoppingLaunch(List.of(missing)).orElseThrow());
+        CheckResult translator = CheckResult.fixable(EmulatorCheck.ARM_TRANSLATOR, "libhoudini", "swap");
+        assertTrue(EmulatorChecks.stoppingLaunch(List.of(translator)).isEmpty());
+    }
 }

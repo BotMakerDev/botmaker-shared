@@ -4,6 +4,7 @@ import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.WaydroidResolution;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The checks on an emulator BotMaker can repair: Waydroid and Android Studio's emulator. Other products, and a
@@ -23,5 +24,17 @@ public final class EmulatorChecks {
             case AVD -> AvdChecks.run(instance);
             default -> List.of();
         };
+    }
+
+    /**
+     * The failure a launch cannot get past, if any: Waydroid missing or never set up, or its container service down.
+     * A stopped session is not one, a launch starts it, and the other checks fail a game later or not at all.
+     */
+    public static Optional<CheckResult> stoppingLaunch(List<CheckResult> results) {
+        return results.stream().filter(CheckResult::failed).filter(result -> switch (result.check()) {
+            case WAYDROID_INSTALLED -> true;
+            case WAYDROID_RUNNING -> !WaydroidChecks.SESSION_STOPPED.equals(result.reason());
+            default -> false;
+        }).findFirst();
     }
 }
