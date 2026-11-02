@@ -16,6 +16,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- **`com.botmaker.shared.oauth`**: the OAuth device flow (`DeviceFlow`), its `DeviceCode` and `credentials.json`
+  (`Credentials`, every write still merging the whole map) are one implementation that `GitHubAuth` and Studio's
+  `GoogleAuth` both configure, instead of two copies. `GitHubAuth.DeviceCode` is gone for `oauth.DeviceCode`.
+- Emulator discovery has no dependency cycle left: a `NewInstance` counts instances through the `instanceCount`
+  its platform passes in, never by looking the product up in `Platforms.ALL`, and the gamescope argv
+  (`gamescoped`, `nested`) moved from `WaydroidPlatform` to `WaydroidResolution`, beside the size it applies.
+
 - A kept-open window grab (`grabWindow` on Linux) names the window's composite pixmap anew for each frame: a game in
   gamescope's Xwayland swaps its buffers, and a pixmap named once gave the same frame for good.
 - The ARM translator check says what its Fix does: it stops Waydroid until the next launch, where it said it restarts it.
