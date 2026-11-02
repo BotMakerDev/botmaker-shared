@@ -69,7 +69,9 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
         for (Edition edition : editions()) {
             if (edition.hdPlayer() == null) continue;
             Path manager = edition.hdPlayer().resolveSibling("HD-MultiInstanceManager.exe");
-            if (Files.isRegularFile(manager)) return new NewInstance(PLATFORM_ID, List.of(manager.toString()), true);
+            if (Files.isRegularFile(manager)) {
+                return new NewInstance(PLATFORM_ID, List.of(manager.toString()), true, () -> discover().size());
+            }
         }
         return null;
     }

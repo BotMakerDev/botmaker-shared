@@ -81,7 +81,8 @@ public final class MuMuPlatform implements EmulatorPlatform {
         for (Path install : installDirs()) {
             Path console = consoleOf(install);
             if (console != null) {
-                return new NewInstance(PLATFORM_ID, List.of(console.toString(), "create", "-n", "1"), false);
+                return new NewInstance(PLATFORM_ID, List.of(console.toString(), "create", "-n", "1"), false,
+                        () -> discover().size());
             }
         }
         return null;

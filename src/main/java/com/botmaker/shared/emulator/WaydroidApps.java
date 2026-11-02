@@ -150,7 +150,7 @@ public final class WaydroidApps {
     static List<String> launchCommand(String packageName, WaydroidResolution resolution,
                                       boolean gamescopeOnPath, boolean sessionRunning) {
         List<String> launch = List.of(WaydroidCli.WAYDROID, "app", "launch", packageName.trim());
-        return sessionRunning ? launch : WaydroidPlatform.gamescoped(launch, resolution, gamescopeOnPath);
+        return sessionRunning ? launch : WaydroidResolution.gamescoped(launch, resolution, gamescopeOnPath);
     }
 
     /**
@@ -171,7 +171,7 @@ public final class WaydroidApps {
         if (packageName == null || packageName.isBlank() || !gamescopeOnPath) {
             return List.of();
         }
-        return WaydroidPlatform.nested(List.of(WaydroidCli.WAYDROID, "app", "launch", packageName.trim()),
+        return WaydroidResolution.nested(List.of(WaydroidCli.WAYDROID, "app", "launch", packageName.trim()),
                 resolution);
     }
 

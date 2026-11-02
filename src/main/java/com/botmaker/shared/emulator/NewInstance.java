@@ -5,6 +5,7 @@ import com.botmaker.shared.Spawn;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.IntSupplier;
 
 /**
  * How to add an instance to an installed emulator: its console's create command where it has one (LDPlayer,
@@ -14,9 +15,12 @@ import java.util.List;
  *
  * @param platformId   the product
  * @param command      the host command that creates the instance or opens the manager
- * @param opensManager whether the command only opens a window the user creates the instance in
+ * @param opensManager  whether the command only opens a window the user creates the instance in
+ * @param instanceCount how many instances the product's discovery finds now; the platform that gives this passes
+ *                      its own, so this record never looks the product up among all platforms
  */
-public record NewInstance(PlatformId platformId, List<String> command, boolean opensManager) {
+public record NewInstance(PlatformId platformId, List<String> command, boolean opensManager,
+                          IntSupplier instanceCount) {
 
     /** A console creates an instance in seconds; MEmu copies a disk image first. */
     private static final Duration CREATE_TIMEOUT = Duration.ofMinutes(3);
@@ -66,9 +70,7 @@ public record NewInstance(PlatformId platformId, List<String> command, boolean o
     /** How many instances discovery finds for the product now, or {@code -1} when it can't say. */
     private int instances() {
         try {
-            for (EmulatorPlatform platform : Platforms.ALL) {
-                if (platform.id() == platformId) return platform.discover().size();
-            }
+            return instanceCount.getAsInt();
         } catch (RuntimeException ignored) {
             // no count: the console's exit status decides
         }

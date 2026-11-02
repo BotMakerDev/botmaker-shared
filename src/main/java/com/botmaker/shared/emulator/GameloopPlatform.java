@@ -86,7 +86,9 @@ public final class GameloopPlatform implements EmulatorPlatform {
     public NewInstance newInstance() {
         for (Path install : installDirs()) {
             Path launcher = install.resolve("AppMarket").resolve("AppMarket.exe");
-            if (Files.isRegularFile(launcher)) return new NewInstance(PLATFORM_ID, List.of(launcher.toString()), true);
+            if (Files.isRegularFile(launcher)) {
+                return new NewInstance(PLATFORM_ID, List.of(launcher.toString()), true, () -> discover().size());
+            }
         }
         return null;
     }

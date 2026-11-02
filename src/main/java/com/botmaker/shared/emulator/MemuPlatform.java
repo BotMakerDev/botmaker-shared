@@ -79,7 +79,8 @@ public final class MemuPlatform implements EmulatorPlatform {
         Path install = installDir();
         Path console = install == null ? null : install.resolve("memuc.exe");
         return console == null || !Files.isRegularFile(console) ? null
-                : new NewInstance(PLATFORM_ID, List.of(console.toString(), "create", "96"), false);
+                : new NewInstance(PLATFORM_ID, List.of(console.toString(), "create", "96"), false,
+                        () -> discover().size());
     }
 
     /**

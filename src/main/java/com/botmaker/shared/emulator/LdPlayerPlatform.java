@@ -66,7 +66,9 @@ public final class LdPlayerPlatform implements EmulatorPlatform {
     public NewInstance newInstance() {
         for (Path install : installDirs()) {
             Path console = consoleOf(install);
-            if (console != null) return new NewInstance(PLATFORM_ID, List.of(console.toString(), "add"), false);
+            if (console != null) {
+                return new NewInstance(PLATFORM_ID, List.of(console.toString(), "add"), false, () -> discover().size());
+            }
         }
         return null;
     }
