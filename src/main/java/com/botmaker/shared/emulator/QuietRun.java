@@ -1,6 +1,7 @@
 package com.botmaker.shared.emulator;
 
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -17,6 +18,29 @@ public final class QuietRun {
 
     /** Do Not Disturb as it was before a run, restored by {@link #end}. */
     public record Was(String zenMode) {}
+
+    /**
+     * Shuts off, for good, what Android pops over any app on an emulator BotMaker drives (the user's call,
+     * 2026-11-03): no assistant (Gemini's overlay took taps meant for the game) and no heads-up notification.
+     * Kept after the run, unlike Do Not Disturb: the emulator is the bot's. Each command is safe to repeat.
+     */
+    public static void calm(AdbDevice device) {
+        for (String command : CALM) ask(device, command);
+    }
+
+    /**
+     * {@link #calm}'s commands. The Google app, which shows Gemini, is disabled ({@code pm enable} brings it back): clearing
+     * the assistant role alone hands it straight back to that app, its fallback holder. Then no assistant, no assist
+     * gesture, no heads-up.
+     */
+    static final List<String> CALM = List.of(
+            "pm disable-user --user 0 com.google.android.googlequicksearchbox",
+            "settings put secure assist_gesture_enabled 0",
+            "settings put secure assist_long_press_home_enabled 0",
+            "settings put secure assist_touch_gesture_enabled 0",
+            "settings delete secure assistant",
+            "settings delete secure voice_interaction_service",
+            "settings put global heads_up_notifications_enabled 0");
 
     /** Turns Do Not Disturb on and answers what it was. */
     public static Was start(AdbDevice device) {

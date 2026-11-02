@@ -16,6 +16,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- **Android's popups are shut off for good on an emulator BotMaker starts a game on** (`QuietRun.calm`, called by
+  `EmulatorAppLauncher`): the Google app that shows Gemini disabled (`pm enable` brings it back), the assist
+  gestures and heads-up notifications off. Gemini's overlay took taps meant for the game.
+
 - **`com.botmaker.shared.oauth`**: the OAuth device flow (`DeviceFlow`), its `DeviceCode` and `credentials.json`
   (`Credentials`, every write still merging the whole map) are one implementation that `GitHubAuth` and Studio's
   `GoogleAuth` both configure, instead of two copies. `GitHubAuth.DeviceCode` is gone for `oauth.DeviceCode`.

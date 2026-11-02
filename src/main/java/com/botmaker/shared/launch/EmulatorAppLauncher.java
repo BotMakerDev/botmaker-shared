@@ -9,6 +9,7 @@ import com.botmaker.shared.emulator.EmulatorLiveness;
 import com.botmaker.shared.emulator.EmulatorReadiness;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
+import com.botmaker.shared.emulator.QuietRun;
 import com.botmaker.shared.emulator.WaydroidApps;
 import com.botmaker.shared.emulator.WaydroidStatus;
 
@@ -74,6 +75,7 @@ public final class EmulatorAppLauncher {
         return withReadyEmulator(instance, progress, (device, live) -> {
             report(progress, "Starting " + packageName + " on " + live.name() + "…");
             Diag.log("[Target] emu-app: starting " + packageName + " on " + instance);
+            QuietRun.calm(device);
             return startOverAdb(device, packageName, live);
         });
     }
@@ -108,6 +110,7 @@ public final class EmulatorAppLauncher {
         if (awaitActiveApp(packageName, budget)) {
             // Waydroid's own answer, and the one that needs no ADB — so it still works when the in-guest
             // trust prompt has blocked every query. If it says the app is the active surface, it is.
+            calm(instance);
             return Outcome.ok("Started " + packageName + " in Waydroid.");
         }
         Optional<EmulatorInstance> ready = EmulatorReadiness.awaitReady(instance, instance.platformId().bootTimeout());
@@ -119,6 +122,7 @@ public final class EmulatorAppLauncher {
         }
         EmulatorInstance live = ready.get();
         try (AdbDevice device = connect(live)) {
+            QuietRun.calm(device);
             if (reachedForeground(device, packageName)) {
                 return Outcome.ok("Started " + packageName + " in Waydroid.");
             }
@@ -344,5 +348,14 @@ public final class EmulatorAppLauncher {
 
     private static AdbDevice connect(EmulatorInstance instance) {
         return AdbDevice.connect(instance.adb());
+    }
+
+    /** {@link QuietRun#calm} when ADB answers; a Waydroid whose trust prompt blocks it is left as it is. */
+    private static void calm(EmulatorInstance instance) {
+        try (AdbDevice device = connect(instance)) {
+            QuietRun.calm(device);
+        } catch (Exception e) {
+            Diag.log("[Target] emu-app: popups left on, ADB did not answer: " + e.getMessage());
+        }
     }
 }
