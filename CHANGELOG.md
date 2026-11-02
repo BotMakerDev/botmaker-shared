@@ -16,6 +16,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- A kept-open window grab (`grabWindow` on Linux) names the window's composite pixmap anew for each frame: a game in
+  gamescope's Xwayland swaps its buffers, and a pixmap named once gave the same frame for good.
 - The ARM translator check says what its Fix does: it stops Waydroid until the next launch, where it said it restarts it.
 
 ### Added

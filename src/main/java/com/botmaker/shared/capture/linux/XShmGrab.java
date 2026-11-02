@@ -36,8 +36,13 @@ final class XShmGrab implements FrameGrab {
     private final XComposite composite;
     private final X11.XWindowAttributes attributes = new X11.XWindowAttributes();
 
-    /** The window's composite pixmap; null until named, and again when the window's size or mapping changed. */
+    /** The window's composite pixmap, named for each frame; null when none could be. */
     private Pointer pixmap;
+    /**
+     * Whether a compositor was found running, asked once (a round trip) rather than for each frame; asked again when
+     * the window's size changes or a frame reads black.
+     */
+    private boolean compositing;
     /**
      * Whether the pixmap is read, which a window covered by another still draws whole; false once it was refused, as
      * rootless XWayland refuses a window it redirects itself, until the size changes or a frame reads black.
@@ -99,12 +104,19 @@ final class XShmGrab implements FrameGrab {
             freePixmap();
             freeSegment();
             throughPixmap = composite != null;
+            compositing = false;
             if (!attached(w, h)) {
                 failures++;
                 return slow.grab(sink);
             }
         }
-        if (throughPixmap && pixmap == null) pixmap = named();
+        if (throughPixmap) {
+            // Named anew each frame, as captureWindow names it: a window that presents by swapping its buffers (a
+            // game in gamescope's Xwayland) leaves a pixmap named once on the frame it showed then, every grab after
+            // the same frame (Sword x Staff, 2026-11-02).
+            freePixmap();
+            pixmap = named();
+        }
         // The pixmap holds the window's border too; the frame starts inside it, where clicks are placed from.
         int border = attributes.border_width;
         boolean read = pixmap != null && shm.XShmGetImage(display, pixmap, image, border, border, ALL_PLANES);
@@ -126,6 +138,7 @@ final class XShmGrab implements FrameGrab {
             // Read while the compositor had it unredirected, or a pixmap gone stale: named again next frame.
             freePixmap();
             throughPixmap = composite != null;
+            compositing = false;
             return slow.grab(sink);
         }
         return true;
@@ -133,7 +146,7 @@ final class XShmGrab implements FrameGrab {
 
     /** The window's composite pixmap named now; null with no compositor running. */
     private Pointer named() {
-        if (!LinuxController.compositorActive(display)) return null;
+        if (!compositing && !(compositing = LinuxController.compositorActive(display))) return null;
         Pointer named = composite.XCompositeNameWindowPixmap(display, window);
         return named == null || Pointer.nativeValue(named) == 0 ? null : named;
     }
