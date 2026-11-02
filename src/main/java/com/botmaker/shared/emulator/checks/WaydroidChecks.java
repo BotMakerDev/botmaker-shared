@@ -257,7 +257,7 @@ public final class WaydroidChecks {
         }
         return CheckResult.fixable(EmulatorCheck.ARM_TRANSLATOR, reason, "Fix installs " + target
                 + (current == Translator.NONE ? "" : " in place of " + current.displayName())
-                + " and restarts Waydroid (it asks for your password). Undo puts the old one back.");
+                + " and stops Waydroid until the next launch (it asks for your password). Undo puts the old one back.");
     }
 
     /**

@@ -14,6 +14,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- The ARM translator check says what its Fix does: it stops Waydroid until the next launch, where it said it restarts it.
+
 ### Added
 
 - `EmulatorChecks.stoppingLaunch(results)`: the failure a launch cannot get past (Waydroid missing or never set up, its
