@@ -38,12 +38,18 @@ class SystemDialogTest {
         UiTree tree = UiTree.parse("<hierarchy rotation=\"0\">"
                 + node("android:id/aerr_close", "Close app", "[333,320][640,352]")
                 + node("android:id/aerr_wait", "Wait", "[333,368][640,400]")
+                + node("com.google.android.permissioncontroller:id/permission_allow_button", "Allow",
+                "[330,390][950,450]")
                 + node("com.google.android.permissioncontroller:id/permission_deny_button", "Don't allow",
-                "[330,390][950,450]") + "</hierarchy>");
+                "[330,460][950,520]") + "</hierarchy>");
         assertEquals(Optional.of(new Point(486, 384)), SystemDialog.NOT_RESPONDING.answerIn(tree));
         assertEquals(Optional.of(new Point(486, 336)), SystemDialog.CRASHED.answerIn(tree));
         assertEquals(Optional.of(new Point(640, 420)), SystemDialog.PERMISSION.answerIn(tree));
         assertEquals(Optional.empty(), SystemDialog.NOT_RESPONDING.answerIn(UiTree.parse("<hierarchy/>")));
+        assertEquals(Optional.of(new Point(640, 420)), SystemDialog.PERMISSION.answerIn(UiTree.parse(
+                "<hierarchy rotation=\"0\">" + node("com.android.permissioncontroller:id/"
+                + "permission_allow_foreground_only_button", "While using the app", "[330,390][950,450]")
+                + "</hierarchy>")), "a location is allowed while the app is in use");
     }
 
     private static String node(String id, String text, String bounds) {

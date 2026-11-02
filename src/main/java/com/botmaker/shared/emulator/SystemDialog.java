@@ -4,6 +4,7 @@ import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 
 import java.awt.Point;
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,17 +21,25 @@ public enum SystemDialog {
             "mCurrentFocus=Window\\{\\S+ \\S+ Application Not Responding: ([\\w.]+)")),
     /** "… keeps stopping": the app is gone; its Close app. */
     CRASHED("stopped", "aerr_close", Pattern.compile("mCurrentFocus=Window\\{\\S+ \\S+ Application Error: ([\\w.]+)")),
-    /** "Allow … to …?": a runtime permission the app asks; its Don't allow. */
-    PERMISSION("asks a permission", "permission_deny_button", Pattern.compile(
-            "mCurrentFocus=Window\\{\\S+ \\S+ [\\w.]*permissioncontroller/\\S*GrantPermissionsActivity"));
+    /**
+     * "Allow … to …?": a runtime permission the app asks; its Allow (the user's call, 2026-11-02, was Don't allow),
+     * or for a location "While using the app".
+     */
+    PERMISSION("asks a permission", List.of("permission_allow_button", "permission_allow_foreground_only_button"),
+            Pattern.compile("mCurrentFocus=Window\\{\\S+ \\S+ [\\w.]*permissioncontroller/\\S*GrantPermissionsActivity"));
 
     private final String said;
-    private final String button;
+    /** The ids its answer may have, the first found in the tree pressed. */
+    private final List<String> buttons;
     private final Pattern focus;
 
     SystemDialog(String said, String button, Pattern focus) {
+        this(said, List.of(button), focus);
+    }
+
+    SystemDialog(String said, List<String> buttons, Pattern focus) {
         this.said = said;
-        this.button = button;
+        this.buttons = buttons;
         this.focus = focus;
     }
 
@@ -46,8 +55,8 @@ public enum SystemDialog {
      */
     public Optional<Point> answerIn(UiTree tree) {
         if (tree == null) return Optional.empty();
-        return tree.all().stream().filter(node -> button.equals(node.shortId())).map(UiNode::bounds)
-                .filter(bounds -> !bounds.isEmpty()).findFirst()
+        return buttons.stream().flatMap(button -> tree.all().stream().filter(node -> button.equals(node.shortId())))
+                .map(UiNode::bounds).filter(bounds -> !bounds.isEmpty()).findFirst()
                 .map(bounds -> new Point((int) bounds.getCenterX(), (int) bounds.getCenterY()));
     }
 

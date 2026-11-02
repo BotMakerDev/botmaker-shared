@@ -67,9 +67,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - **`Spawn.streamed`** runs a long child process and hands back each line as it is written.
 - **`emulator.SystemDialog`** tells Android's own dialogs over an app from the focused window: "isn't responding",
   "keeps stopping" and a runtime permission. It also says whether the dialog is about the app in focus, and where its
-  button is (Wait, Close app, Don't allow). `AdbDevice.systemDialog()` asks the device.
-- **`emulator.QuietRun`** turns Do Not Disturb on for a run and puts it back afterwards. It also denies an app's
-  notification permission for good, so the app never asks.
+  button is (Wait, Close app, Allow, or "While using the app" for a location). `AdbDevice.systemDialog()` asks the
+  device.
+- **`emulator.QuietRun`** turns Do Not Disturb on for a run and puts it back afterwards. It also grants an app every
+  runtime permission it asks for and does not hold yet, so the app never asks.
 - **`emulator.PlayDownload`** gets an Android game's own Google Play files with goopdl, through Aurora Store's
   anonymous accounts: the base APK, its splits and asset packs, and its OBB files, packed into one `.xapk` in the APK
   library. It tries the device's processors in order (`ro.product.cpu.abilist`), so an ARM game reaches Waydroid's

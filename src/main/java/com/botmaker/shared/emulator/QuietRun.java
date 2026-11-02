@@ -1,14 +1,17 @@
 package com.botmaker.shared.emulator;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
  * Keeps other apps off the game while a bot runs on an emulator (the user's call, 2026-11-01): Do Not Disturb on
- * for the run, so no heads-up notification covers it, and the game's notification permission denied for good, so
- * it never asks. What is left to show ({@link SystemDialog}) the run answers. Nothing here throws: a device that
+ * for the run, so no heads-up notification covers it, and every permission the game asks for granted before it
+ * asks (2026-11-02). What is left to show ({@link SystemDialog}) the run answers. Nothing here throws: a device that
  * refuses a command is run as it is.
  */
 public final class QuietRun {
-
-    private static final String NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS";
 
     private QuietRun() {}
 
@@ -28,13 +31,27 @@ public final class QuietRun {
     }
 
     /**
-     * Denies {@code packageName} posting notifications, marked as the user's choice so Android never asks again.
-     * Android 13 asks; an older one has no such permission and refuses, which changes nothing.
+     * Grants {@code packageName} every runtime permission it asks for and does not hold yet (the user's call,
+     * 2026-11-02, in place of denying its notifications), so it never asks; a flag an earlier run fixed is cleared
+     * first. A permission the device refuses to grant (an install-time one) stays as it is.
      */
-    public static void denyNotifications(AdbDevice device, String packageName) {
+    public static void grantRequested(AdbDevice device, String packageName) {
         if (packageName == null || !packageName.matches("[\\w.]+")) return;
-        ask(device, "pm revoke " + packageName + " " + NOTIFICATIONS);
-        ask(device, "pm set-permission-flags " + packageName + " " + NOTIFICATIONS + " user-set user-fixed");
+        for (String permission : notGranted(ask(device, "dumpsys package " + packageName))) {
+            ask(device, "pm clear-permission-flags " + packageName + " " + permission + " user-set user-fixed");
+            ask(device, "pm grant " + packageName + " " + permission);
+        }
+    }
+
+    private static final Pattern NOT_GRANTED = Pattern.compile("^\\s+([\\w.]+): granted=false", Pattern.MULTILINE);
+
+    /** The permissions {@code dumpsys package} lists as not granted, each once, in its order. */
+    static Set<String> notGranted(String dumpsys) {
+        Set<String> names = new LinkedHashSet<>();
+        if (dumpsys == null) return names;
+        Matcher m = NOT_GRANTED.matcher(dumpsys);
+        while (m.find()) names.add(m.group(1));
+        return names;
     }
 
     /**
