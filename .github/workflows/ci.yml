@@ -6,7 +6,8 @@ name: CI
 #
 # Tests are deliberately NOT run here (`-DskipTests`): CI is a compile gate, and the suite is run locally.
 # Note that -DskipTests still *compiles* the tests, so test code that no longer builds is still caught.
-# shared has no BotMaker dependency of its own, so this is the one Java repo whose build is a plain one.
+# shared's one BotMaker dependency, botmaker-runlog, is resolved from source at its main -SNAPSHOT, the version
+# the pom pins on main (umbrella docs/refactor/43-real-versions.md).
 
 on:
   push:
@@ -24,6 +25,15 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+
+      - name: Check out botmaker-runlog
+        uses: actions/checkout@v7
+        with:
+          repository: BotMakerDev/botmaker-runlog
+          path: .deps/botmaker-runlog
+
+      - name: Install botmaker-runlog (its main -SNAPSHOT)
+        run: mvn -B -f .deps/botmaker-runlog/pom.xml install -DskipTests
 
       - name: Build
         run: mvn -B -DskipTests package
@@ -43,6 +53,15 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+
+      - name: Check out botmaker-runlog
+        uses: actions/checkout@v7
+        with:
+          repository: BotMakerDev/botmaker-runlog
+          path: .deps/botmaker-runlog
+
+      - name: Install botmaker-runlog (its main -SNAPSHOT)
+        run: mvn -B -f .deps/botmaker-runlog/pom.xml install -DskipTests
 
       - name: Test
         run: mvn -B test

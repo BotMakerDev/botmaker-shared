@@ -16,10 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
-- **A run's log on disk** (`runlog.RunLog`, `RunFacts`, `RunLogReader`): `target/botmaker-runs/<run>/run.jsonl`,
-  JSON Lines, the run's facts first (bot, tag, commit, versions, OS, and a plugin's own `details` in its words),
-  then one trace line per line, flushed each; 5 runs kept, debug lines dropped past 4 MB and every line past 5 MB.
-  A torn last line is skipped on reading.
+- **A run's log on disk**, written by `botmaker-runlog` (a new dependency, which owns the format):
+  `target/botmaker-runs/<run>/run.jsonl`, JSON Lines, the run's facts first, then one trace line per line.
+  `runlog.LogLines.of` turns a traced `TelemetryEvent.Log` into the log's `LogLine`.
 - **`Diag.setFileSink`**: the run's file hears every traced line, and with debugging off keeps the last 50 debug
   lines, written just before the next warning or error. `Diag.isRecorded()` says whether a debug line goes
   anywhere.
