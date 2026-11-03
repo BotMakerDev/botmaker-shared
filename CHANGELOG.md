@@ -22,6 +22,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - **`Diag.setFileSink`**: the run's file hears every traced line, and with debugging off keeps the last 50 debug
   lines, written just before the next warning or error. `Diag.isRecorded()` says whether a debug line goes
   anywhere.
+- **`runlog.RunFiles`** starts a run's log in its folder: the facts any host knows (the bot pom's coordinate, its
+  parent left out; tag and commit from a run copy's `bot.json`, else from git with whether it differs; the versions
+  of shared, session, runlog and every plugin jar on the classpath; the OS), the caller's `details`, and each line
+  passed through the caller's attribution. A second start in the same folder keeps the log.
+- `Diag.warn(Origin, …)` and `Diag.info(Origin, …)`, as `Diag.error` already took one.
 
 ### Changed
 

@@ -210,6 +210,16 @@ public final class Diag {
         emit(TelemetryEvent.Log.INFO, Origin.named(source), message, 1, null, null);
     }
 
+    /** {@link #warn(String, String)} as written at {@code origin}, for a caller that walked the stack itself. */
+    public static void warn(Origin origin, String message) {
+        emit(TelemetryEvent.Log.WARN, origin, message, 1, null, null);
+    }
+
+    /** {@link #info(String, String)} as written at {@code origin}, for a caller that walked the stack itself. */
+    public static void info(Origin origin, String message) {
+        emit(TelemetryEvent.Log.INFO, origin, message, 1, null, null);
+    }
+
     /** Prints {@code message} to stderr, and traces it, whether diagnostics are on or off. */
     public static void error(String message) {
         error("", message);
@@ -288,7 +298,9 @@ public final class Diag {
             TelemetryEvent.Log at = kept.attribute().apply(line);
             synchronized (KEPT) {
                 if (kept != file) return;
-                if (!live) {
+                // With debugging off an info line is kept like a debug one: only a warning or an error empties the
+                // ring, so a bot that polls a closed way does not write 50 lines at each poll.
+                if (!live || (!enabled && TelemetryEvent.Log.INFO.equals(line.level()))) {
                     if (KEPT.size() == KEPT_LINES) KEPT.removeFirst();
                     KEPT.addLast(at);
                     return;
