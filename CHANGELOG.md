@@ -14,6 +14,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An emulator's frame grab drops the device's stderr** (`AdbDevice.screencap`, `2>/dev/null` on `exec:`):
+  Waydroid on an AMD GPU starts every `screencap` with `/vendor/etc/hwdata/amdgpu.ids: No such file or
+  directory`, and neither the PNG nor the raw decoder read past it — the bot saw nothing of the game.
+
 ### Changed
 
 - **`reports.ReportTarget` moved to `com.botmaker.runlog.ReportTarget`**, so the CLI reads it too.

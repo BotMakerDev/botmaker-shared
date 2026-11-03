@@ -9,6 +9,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -127,7 +128,7 @@ public final class AdbDevice implements AutoCloseable {
      * that is decided, and why the check is strong enough to fall back on.
      */
     public BufferedImage screencapRaw() {
-        try (AdbStream stream = dadb.open("exec:screencap")) {
+        try (AdbStream stream = dadb.open("exec:screencap " + NO_STDERR)) {
             return RawFramebuffer.decode(stream.getSource().readByteArray());
         } catch (Exception e) {
             return null;
@@ -142,7 +143,7 @@ public final class AdbDevice implements AutoCloseable {
      * intact; the legacy {@code shell:} service corrupts binary.
      */
     public BufferedImage screencapPng() {
-        try (AdbStream stream = dadb.open("exec:screencap -p")) {
+        try (AdbStream stream = dadb.open("exec:screencap -p " + NO_STDERR)) {
             byte[] png = stream.getSource().readByteArray();
             if (png.length == 0) {
                 return null;
@@ -154,6 +155,13 @@ public final class AdbDevice implements AutoCloseable {
             throw new RuntimeException("screencap failed on " + endpoint() + ": " + e.getMessage(), e);
         }
     }
+
+    /**
+     * Drops a frame grab's stderr on the device: {@code exec:} merges it into stdout, and Waydroid on an AMD GPU
+     * starts every {@code screencap} with {@code /vendor/etc/hwdata/amdgpu.ids: No such file or directory}
+     * (2026-11-03), which neither a PNG nor a raw framebuffer decodes past — the bot saw nothing.
+     */
+    private static final String NO_STDERR = "2>/dev/null";
 
     /** {@code input tap x y} — a single tap in the emulator's own pixel space. */
     public void tap(int x, int y) {
@@ -381,7 +389,7 @@ public final class AdbDevice implements AutoCloseable {
             if (all.length <= into) {
                 return new byte[0];
             }
-            return java.util.Arrays.copyOfRange(all, into, Math.min(all.length, into + length));
+            return Arrays.copyOfRange(all, into, Math.min(all.length, into + length));
         } catch (Exception e) {
             return new byte[0];
         }
