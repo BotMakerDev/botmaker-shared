@@ -1,5 +1,6 @@
 package com.botmaker.shared.reports;
 
+import com.botmaker.runlog.ReportTarget;
 import com.botmaker.shared.github.GitHubClient;
 
 import java.io.IOException;

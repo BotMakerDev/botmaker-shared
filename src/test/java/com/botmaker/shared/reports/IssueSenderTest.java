@@ -2,6 +2,7 @@ package com.botmaker.shared.reports;
 
 import com.botmaker.runlog.IssueText;
 import com.botmaker.runlog.Problem;
+import com.botmaker.runlog.ReportTarget;
 import com.botmaker.runlog.RunFacts;
 import com.botmaker.runlog.Scrubber;
 import com.botmaker.runlog.api.Level;

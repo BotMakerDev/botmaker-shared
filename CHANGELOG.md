@@ -14,6 +14,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- **`reports.ReportTarget` moved to `com.botmaker.runlog.ReportTarget`**, so the CLI reads it too.
+
 ### Added
 
 - **`reports.IssueSender`**: sends a run's problems as GitHub issues on the bot's `upstream` (else `origin`)
