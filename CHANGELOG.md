@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **A frame grab never blocks a run for good** (`AdbDevice.screencap`, `isConnected`): one unanswered after
+  20 s (a liveness check: 5 s) closes the connection, so the caller gets an exception and the next capture
+  reconnects. A run hung 8 minutes on a grab sent over a connection to a Waydroid session that had been stopped and
+  started again, where the watchdog, which checks between a bot's steps, could not reach it. No socket timeout:
+  a scrcpy stream is quiet while the screen is still.
 - **A game's leftover process no longer blocks its restart** (`EmulatorAppLauncher.stop`, `Launcher.stop`): a
   process of the app still there 3 s after `am force-stop` (a helper the game forked, which Android then "refused
   to kill" and would not start the game beside) stops the Waydroid session, said in the trace; the next start boots

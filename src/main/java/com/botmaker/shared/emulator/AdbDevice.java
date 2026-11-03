@@ -1,5 +1,6 @@
 package com.botmaker.shared.emulator;
 
+import com.botmaker.shared.Diag;
 import dadb.AdbStream;
 import dadb.Dadb;
 import dadb.adbserver.AdbServer;
@@ -8,11 +9,16 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -111,15 +117,49 @@ public final class AdbDevice implements AutoCloseable {
      *
      * <p>Raw also falls back to PNG when the payload does not parse as a framebuffer, so an unexpected device
      * degrades to the path that has always worked rather than to a black screen.
+     *
+     * <p>A grab still unanswered after {@link #GRAB_DEADLINE} closes this connection ({@link #cutAfter}), so the
+     * caller gets an exception instead of waiting forever, and {@link #isConnected()} says false from then on.
      */
     public BufferedImage screencap() {
-        if (endpoint.local()) {
-            BufferedImage raw = screencapRaw();
-            if (raw != null) {
-                return raw;
+        ScheduledFuture<?> cut = cutAfter(GRAB_DEADLINE, "a frame grab");
+        try {
+            if (endpoint.local()) {
+                BufferedImage raw = screencapRaw();
+                if (raw != null) {
+                    return raw;
+                }
             }
+            return screencapPng();
+        } finally {
+            cut.cancel(false);
         }
-        return screencapPng();
+    }
+
+    /** How long a frame grab may go unanswered: a PNG over a phone's radio takes a second or two. */
+    private static final Duration GRAB_DEADLINE = Duration.ofSeconds(20);
+    /** How long {@link #isConnected()}'s round trip may go unanswered. */
+    private static final Duration PING_DEADLINE = Duration.ofSeconds(5);
+
+    private static final ScheduledExecutorService DEADLINES = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "adb-deadline");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /**
+     * Closes this connection when {@code after} passes before the returned future is cancelled. The socket has no
+     * read timeout of its own, and must not have one: a scrcpy stream ({@link #openService}) is quiet for as long
+     * as the screen is still. Without this, a grab sent on a connection whose far end went away without a reset
+     * (Waydroid's session stopped and started again under it, 2026-11-03) blocked the run for good, under the
+     * watchdog, which only checks between a bot's own steps.
+     */
+    private ScheduledFuture<?> cutAfter(Duration after, String what) {
+        return DEADLINES.schedule(() -> {
+            Diag.log("[Emulator] " + what + " on " + endpoint() + " went unanswered for " + after.toSeconds()
+                    + " s — closing the connection");
+            close();
+        }, after.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -640,11 +680,14 @@ public final class AdbDevice implements AutoCloseable {
 
     /** Whether the connection still answers a trivial shell round-trip. */
     public boolean isConnected() {
+        ScheduledFuture<?> cut = cutAfter(PING_DEADLINE, "a liveness check");
         try {
             dadb.shell("true");
             return true;
         } catch (Exception e) {
             return false;
+        } finally {
+            cut.cancel(false);
         }
     }
 
