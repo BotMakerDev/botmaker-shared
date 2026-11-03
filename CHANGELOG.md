@@ -16,6 +16,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`launch.GameVersion.of(LaunchSpec)`**: the installed game's version, best effort, within 2 s, else `unknown`.
+  Android `versionName (versionCode)` off `dumpsys package` while the instance runs; Steam `buildid <n>` from the
+  app manifest; Heroic/Epic and GOG `version` from legendary's and Heroic's `installed.json`; Faugus and `exe:` the
+  program's own PE `FileVersion`/`ProductVersion` (read without Wine, `PeVersion`), else
+  `build <12 hex of its sha256>`, a hash stopped when the 2 s run out. Lutris, Bottles, `cli:`, desktop entries and
+  links are `unknown`.
+  `FaugusLibraryScanner.configRoot()` is public for it.
 - **The sink hears a quiet run's debug lines** (`Diag.setSink`): with debugging off a debug line is not printed but
   is still handed to the sink, without its writer, so the host (Studio's run agent) keeps the last ones before a
   problem. shared writes no run log itself: the agent writes `run.jsonl` with `botmaker-runlog`, which stays a
