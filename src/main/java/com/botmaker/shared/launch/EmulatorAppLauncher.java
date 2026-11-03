@@ -11,6 +11,7 @@ import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.emulator.QuietRun;
 import com.botmaker.shared.emulator.WaydroidApps;
+import com.botmaker.shared.emulator.WaydroidCli;
 import com.botmaker.shared.emulator.WaydroidStatus;
 
 import java.time.Duration;
@@ -209,17 +210,53 @@ public final class EmulatorAppLauncher {
      * start then goes through {@link #start}, so it takes the same rung a fresh launch would.
      */
     public static Outcome restart(String packageName, String instance) {
-        Optional<EmulatorInstance> match = find(instance);
-        if (match.isPresent() && EmulatorLiveness.running(match.get())) {
-            try (AdbDevice device = connect(match.get())) {
-                Diag.log("[Target] emu-app: restarting " + packageName + " on " + instance);
-                device.shell("am force-stop " + packageName.trim());
-            } catch (Exception e) {
-                // A stop we couldn't send isn't fatal: starting an app that is already running is a no-op.
-                Diag.log("[Target] emu-app: force-stop failed on " + instance + ": " + e.getMessage());
-            }
-        }
+        stop(packageName, instance);
         return start(packageName, instance, null);
+    }
+
+    /** How long a force-stopped app's processes may take to go before what is left counts as a leftover. */
+    private static final Duration LEFTOVER_WAIT = Duration.ofSeconds(3);
+
+    /**
+     * Force-stops {@code packageName} and starts nothing: the stop half of {@link #restart}. A stop that cannot be
+     * sent is logged, never thrown: starting an app already running is a no-op.
+     *
+     * <p>A process of the app that outlives the force-stop is a leftover: a game's own forked helper, which Android
+     * no longer tracks, cannot end and will not start the app again beside ("refused to die", Sword x Staff on
+     * Waydroid, 2026-11-03); only root could kill it. On Waydroid the session is stopped then, which ends every
+     * process in the container; the next start boots Android again.
+     *
+     * @return whether the emulator itself was stopped to end the app, so whatever showed it is gone too
+     */
+    public static boolean stop(String packageName, String instance) {
+        Optional<EmulatorInstance> match = find(instance);
+        if (match.isEmpty() || !EmulatorLiveness.running(match.get())) return false;
+        String pkg = packageName.trim();
+        boolean leftover;
+        try (AdbDevice device = connect(match.get())) {
+            Diag.log("[Target] emu-app: stopping " + pkg + " on " + instance);
+            device.shell("am force-stop " + pkg);
+            leftover = outlives(device, pkg);
+        } catch (Exception e) {
+            Diag.log("[Target] emu-app: force-stop failed on " + instance + ": " + e.getMessage());
+            return false;
+        }
+        if (!leftover || match.get().platformId() != PlatformId.WAYDROID) return false;
+        Diag.log("[Target] emu-app: a process of " + pkg + " outlived the force-stop and Android won't start it "
+                + "again beside it — stopping the Waydroid session");
+        WaydroidCli.waydroid("session", "stop");
+        return true;
+    }
+
+    /** Whether a process of {@code pkg} is still there {@link #LEFTOVER_WAIT} after its force-stop. */
+    private static boolean outlives(AdbDevice device, String pkg) throws InterruptedException {
+        long until = System.nanoTime() + LEFTOVER_WAIT.toNanos();
+        while (true) {
+            String pids = device.shell("pidof " + pkg);
+            if (pids == null || pids.isBlank()) return false;
+            if (System.nanoTime() > until) return true;
+            Thread.sleep(250);
+        }
     }
 
     /**

@@ -16,6 +16,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **A game's leftover process no longer blocks its restart** (`EmulatorAppLauncher.stop`, `Launcher.stop`): a
+  process of the app still there 3 s after `am force-stop` (a helper the game forked, which Android then "refused
+  to kill" and would not start the game beside) stops the Waydroid session, said in the trace; the next start boots
+  Android again. `Launcher.stop` ends a target without starting it, for a caller that starts it itself.
 - **A restarted Waydroid game comes back** (`AdbDevice.startedApp`): a launch counts only when `monkey` says
   "Events injected" on stdout. On Waydroid it stops with "SYS_KEYS has no physical keys" on stderr, which the shell
   does not return, so its argument echo read as a start, the `am start` rung never ran and a recovery's restart

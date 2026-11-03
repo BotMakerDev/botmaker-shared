@@ -145,6 +145,30 @@ public final class Launcher {
     }
 
     /**
+     * Ends {@code spec} and starts nothing: the stop half of {@link #restart}, for a caller that starts it again
+     * itself (a private display). An {@code exe:}/{@code cli:} target is killed by process name, an emulator app
+     * force-stopped ({@link EmulatorAppLauncher#stop}); other kinds have nothing to stop from here.
+     *
+     * @return whether the emulator itself was stopped to end the game, so whatever showed it is gone too
+     */
+    public static boolean stop(LaunchSpec spec) {
+        if (spec == null) return false;
+        switch (spec.kind()) {
+            case EXE, CLI -> {
+                String name = spec.fileName();
+                if (!name.isBlank()) GameLauncher.kill(name);
+                return false;
+            }
+            case EMULATOR_APP -> {
+                return EmulatorAppLauncher.stop(spec.emulatorPackage(), spec.emulatorInstance());
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
+    /**
      * Whether {@code spec} is up right now, decided by layered <em>observation</em> — no timers, no cooldown,
      * no "we launched it recently so it must be running". Each layer answers from something the OS actually
      * reports, and the first "yes" wins:
