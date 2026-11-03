@@ -16,6 +16,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **A restarted Waydroid game comes back** (`AdbDevice.startedApp`): a launch counts only when `monkey` says
+  "Events injected" on stdout. On Waydroid it stops with "SYS_KEYS has no physical keys" on stderr, which the shell
+  does not return, so its argument echo read as a start, the `am start` rung never ran and a recovery's restart
+  left Android's home screen up.
 - **An emulator's frame grab drops the device's stderr** (`AdbDevice.screencap`, `2>/dev/null` on `exec:`):
   Waydroid on an AMD GPU starts every `screencap` with `/vendor/etc/hwdata/amdgpu.ids: No such file or
   directory`, and neither the PNG nor the raw decoder read past it — the bot saw nothing of the game.

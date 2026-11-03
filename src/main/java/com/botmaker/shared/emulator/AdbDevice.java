@@ -224,26 +224,20 @@ public final class AdbDevice implements AutoCloseable {
         return shell("monkey -p " + packageName + " -c android.intent.category.LAUNCHER 1");
     }
 
-    /** Whether {@link #startApp}'s output reports an actual launch rather than monkey's no-activities notice. */
+    /**
+     * Whether {@link #startApp}'s output reports an actual launch: monkey's "Events injected: N" with N above
+     * zero, which it prints on stdout only after it ran. Its failures go to stderr, which the shell here does not
+     * return, so a list of failure phrases never saw them: on Waydroid monkey stops with "SYS_KEYS has no physical
+     * keys" before injecting anything, its stdout only the echo of its arguments, and that read as a start — the
+     * {@code am start} rung was skipped and a recovery's restart left Android's home screen up (2026-11-03).
+     */
     public static boolean startedApp(String monkeyOutput) {
-        if (monkeyOutput == null || monkeyOutput.isBlank()) {
-            return false;
-        }
-        String lower = monkeyOutput.toLowerCase();
-        for (String failure : MONKEY_FAILURES) {
-            if (lower.contains(failure)) {
-                return false;
-            }
-        }
-        return true;
+        if (monkeyOutput == null) return false;
+        Matcher injected = EVENTS_INJECTED.matcher(monkeyOutput);
+        return injected.find() && Integer.parseInt(injected.group(1)) > 0;
     }
 
-    /**
-     * The phrases monkey prints on stdout when a launch did <em>not</em> happen — it exits zero either way,
-     * so this list is the whole verdict. Lower-case because {@link #startedApp} folds the output first.
-     */
-    private static final String[] MONKEY_FAILURES =
-            {"no activities found", "error:", "aborted", "not found"};
+    private static final Pattern EVENTS_INJECTED = Pattern.compile("(?i)events injected:\\s*(\\d+)");
 
     /** Reads a system property ({@code getprop <key>}), trimmed; empty string if unset. */
     public String getProp(String key) {

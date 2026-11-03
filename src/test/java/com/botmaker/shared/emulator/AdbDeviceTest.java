@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -39,6 +40,15 @@ class AdbDeviceTest {
     void parsePackageListEmptyOnBlank() {
         assertTrue(AdbDevice.parsePackageList("").isEmpty());
         assertTrue(AdbDevice.parsePackageList(null).isEmpty());
+    }
+
+    @Test
+    void monkeyStoppedForWantOfKeysIsNoStart() {
+        // Waydroid's whole stdout: the reason ("SYS_KEYS has no physical keys") went to stderr.
+        assertFalse(AdbDevice.startedApp("  bash arg: -p\n  bash arg: com.foo.game\n  bash arg: -c\n"
+                + "  bash arg: android.intent.category.LAUNCHER\n  bash arg: 1\n"));
+        assertFalse(AdbDevice.startedApp("Events injected: 0"));
+        assertTrue(AdbDevice.startedApp("Events injected: 1\n## Network stats: elapsed time=26ms"));
     }
 
     @Test
