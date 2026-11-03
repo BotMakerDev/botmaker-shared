@@ -65,7 +65,7 @@ public final class IssueSender {
 
         /** {@code p}'s report for a run of {@code facts}, scrubbed by {@code scrubber}. */
         public static Report of(Problem p, RunFacts facts, Scrubber scrubber) {
-            return new Report(p.fingerprint(), scrubber.scrub(IssueText.title(p)),
+            return new Report(p.fingerprint(), IssueText.title(p, scrubber),
                     IssueText.body(p, facts, scrubber), IssueText.comment(p, facts, scrubber),
                     scrubber.scrub(facts).tag());
         }
