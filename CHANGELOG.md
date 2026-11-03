@@ -16,16 +16,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
-- **A run's log on disk**, written by `botmaker-runlog` (a new dependency, which owns the format):
-  `target/botmaker-runs/<run>/run.jsonl`, JSON Lines, the run's facts first, then one trace line per line.
-  `runlog.LogLines.of` turns a traced `TelemetryEvent.Log` into the log's `LogLine`.
-- **`Diag.setFileSink`**: the run's file hears every traced line, and with debugging off keeps the last 50 debug
-  lines, written just before the next warning or error. `Diag.isRecorded()` says whether a debug line goes
-  anywhere.
-- **`runlog.RunFiles`** starts a run's log in its folder: the facts any host knows (the bot pom's coordinate, its
-  parent left out; tag and commit from a run copy's `bot.json`, else from git with whether it differs; the versions
-  of shared, session, runlog and every plugin jar on the classpath; the OS), the caller's `details`, and each line
-  passed through the caller's attribution. A second start in the same folder keeps the log.
+- **The sink hears a quiet run's debug lines** (`Diag.setSink`): with debugging off a debug line is not printed but
+  is still handed to the sink, without its writer, so the host (Studio's run agent) keeps the last ones before a
+  problem. shared writes no run log itself: the agent writes `run.jsonl` with `botmaker-runlog`, which stays a
+  dependency here only for the SDK.
+- **`TelemetryClient.sendFrame(byte[])`** sends a plugin's own bytes as one frame, and
+  `TelemetryFrame.writePayload` frames them; Studio relays them to the plugin's window without the length prefix.
 - `Diag.warn(Origin, …)` and `Diag.info(Origin, …)`, as `Diag.error` already took one.
 
 ### Changed

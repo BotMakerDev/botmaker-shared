@@ -130,7 +130,14 @@ public final class TelemetryFrame {
                 p.writeInt(s.line());
             }
         }
-        byte[] payload = buffer.toByteArray();
+        writePayload(out, buffer.toByteArray());
+    }
+
+    /**
+     * Writes {@code payload} as one frame, its length first, then flushes: a frame {@link #write} encoded, or one a
+     * plugin encoded in its own format, which a host relays without reading.
+     */
+    public static void writePayload(DataOutputStream out, byte[] payload) throws IOException {
         out.writeInt(payload.length);
         out.write(payload);
         out.flush();

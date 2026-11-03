@@ -4,12 +4,10 @@ import com.botmaker.shared.ipc.TelemetryEvent;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.util.ArrayDeque;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
-import java.util.function.UnaryOperator;
 
 /**
  * The process-wide diagnostic-output switch, and the <em>only</em> one — the SDK's
@@ -42,10 +40,9 @@ import java.util.function.UnaryOperator;
  * method's lines ({@link Origin}). The SDK passes it; for every other caller it is the first frame outside this
  * class, looked for only when a sink is set, by the one stack walk the SDK uses too ({@link Callers}).
  *
- * <p><b>The run's file.</b> A {@linkplain #setFileSink file sink} keeps the run's log on disk ({@code
- * runlog.RunLog}): every line traced, and with debugging off the last {@value #KEPT_LINES} debug lines, written
- * before the next warning or error so the file shows what led to it ({@code
- * docs/superpowers/specs/2026-11-03-run-reports-design.md} §2).
+ * <p><b>A quiet run's lines.</b> The sink hears a debug line while debugging is off too, unprinted and with no
+ * writer looked for: the host that set it (Studio's run agent) keeps the last ones and writes them to the run's
+ * log before the next warning or error ({@code docs/superpowers/specs/2026-11-03-run-reports-design.md} §2, §7).
  */
 public final class Diag {
 
@@ -55,14 +52,8 @@ public final class Diag {
     /** The longest {@code [Name]} read as a source; a longer bracket is part of the text. */
     private static final int MAX_SOURCE = 32;
 
-    /** How many debug lines a quiet run keeps for its file, written there before the next warning or error. */
-    public static final int KEPT_LINES = 50;
-
     private static volatile boolean enabled = runOverride().orElse(true);
     private static volatile Consumer<TelemetryEvent.Log> sink;
-    private static volatile FileSink file;
-    /** A quiet run's last debug lines, attributed, oldest first. Guarded by itself. */
-    private static final ArrayDeque<TelemetryEvent.Log> KEPT = new ArrayDeque<>();
 
     private Diag() {}
 
@@ -90,34 +81,14 @@ public final class Diag {
         };
     }
 
-    /** Where each line also goes, or {@code null} for nowhere. A sink that throws loses that line, never the bot. */
+    /**
+     * Where each line also goes, or {@code null} for nowhere: every printed line, and a debug line while debugging
+     * is off too (unprinted, its writer not looked for), which the host keeps or drops. A sink that throws loses
+     * that line, never the bot.
+     */
     public static void setSink(Consumer<TelemetryEvent.Log> lines) {
         sink = lines;
     }
-
-    /**
-     * Where each line also goes to be kept, the run's log on disk, or {@code write == null} for nowhere. Unlike
-     * {@link #setSink}, it hears debug lines while debugging is off too: those are kept, the last
-     * {@value #KEPT_LINES}, and written just before the next warning or error, so a quiet run's file still shows
-     * the calls that led to a problem. {@code attribute} runs as each line is made, on the thread that made it
-     * (the SDK names the bot's line there); a sink that throws loses that line, never the bot.
-     */
-    public static void setFileSink(UnaryOperator<TelemetryEvent.Log> attribute, Consumer<TelemetryEvent.Log> write) {
-        synchronized (KEPT) {
-            KEPT.clear();
-            file = write == null ? null : new FileSink(attribute == null ? UnaryOperator.identity() : attribute, write);
-        }
-    }
-
-    /**
-     * Whether a debug line goes anywhere: debugging is on, or a run's file keeps the last ones. What a caller
-     * that renders an expensive line (the trace agent's) asks before rendering it.
-     */
-    public static boolean isRecorded() {
-        return enabled || file != null;
-    }
-
-    private record FileSink(UnaryOperator<TelemetryEvent.Log> attribute, Consumer<TelemetryEvent.Log> write) {}
 
     /** Prints {@code message} to stdout when diagnostics are on; a no-op when off. */
     public static void log(String message) {
@@ -150,11 +121,11 @@ public final class Diag {
         debug(origin, message, count, where);
     }
 
-    /** A debug line: printed and traced when debugging is on, else only kept for the run's file, when it has one. */
+    /** A debug line: printed and traced when debugging is on, else only handed to the sink, when one is set. */
     private static void debug(Origin origin, String message, int count, TelemetryEvent.Rect where) {
         if (enabled) {
             emit(TelemetryEvent.Log.DEBUG, origin, message, count, where, null);
-        } else if (file != null) {
+        } else if (sink != null) {
             Origin given = origin == null ? Origin.named("") : origin;
             Sourced line = Sourced.of(given, message);
             trace(TelemetryEvent.Log.DEBUG, line.source(), given, line.text(), count, where, false);
@@ -263,16 +234,11 @@ public final class Diag {
         trace(level, source, given, text, count, where, true);
     }
 
-    /**
-     * Sends a line to the trace and the run's file. A {@code live} line was printed: the trace hears it and the
-     * file writes it, a warning or an error after the kept lines that led to it. A line that is not live (debugging
-     * off) is only kept for the file.
-     */
+    /** Sends a line to the sink. A {@code live} line was printed; one that is not (debugging off) has no writer. */
     private static void trace(String level, String source, Origin origin, String text, int count,
                               TelemetryEvent.Rect where, boolean live) {
-        Consumer<TelemetryEvent.Log> lines = live ? sink : null;
-        FileSink kept = file;
-        if (lines == null && kept == null) return;
+        Consumer<TelemetryEvent.Log> lines = sink;
+        if (lines == null) return;
         TelemetryEvent.Log line;
         try {
             // The writer is looked for only here, and only for a printed line: a run nothing traces never walks the
@@ -283,35 +249,10 @@ public final class Diag {
         } catch (RuntimeException e) {
             return;
         }
-        if (lines != null) {
-            try {
-                lines.accept(line);
-            } catch (RuntimeException ignored) {
-                // A trace is best-effort: the line was printed, and a broken sink must not break the bot.
-            }
-        }
-        if (kept != null) keep(kept, line, live);
-    }
-
-    private static void keep(FileSink kept, TelemetryEvent.Log line, boolean live) {
         try {
-            TelemetryEvent.Log at = kept.attribute().apply(line);
-            synchronized (KEPT) {
-                if (kept != file) return;
-                // With debugging off an info line is kept like a debug one: only a warning or an error empties the
-                // ring, so a bot that polls a closed way does not write 50 lines at each poll.
-                if (!live || (!enabled && TelemetryEvent.Log.INFO.equals(line.level()))) {
-                    if (KEPT.size() == KEPT_LINES) KEPT.removeFirst();
-                    KEPT.addLast(at);
-                    return;
-                }
-                // Any printed line is written after the kept ones, so the file stays in time order; with debugging
-                // off a printed line is a warning, an error or a rare info, and the ring empties only then.
-                while (!KEPT.isEmpty()) kept.write().accept(KEPT.removeFirst());
-                kept.write().accept(at);
-            }
+            lines.accept(line);
         } catch (RuntimeException ignored) {
-            // The file is best-effort too.
+            // A trace is best-effort: the line was printed, and a broken sink must not break the bot.
         }
     }
 

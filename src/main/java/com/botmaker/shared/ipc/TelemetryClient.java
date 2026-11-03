@@ -43,7 +43,8 @@ public final class TelemetryClient implements AutoCloseable {
 
     private final int port;
     private final String token;
-    private final BlockingQueue<TelemetryEvent> queue;
+    /** Each a {@link TelemetryEvent}, or a {@code byte[]} payload someone else encoded ({@link #sendFrame}). */
+    private final BlockingQueue<Object> queue;
     private final Thread writer;
     private final AtomicLong nextQuestion = new AtomicLong(1);
     private final Map<Long, CompletableFuture<String>> questions = new ConcurrentHashMap<>();
@@ -84,6 +85,18 @@ public final class TelemetryClient implements AutoCloseable {
     }
 
     /**
+     * Enqueues a payload a plugin encoded in its own format (a run channel's {@code frame}), sent length-prefixed
+     * like any frame and relayed by the host as these bytes; dropped like {@link #send}'s events. A payload this
+     * wire cannot carry ({@link TelemetryFrame#MAX_FRAME_BYTES}) is dropped too.
+     */
+    public void sendFrame(byte[] payload) {
+        if (disabled || payload == null || payload.length == 0 || payload.length > TelemetryFrame.MAX_FRAME_BYTES) {
+            return;
+        }
+        queue.offer(payload.clone());
+    }
+
+    /**
      * Asks the host a question and answers its reply: the text the user entered, or {@code null} when they
      * cancelled. Fails when the channel is closed, the question cannot be queued, or the connection drops
      * before the host answers.
@@ -118,9 +131,13 @@ public final class TelemetryClient implements AutoCloseable {
                 startReader(socket);
                 reconnects = 0; // a successful (re)connect resets the budget
                 while (!disabled) {
-                    TelemetryEvent event = queue.take();
-                    if (event == POISON) return;
-                    TelemetryFrame.write(out, event);
+                    Object next = queue.take();
+                    if (next == POISON) return;
+                    if (next instanceof byte[] payload) {
+                        TelemetryFrame.writePayload(out, payload);
+                    } else {
+                        TelemetryFrame.write(out, (TelemetryEvent) next);
+                    }
                 }
             } catch (InterruptedException interrupted) {
                 return; // close() interrupted us — done

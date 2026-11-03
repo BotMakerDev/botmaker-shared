@@ -101,11 +101,13 @@ class DiagTest {
     }
 
     @Test
-    void aQuietRunTracesNoDebugLineButEveryErrorAndABrokenSinkIsHarmless() {
+    void aQuietRunHandsItsDebugLinesToTheSinkAndEveryErrorAndABrokenSinkIsHarmless() {
         Diag.setSink(lines::add);
         Diag.set(false);
         Diag.log("[Vision] hidden");
-        assertTrue(lines.isEmpty());
+        assertEquals(1, lines.size(), "the host keeps a quiet run's last lines");
+        assertEquals("hidden", lines.getFirst().text());
+        lines.clear();
         Diag.error("[Flow] Collect threw", new IllegalStateException("boom"));
         assertEquals(1, lines.size());
         assertEquals(TelemetryEvent.Log.ERROR, lines.getFirst().level());
