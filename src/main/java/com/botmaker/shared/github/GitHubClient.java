@@ -255,6 +255,30 @@ public final class GitHubClient {
                 });
     }
 
+    /**
+     * The issues of {@code owner/repo}, in every state, whose body holds {@code phrase} ({@code GET /search/issues});
+     * fails the future on anything but a 200. A new issue reaches the search index a little late.
+     */
+    public CompletableFuture<JsonNode> searchIssues(String owner, String repo, String phrase, String token) {
+        String q = "repo:" + owner + "/" + repo + " is:issue in:body \"" + phrase + "\"";
+        return getOrFail(GitHubConfig.API_BASE + "/search/issues?per_page=20&q="
+                + URLEncoder.encode(q, StandardCharsets.UTF_8), token);
+    }
+
+    /** Opens an issue in {@code owner/repo} ({@code POST /repos/…/issues}); the answer holds its {@code number}. */
+    public CompletableFuture<JsonNode> createIssue(String owner, String repo, String title, String body,
+                                                   String token) {
+        return post(GitHubConfig.API_BASE + "/repos/" + owner + "/" + repo + "/issues",
+                Map.of("title", title, "body", body), token);
+    }
+
+    /** Comments on issue {@code number} of {@code owner/repo}. */
+    public CompletableFuture<JsonNode> commentIssue(String owner, String repo, int number, String body,
+                                                    String token) {
+        return post(GitHubConfig.API_BASE + "/repos/" + owner + "/" + repo + "/issues/" + number + "/comments",
+                Map.of("body", body), token);
+    }
+
     /** True when {@code GET url} returns 204 (GitHub's "yes" for boolean check endpoints), false on 404/error. */
     public CompletableFuture<Boolean> isNoContent(String url, String token) {
         HttpRequest req = authed(baseRequest(url), token).GET().build();

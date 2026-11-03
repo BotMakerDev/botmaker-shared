@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`reports.IssueSender`**: sends a run's problems as GitHub issues on the bot's `upstream` (else `origin`)
+  repository (`ReportTarget.of`): a problem with an open issue, or a closed one on the same bot version, gets a
+  comment; otherwise a new issue, naming the closed one it follows. A send that fails is kept in the run's
+  `reports-pending.json` with every later one, and `resend` tries them again. `ExportLogs.zip` zips a run's
+  folder scrubbed. `GitHubClient` gains `searchIssues`, `createIssue` and `commentIssue`.
 - **`launch.GameVersion.of(LaunchSpec)`**: the installed game's version, best effort, within 2 s, else `unknown`.
   Android `versionName (versionCode)` off `dumpsys package` while the instance runs; Steam `buildid <n>` from the
   app manifest; Heroic/Epic and GOG `version` from legendary's and Heroic's `installed.json`; Faugus and `exe:` the
