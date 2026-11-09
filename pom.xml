@@ -28,6 +28,16 @@
         <botmaker.runlog.version>0.1.1-SNAPSHOT</botmaker.runlog.version>
     </properties>
 
+    <!-- botmaker-runlog is shared's first dependency served only by JitPack: without this repository, JitPack's
+         build of v0.7.0 looked for it on Central alone and failed. Not flattened away: this pom is published
+         as written, and a consumer reaches the transitive runlog through it. -->
+    <repositories>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+    </repositories>
+
     <dependencies>
         <!-- JNA (native Windows/Linux window + input control) -->
         <dependency>

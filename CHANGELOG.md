@@ -12,6 +12,13 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Fixed
+
+- **The pom declares the `jitpack.io` repository** (2026-11-10). `botmaker-runlog` is shared's first dependency only
+  JitPack serves, and v0.7.0's JitPack build looked for it on Central alone and failed; v0.7.0 is a broken tag.
+
 ## [0.7.0] — 2026-11-10
 
 ### Changed
