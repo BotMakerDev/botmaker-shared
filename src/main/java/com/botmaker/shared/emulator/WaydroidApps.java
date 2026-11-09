@@ -140,8 +140,8 @@ public final class WaydroidApps {
      *
      * <p>When the session is already up this is the bare {@code waydroid app launch <pkg>} — it only has to
      * talk to Waydroid's D-Bus service. When it is down, the same command <em>also</em> brings the session up,
-     * and a session needs a Wayland compositor: on the common X11 desktop that is gamescope, wrapped exactly
-     * as {@link WaydroidPlatform#launchCommand} wraps {@code show-full-ui}.
+     * and a session needs a Wayland compositor: a headless gamescope, which shows nothing anywhere
+     * ({@link WaydroidResolution#headless}), as {@link WaydroidPlatform#launchCommand} hosts its session.
      *
      * @param resolution      the configured framebuffer size, or {@code null} when unset
      * @param gamescopeOnPath whether the compositor is available to host the Wayland client
@@ -150,29 +150,7 @@ public final class WaydroidApps {
     static List<String> launchCommand(String packageName, WaydroidResolution resolution,
                                       boolean gamescopeOnPath, boolean sessionRunning) {
         List<String> launch = List.of(WaydroidCli.WAYDROID, "app", "launch", packageName.trim());
-        return sessionRunning ? launch : WaydroidResolution.gamescoped(launch, resolution, gamescopeOnPath);
-    }
-
-    /**
-     * The same launch, but for a <b>private display</b>: always wrapped in its own gamescope, whatever the host
-     * session is doing.
-     *
-     * <p>The {@code sessionRunning} shortcut above is exactly wrong here. A bare {@code waydroid app launch}
-     * talks to whichever session is already up — which is the one on the user's desktop, so the app would
-     * appear there and the private display would sit empty until it timed out. A nested launch therefore brings
-     * its <em>own</em> compositor up every time, and the caller stops the host session first (see
-     * {@code NestedSession.stopHostInstance}). There is one container per machine, so these two cannot coexist.
-     *
-     * @param resolution      the framebuffer size to size gamescope to, or {@code null} for the default
-     * @param gamescopeOnPath whether the compositor is available; without it there is no nested form at all
-     */
-    public static List<String> nestedLaunchCommand(String packageName, WaydroidResolution resolution,
-                                                   boolean gamescopeOnPath) {
-        if (packageName == null || packageName.isBlank() || !gamescopeOnPath) {
-            return List.of();
-        }
-        return WaydroidResolution.nested(List.of(WaydroidCli.WAYDROID, "app", "launch", packageName.trim()),
-                resolution);
+        return sessionRunning ? launch : WaydroidResolution.headless(launch, resolution, gamescopeOnPath);
     }
 
     /**

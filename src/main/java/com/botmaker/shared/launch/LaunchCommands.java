@@ -1,10 +1,5 @@
 package com.botmaker.shared.launch;
 
-import com.botmaker.shared.Executables;
-import com.botmaker.shared.emulator.WaydroidApps;
-import com.botmaker.shared.emulator.WaydroidPlatform;
-import com.botmaker.shared.emulator.WaydroidResolution;
-import com.botmaker.shared.emulator.WaydroidStatus;
 import com.botmaker.shared.platform.Os;
 import com.botmaker.shared.platform.SessionEnv;
 
@@ -31,9 +26,9 @@ import java.util.Optional;
  * (Epic offers none) yields an <b>empty</b> ladder, which the nested session reads as "can't be launched into
  * a private display".
  *
- * <p><b>An emulator app is the one kind whose answer depends on the product.</b> Waydroid's UI is a Wayland
- * client we start ourselves, so it has a real child command and can be nested (see {@link #emulatorApp});
- * every other Android product is reached over ADB after something else started it, and still yields nothing.
+ * <p><b>An emulator app yields nothing, Waydroid included</b> (2026-11-09, the user's call): it is read and pressed
+ * over ADB, so it never needs a window on a private display, and Waydroid's session runs under a headless
+ * gamescope instead ({@code WaydroidResolution.headless}).
  */
 public final class LaunchCommands {
 
@@ -159,29 +154,10 @@ public final class LaunchCommands {
      * or an unknown/blank spec. Empty means "not launchable into a private display".
      */
     public static List<List<String>> childLadder(LaunchSpec spec) {
-        return childLadder(spec, 0, 0);
-    }
-
-    /**
-     * The same ladder, told the size of the display it will run on — which only an emulator app uses, and
-     * which it cannot do without.
-     *
-     * <p>Its rung <em>is</em> a compositor ({@code gamescope … waydroid app launch}), so the size in that argv
-     * decides what Android renders at. Sizing it from the container's own properties instead put a
-     * {@code -W 1920 -H 1080} gamescope on a 1080×1920 display — measured — which is the letterboxing the
-     * private display exists to remove. The display is the authority here because it was built from the
-     * project's reference resolution; the container is made to agree with it separately.
-     *
-     * <p>A non-positive size means "not stated", and falls back to the container's properties.
-     */
-    public static List<List<String>> childLadder(LaunchSpec spec, int width, int height) {
         // A kind this system no longer launches (Heroic on Linux, 2026-10-29) builds no command for a private
         // display either: the desktop's Launcher.start refuses it, and so must this.
         if (spec == null || spec.notHere(Os.current()).isPresent()) {
             return List.of();
-        }
-        if (spec.kind() == LaunchKind.EMULATOR_APP) {
-            return emulatorApp(spec, width, height);
         }
         // A Lutris game Lutris hands to Steam starts as Steam's, as Launcher.start does: Lutris's steam://rungameid/
         // stops at Steam's "Select launch option".
@@ -225,54 +201,6 @@ public final class LaunchCommands {
             unset.addAll(rung);
             return List.copyOf(unset);
         }).toList();
-    }
-
-    /**
-     * The nested-display ladder for an emulator app: <b>Waydroid only</b>, and only when gamescope is installed.
-     *
-     * <p>Waydroid is the one Android product that can run inside a private display, because its UI is a
-     * Wayland client we start ourselves — {@code gamescope --backend sdl … waydroid app launch <pkg>} is a
-     * single child command that inherits our {@code DISPLAY}. Every other product is a host application that
-     * was already running before the bot asked for it and is reached over ADB; there is nothing to hand a
-     * display to, so their ladder stays empty and {@code LaunchIsolation} refuses them with the same message as
-     * before.
-     *
-     * <p><b>The size comes from the container, not from here.</b> gamescope is sized to
-     * {@link WaydroidResolution#read}, which is what Android will actually boot at — the two must agree or the
-     * grab is letterboxed. Making them agree with the <em>project's</em> resolution is the launcher's job (it
-     * applies the props first); by the time this argv is built the container is the authority.
-     */
-    private static List<List<String>> emulatorApp(LaunchSpec spec, int width, int height) {
-        if (!WaydroidPlatform.INSTANCE_NAME.equalsIgnoreCase(trimmed(spec.emulatorInstance()))) {
-            // Decided by name rather than by discovery on purpose: there is one Waydroid container per machine
-            // and it always answers to this name, so the question is settled without spawning `waydroid status`
-            // — which this would otherwise do on every launch of every other product.
-            return List.of();
-        }
-        return emulatorApp(spec.emulatorPackage(), nestedSize(width, height),
-                Executables.onPath(Executables.GAMESCOPE));
-    }
-
-    /**
-     * The size the nested gamescope is given: the display's when it is stated, else whatever the container is
-     * configured for. Separate and package-private because <em>which of the two wins</em> is the fix, and it
-     * is worth asserting without a {@code PATH} that has gamescope on it.
-     */
-    static WaydroidResolution nestedSize(int width, int height) {
-        return width > 0 && height > 0
-                ? new WaydroidResolution(width, height)
-                : WaydroidResolution.read(WaydroidStatus.read().sessionRunning());
-    }
-
-    /** {@link #emulatorApp(LaunchSpec)} for a known-Waydroid spec, with every probe injected — the pure form. */
-    static List<List<String>> emulatorApp(String packageName, WaydroidResolution resolution,
-                                          boolean gamescopeOnPath) {
-        List<String> command = WaydroidApps.nestedLaunchCommand(packageName, resolution, gamescopeOnPath);
-        return command.isEmpty() ? List.of() : List.of(command);
-    }
-
-    private static String trimmed(String value) {
-        return value == null ? "" : value.trim();
     }
 
     private static String require(String value) {

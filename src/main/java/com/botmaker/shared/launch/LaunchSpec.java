@@ -188,21 +188,14 @@ public record LaunchSpec(LaunchKind kind, String token) {
 
     /**
      * Whether <em>this</em> target lives outside any display we could give it — {@link
-     * LaunchKind#runsOffDesktop()} narrowed by which emulator the spec names, and the form every consumer
-     * should ask.
+     * LaunchKind#runsOffDesktop()}, and the form every consumer should ask.
      *
-     * <p>The kind can only answer for Android in general: an app reached over ADB inside an emulator somebody
-     * else started has no window of ours to place. Waydroid is the exception, and it is an exception about the
-     * <em>product</em>, not the kind — its UI is a Wayland client we start under our own gamescope, so it maps
-     * a window on whatever display we hand it. Asking the kind therefore refused Waydroid a private display it
-     * can in fact use, which is what the background-mode button and {@code QuickLaunch}'s routing both did.
+     * <p>Every emulator app is read and pressed over ADB, so none needs a window on a display of ours, Waydroid
+     * included (2026-11-09, the user's call): its session runs under a headless gamescope. Waydroid used to be
+     * given a private display, where its nested gamescope died when another client took the display over.
      */
     public boolean runsOffDesktop() {
-        if (!kind.runsOffDesktop()) {
-            return false;
-        }
-        String instance = emulatorInstance();
-        return instance == null || !instance.equalsIgnoreCase(WaydroidPlatform.INSTANCE_NAME);
+        return kind.runsOffDesktop();
     }
 
     /** The command line split on whitespace: executable first, then arguments. Empty for other kinds. */

@@ -79,10 +79,11 @@ class WaydroidAppsTest {
     }
 
     @Test
-    void aStoppedSessionIsLaunchedInsideAGamescopeSizedToTheFramebuffer() {
+    void aStoppedSessionIsLaunchedInsideAHeadlessGamescopeSizedToTheFramebuffer() {
         // The one command that starts the compositor, the session and the app — with the app as the surface
-        // rather than the Android launcher.
-        assertEquals(List.of("gamescope", "-W", "1280", "-H", "720", "-w", "1280", "-h", "720",
+        // rather than the Android launcher, and no window anywhere.
+        assertEquals(List.of("env", "-u", "WAYLAND_DISPLAY", "-u", "DISPLAY",
+                        "gamescope", "--backend", "headless", "-W", "1280", "-H", "720", "-w", "1280", "-h", "720",
                         "--expose-wayland", "waydroid", "app", "launch", "com.x"),
                 WaydroidApps.launchCommand("com.x", new WaydroidResolution(1280, 720), true, false));
     }
@@ -94,7 +95,8 @@ class WaydroidAppsTest {
         // into its own default output — see WaydroidPlatformTest for the full story.
         String w = Integer.toString(WaydroidResolution.DEFAULT.width());
         String h = Integer.toString(WaydroidResolution.DEFAULT.height());
-        assertEquals(List.of("gamescope", "-W", w, "-H", h, "-w", w, "-h", h,
+        assertEquals(List.of("env", "-u", "WAYLAND_DISPLAY", "-u", "DISPLAY",
+                        "gamescope", "--backend", "headless", "-W", w, "-H", h, "-w", w, "-h", h,
                         "--expose-wayland", "waydroid", "app", "launch", "com.x"),
                 WaydroidApps.launchCommand("com.x", null, true, false));
     }

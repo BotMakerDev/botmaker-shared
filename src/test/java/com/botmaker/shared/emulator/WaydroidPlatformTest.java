@@ -67,9 +67,11 @@ class WaydroidPlatformTest {
     }
 
     @Test
-    void theLaunchArgvIsTheVerifiedGamescopeOneLiner() {
-        assertEquals(List.of("gamescope", "-W", "1080", "-H", "1920", "-w", "1080", "-h", "1920",
-                        "--expose-wayland", "waydroid", "show-full-ui"),
+    void theSessionStartsUnderAHeadlessGamescope() {
+        // Measured 2026-11-09: no window anywhere, and ADB screencap answers at the size given.
+        assertEquals(List.of("env", "-u", "WAYLAND_DISPLAY", "-u", "DISPLAY",
+                        "gamescope", "--backend", "headless", "-W", "1080", "-H", "1920", "-w", "1080", "-h", "1920",
+                        "--expose-wayland", "waydroid", "session", "start"),
                 WaydroidPlatform.launchCommand(new WaydroidResolution(1080, 1920), true));
     }
 
@@ -81,8 +83,9 @@ class WaydroidPlatformTest {
         // matched nothing in the ADB frame the bot compares against.
         String w = Integer.toString(WaydroidResolution.DEFAULT.width());
         String h = Integer.toString(WaydroidResolution.DEFAULT.height());
-        assertEquals(List.of("gamescope", "-W", w, "-H", h, "-w", w, "-h", h,
-                        "--expose-wayland", "waydroid", "show-full-ui"),
+        assertEquals(List.of("env", "-u", "WAYLAND_DISPLAY", "-u", "DISPLAY",
+                        "gamescope", "--backend", "headless", "-W", w, "-H", h, "-w", w, "-h", h,
+                        "--expose-wayland", "waydroid", "session", "start"),
                 WaydroidPlatform.launchCommand(null, true));
     }
 
@@ -117,9 +120,9 @@ class WaydroidPlatformTest {
     }
 
     @Test
-    void withoutGamescopeItFallsBackToTheBareUiCommand() {
+    void withoutGamescopeItFallsBackToTheBareSessionStart() {
         // On a real Wayland desktop this works; on X11 it fails visibly, which beats offering no launch at all.
-        assertEquals(List.of("waydroid", "show-full-ui"), WaydroidPlatform.launchCommand(null, false));
+        assertEquals(List.of("waydroid", "session", "start"), WaydroidPlatform.launchCommand(null, false));
     }
 
     @Test

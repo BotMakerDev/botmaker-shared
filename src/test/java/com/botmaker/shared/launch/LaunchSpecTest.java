@@ -76,15 +76,12 @@ class LaunchSpecTest {
     }
 
     /**
-     * "Runs off the desktop" is a fact about the <em>product</em>, not about the kind: every Android emulator
-     * is reached over ADB after something else started it, except Waydroid, whose UI is a Wayland client we
-     * start under our own gamescope on whatever display we hand it. Asking the kind refused Waydroid a private
-     * display it can in fact use.
+     * Every emulator app is read and pressed over ADB, Waydroid included (2026-11-09): its session runs under a
+     * headless gamescope, never on a display of ours.
      */
     @Test
-    void onlyWaydroidAmongEmulatorAppsCanTakeADisplay() {
-        assertFalse(LaunchSpec.parse("emu-app:com.foo@Waydroid").runsOffDesktop());
-        assertFalse(LaunchSpec.parse("emu-app:com.foo@waydroid").runsOffDesktop(), "the name is not case-typed");
+    void everyEmulatorAppRunsOffTheDesktop() {
+        assertTrue(LaunchSpec.parse("emu-app:com.foo@Waydroid").runsOffDesktop());
         assertTrue(LaunchSpec.parse("emu-app:com.foo@Pie64").runsOffDesktop());
         assertTrue(LaunchSpec.parse("emu-app:com.foo@MuMu Player").runsOffDesktop());
         assertTrue(new LaunchSpec(LaunchKind.EMULATOR_APP, "com.foo").runsOffDesktop(), "no instance, no nesting");

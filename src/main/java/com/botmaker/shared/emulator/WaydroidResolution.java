@@ -234,9 +234,9 @@ public record WaydroidResolution(int width, int height) {
     /**
      * {@link #apply()}, saying whether a session should be left running at the new size.
      *
-     * <p>Pass {@code false} when the caller is about to start its own session — a nested display starts Waydroid
-     * under <em>its</em> gamescope, and there is one container per machine, so a session started here would only
-     * have to be stopped again a moment later. The properties are persistent either way; what the restart buys
+     * <p>Pass {@code false} when the caller is about to start the session itself — the app launch that follows
+     * starts Waydroid under its own headless gamescope, and there is one container per machine, so a session
+     * started here would only have to be stopped again a moment later. The properties are persistent either way; what the restart buys
      * is a container already up at the new size, which only the on-desktop path wants.
      *
      * @param restart whether to bring the session back up after the properties change, or only take it down so
@@ -282,8 +282,8 @@ public record WaydroidResolution(int width, int height) {
      * the launch itself runs Waydroid under, here hosting nothing but {@code waydroid session start}.
      *
      * <p>It costs one container boot, which is why {@link #apply} only reaches it when the size actually
-     * disagrees. The session is left <em>stopped</em>: the caller is about to start its own under its own
-     * compositor, and there is one container per machine.
+     * disagrees. The session is left <em>stopped</em>: the launch that follows starts it again, and there is one
+     * container per machine.
      */
     private boolean underOwnCompositor(BooleanSupplier action) {
         if (!Executables.onPath(Executables.GAMESCOPE)) {
@@ -291,7 +291,7 @@ public record WaydroidResolution(int width, int height) {
                     + "no compositor to start one under — the framebuffer size can't be changed from here.");
             return false;
         }
-        List<String> command = nested(List.of(WaydroidCli.WAYDROID, "session", "start"), this);
+        List<String> command = headless(List.of(WaydroidCli.WAYDROID, "session", "start"), this, true);
         File log = logFile();
         Process compositor;
         try {
@@ -353,11 +353,11 @@ public record WaydroidResolution(int width, int height) {
     }
 
     /**
-     * Makes the container boot at {@code width}×{@code height} — the size of the display it is about to be
-     * launched into — and says whether that cost a restart.
+     * Makes the container boot at {@code width}×{@code height} — the bot's screen size — and says whether that
+     * cost a restart.
      *
-     * <p>This is the step that makes a private display's grab 1:1. gamescope is sized from the display, so
-     * without it the two disagree and Android renders letterboxed inside the compositor: a container still
+     * <p>This is the step that makes the bot's frames the size its pictures were cut at. gamescope is sized from
+     * the container, so without it Android renders letterboxed inside the compositor: a container still
      * carrying its out-of-the-box landscape properties booted 1920×1080 inside a 1080×1920 gamescope, which is
      * measurably a third of the linear resolution the templates were authored at.
      *
@@ -385,67 +385,30 @@ public record WaydroidResolution(int width, int height) {
     }
 
     /**
-     * {@code waydroidCommand} hosted inside a gamescope sized to the container's framebuffer, or unchanged
-     * when gamescope isn't installed.
-     *
-     * <p>Shared by {@link WaydroidPlatform#launchCommand} and {@link WaydroidApps#launchCommand}, which need the
-     * identical wrapping for {@code waydroid show-full-ui} and {@code waydroid app launch}: both are Wayland-only
-     * clients that have to bring a session up on an X11 desktop, and the sizing rule below must not exist twice.
-     * It lives here, beside the size it applies, so that this class needs nothing from {@link WaydroidPlatform}.
+     * Runs the headless gamescope with {@code WAYLAND_DISPLAY} and {@code DISPLAY} <em>removed</em>: it needs
+     * neither, and gamescope reads {@code WAYLAND_DISPLAY} before it honours {@code --backend} (an empty name is a
+     * socket called "", measured: {@code Failed to connect to wayland socket: .}). gamescope sets both to its own
+     * for the Waydroid client it starts, so nothing reaches the user's desktop.
      */
-    static List<String> gamescoped(List<String> waydroidCommand, WaydroidResolution resolution,
-                                   boolean gamescopeOnPath) {
-        return gamescoped(waydroidCommand, resolution, gamescopeOnPath, false);
-    }
+    private static final List<String> UNSET_DISPLAYS = List.of("env", "-u", "WAYLAND_DISPLAY", "-u", "DISPLAY");
 
     /**
-     * Runs the nested gamescope with {@code WAYLAND_DISPLAY} <em>removed</em> rather than blank.
+     * {@code waydroidCommand} hosted in a headless gamescope sized to the container's framebuffer, or unchanged
+     * when gamescope isn't installed (the bare command then needs a Wayland desktop, and fails visibly without one).
      *
-     * <p>A private display sets it to the empty string on purpose — that is what stops a Wayland-native client
-     * escaping to the user's desktop — but gamescope reads the variable before it honours {@code --backend},
-     * and an empty name is not "no Wayland", it is a socket called "". Measured: it dies at startup with
-     * {@code Failed to connect to wayland socket: .}, and with the variable genuinely unset it comes up.
-     * {@code systemd-run --setenv} can only set, never unset, so the removal has to be part of the argv — where
-     * it is also visible in the launch log, which is where anyone debugging this will be looking.
+     * <p><b>No window, on any display (2026-11-09, the user's call).</b> Waydroid's UI is a Wayland-only client and a
+     * session needs a compositor — measured on an X11 desktop: <em>"Wayland socket '/run/user/1000/wayland-0'
+     * doesn't exist; are you running a Wayland compositor?"</em> — but the bot reads and taps Android over ADB, so
+     * the compositor only has to exist, not to show anything. {@code --backend headless} hosts the session with no
+     * window: measured here, Android booted and {@code adb screencap} gave its 1080×1920 home screen. Until then it
+     * was a gamescope window on the desktop or on a private display, whose nested gamescope died with its Xwayland
+     * ({@code xwm: X11 I/O error! This is fatal}) and took the display down.
      *
-     * <p>Nothing escapes as a result: gamescope sets {@code WAYLAND_DISPLAY} to its own socket for the Waydroid
-     * client it then starts, so the only process that ever sees it unset is gamescope itself.
+     * <p>Shared by {@link WaydroidPlatform#launchCommand}, {@link WaydroidApps#launchCommand} and the framebuffer
+     * resize, so the sizing rule below exists once.
      */
-    private static final List<String> UNSET_WAYLAND = List.of("env", "-u", "WAYLAND_DISPLAY");
-
-    /**
-     * {@code waydroidCommand} inside a gamescope of our own on the {@code DISPLAY} we are already on — the
-     * complete argv, {@code WAYLAND_DISPLAY} unset and all.
-     *
-     * <p>Two callers need exactly this and must not spell it twice: the nested app launch, and the framebuffer
-     * resize, which has to bring a session up before it can set a property on it. On an X11 desktop
-     * {@code waydroid session start} has no compositor to run under at all — measured: <em>"Wayland socket
-     * '/run/user/1000/wayland-0' doesn't exist; are you running a Wayland compositor?"</em> — so "start a
-     * session and talk to it" is not a thing this stack can do without bringing the compositor itself.
-     */
-    static List<String> nested(List<String> waydroidCommand, WaydroidResolution resolution) {
-        List<String> command = new ArrayList<>(UNSET_WAYLAND);
-        command.addAll(gamescoped(waydroidCommand, resolution, true, true));
-        return List.copyOf(command);
-    }
-
-    /**
-     * {@link #gamescoped(List, WaydroidResolution, boolean)}, but stating whether this gamescope is being
-     * started <em>inside a private display</em> rather than on the user's desktop.
-     *
-     * <p>The nested form adds {@code --backend sdl}, which is what makes gamescope open an ordinary X window on
-     * the {@code DISPLAY} it inherits instead of choosing a backend from the ambient session. Unsized and
-     * unmanaged there, that window fills the nested screen exactly — so the Android surface, gamescope's
-     * internal resolution and the display are all one number and the capture is 1:1.
-     *
-     * <p><b>Why this is the only way to see Waydroid's pixels at full resolution.</b> Waydroid is a
-     * Wayland-only client: unlike an X11 game it maps no window a session could capture, so its pixels exist
-     * only in gamescope's composited output. On the desktop that output is a window the window manager resizes
-     * at will — measured here at 1280×661 for a 1080×1920 container, letterboxing the image into roughly a
-     * third of its linear resolution. In a private display there is no window manager to resize it.
-     */
-    static List<String> gamescoped(List<String> waydroidCommand, WaydroidResolution resolution,
-                                   boolean gamescopeOnPath, boolean nested) {
+    static List<String> headless(List<String> waydroidCommand, WaydroidResolution resolution,
+                                 boolean gamescopeOnPath) {
         if (!gamescopeOnPath) {
             return List.copyOf(waydroidCommand);
         }
@@ -454,11 +417,8 @@ public record WaydroidResolution(int width, int height) {
         WaydroidResolution size = resolution != null ? resolution : DEFAULT;
         String w = Integer.toString(size.width());
         String h = Integer.toString(size.height());
-        List<String> command = new ArrayList<>();
-        command.add(Executables.GAMESCOPE);
-        if (nested) {
-            command.addAll(List.of("--backend", "sdl"));
-        }
+        List<String> command = new ArrayList<>(UNSET_DISPLAYS);
+        command.addAll(List.of(Executables.GAMESCOPE, "--backend", "headless"));
         // -W/-H is the output window, -w/-h the internal resolution clients see. Equal on purpose: any
         // difference between them is a scaler, and a scaler between the bot's templates and the pixels it
         // clicks on is the bug this whole class is arranged to avoid (see GamescopeDisplay.defaultCommand,

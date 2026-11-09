@@ -19,11 +19,10 @@ import java.util.List;
  *       the default while it is down.</li>
  * </ul>
  *
- * <p><b>Launching needs a Wayland compositor.</b> {@code waydroid show-full-ui} is a Wayland-only client, so
- * on the common X11 desktop it cannot start at all. gamescope — already this repo's hardware session backend —
- * is a Wayland compositor, and {@code gamescope --expose-wayland waydroid show-full-ui} is the single command
- * that was verified working on a live X11/KDE box. That is the launch argv built by {@link #launchCommand}:
- * gamescope is the parent process, not something Waydroid is attached to afterwards.
+ * <p><b>Starting needs a Wayland compositor, not a window.</b> A Waydroid session is a Wayland client, so on
+ * the common X11 desktop it cannot start at all. A headless gamescope is the compositor, showing nothing
+ * (2026-11-09, the user's call: the bot reads and taps Android over ADB), and {@link #launchCommand} starts the
+ * session under it: gamescope is the parent process, not something Waydroid is attached to afterwards.
  *
  * <p><b>gamescope is never launched unsized.</b> When {@link WaydroidResolution} reports a framebuffer size,
  * gamescope is sized to match it, so the Android surface fills the window 1:1 and matched coordinates mean what
@@ -41,8 +40,8 @@ public final class WaydroidPlatform implements EmulatorPlatform {
      * There is one container, so there is one name; it is what a bot writes in {@code Emulators.use(…)}.
      *
      * <p>Public because it is also the <em>identity</em> of the product in a launch target
-     * ({@code emu-app:<pkg>@Waydroid}): {@code LaunchCommands} decides whether a target can run on a private
-     * display by comparing against this, which settles the question without spawning a discovery probe.
+     * ({@code emu-app:<pkg>@Waydroid}): {@code LaunchPreparation} decides whether a target needs Waydroid sized
+     * by comparing against this, which settles the question without spawning a discovery probe.
      */
     public static final String INSTANCE_NAME = "Waydroid";
 
@@ -70,10 +69,10 @@ public final class WaydroidPlatform implements EmulatorPlatform {
     }
 
     /**
-     * The host command that brings the Waydroid UI up.
+     * The host command that brings the Waydroid session up.
      *
-     * <p>With gamescope present this is the verified one-liner {@code gamescope [-W …] --expose-wayland
-     * waydroid show-full-ui}. Without it, the bare {@code waydroid show-full-ui} — which works on a genuine
+     * <p>With gamescope present this is {@code env -u … gamescope --backend headless [-W …] --expose-wayland
+     * waydroid session start}. Without it, the bare {@code waydroid session start} — which works on a genuine
      * Wayland desktop and fails visibly on X11, rather than being silently unavailable.
      *
      * <p>Package-private and pure (both inputs passed in) so the argv is unit-testable on any machine.
@@ -82,7 +81,7 @@ public final class WaydroidPlatform implements EmulatorPlatform {
      * @param gamescopeOnPath whether the compositor is available to host the Wayland client
      */
     static List<String> launchCommand(WaydroidResolution resolution, boolean gamescopeOnPath) {
-        return WaydroidResolution.gamescoped(List.of(WaydroidCli.WAYDROID, "show-full-ui"), resolution,
+        return WaydroidResolution.headless(List.of(WaydroidCli.WAYDROID, "session", "start"), resolution,
                 gamescopeOnPath);
     }
 }

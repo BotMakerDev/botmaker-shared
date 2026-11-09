@@ -14,6 +14,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- **Waydroid runs under a headless gamescope, never on a private display** (2026-11-09): `waydroid session start`
+  and a cold `waydroid app launch` run inside `env -u WAYLAND_DISPLAY -u DISPLAY gamescope --backend headless …`
+  (`WaydroidResolution.headless`), which shows no window; the bot reads and presses Android over ADB.
+  `LaunchSpec.runsOffDesktop()` is true for every emulator app, and `LaunchCommands.childLadder` gives none of them
+  a rung (the sized overload, `nestedSize` and `WaydroidApps.nestedLaunchCommand` are gone). The nested gamescope
+  died with `xwm: X11 I/O error! This is fatal` when another client took its display over.
+
 ### Fixed
 
 - **A frame grab never blocks a run for good** (`AdbDevice.screencap`, `isConnected`): one unanswered after
