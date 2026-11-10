@@ -66,8 +66,8 @@ ordered cross-module release: land the shared change, release it, then bump both
 ## Planning
 
 For large changes, write the plan to a dedicated plan file before starting, so work can be resumed if a
-session is interrupted. A finished change writes `CHANGELOG.md` under `## [Unreleased]`. `ROADMAP.md`
-holds open work only: add an item when work is left for later, remove it when done; never a dated done-entry.
+session is interrupted. A finished change writes `CHANGELOG.md` under `## [Unreleased]`. There is no roadmap
+file (2026-11-10).
 
 ## Commands
 
