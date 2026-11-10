@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -25,8 +26,9 @@ import java.util.stream.Stream;
  * email and the AAS token it gives in {@link Credentials}, beside GitHub's and Studio's own sign-ins.
  * {@link PlayDownload} uses it only when Aurora's anonymous accounts gave nothing.
  *
- * <p><b>The token is the account's key to Google Play.</b> Only the user signs in, in Studio; no assistant tool signs
- * in or reads it ({@code CLAUDE.md}: no assistant session reads a secret value), and nothing logs it.
+ * <p><b>The token is the account's key to Google Play.</b> Only the user signs in, in the browser window, opened from
+ * the Game dialog or by an assistant (the SDK's {@code setup google_sign_in}, 2026-11-10); no tool's answer carries the
+ * token ({@code CLAUDE.md}: no assistant session reads a secret value), and nothing logs it.
  */
 public final class GoogleAccount {
 
@@ -88,22 +90,56 @@ public final class GoogleAccount {
         return valid(email, token) ? Optional.of(new Account(email, token)) : Optional.empty();
     }
 
+    /** What a caller says after {@link #signOut}: the sign-in stays listed at Google until removed there. */
+    public static final String SIGNED_OUT = "Signed out of Google on this computer. Google still lists the sign-in "
+            + "under the account's devices, where you can remove it.";
+
+    /** The thread waiting in {@link #signIn}, or null: one sign-in at a time, whoever started it. */
+    private static final AtomicReference<Thread> SIGNING_IN = new AtomicReference<>();
+
     /** Forgets the account on this computer. Google still lists the sign-in under the account's devices. */
     public static void signOut() {
         Credentials.remove(EMAIL);
         Credentials.remove(TOKEN);
     }
 
+    /** Whether a sign-in waits in the browser, started by the Game dialog or an assistant. */
+    public static boolean signingIn() {
+        return SIGNING_IN.get() != null;
+    }
+
+    /** Stops the sign-in waiting in the browser, if one is; whether one was. Its {@link #signIn} then returns. */
+    public static boolean cancelSignIn() {
+        Thread waiting = SIGNING_IN.get();
+        if (waiting == null) return false;
+        waiting.interrupt();
+        return true;
+    }
+
     /**
      * Opens goopdl's browser window, waits for the user to sign in there, and keeps the account. Installs goopdl
-     * first when there is none. Blocking (minutes, the user's time) and interruptible.
+     * first when there is none. Blocking (minutes, the user's time) and interruptible ({@link #cancelSignIn}); refused
+     * while another sign-in waits.
      *
      * @param progress optional narration; never the token
      */
     public static Result signIn(Consumer<String> progress) {
+        if (!SIGNING_IN.compareAndSet(null, Thread.currentThread())) {
+            return new Result(Optional.empty(), "A Google sign-in is already waiting in the browser.");
+        }
+        try {
+            return signInOnce(progress);
+        } finally {
+            SIGNING_IN.set(null);
+        }
+    }
+
+    private static Result signInOnce(Consumer<String> progress) {
         if (ManagedTools.goopdlInstalled().isEmpty()) report(progress, "Getting goopdl, the Google Play downloader…");
         StringBuilder why = new StringBuilder();
-        if (ManagedTools.installGoopdl(why::append).isEmpty()) {
+        Optional<Path> goopdl = ManagedTools.installGoopdl(why::append);
+        if (Thread.currentThread().isInterrupted()) return new Result(Optional.empty(), "Stopped signing in.");
+        if (goopdl.isEmpty()) {
             return new Result(Optional.empty(), why.isEmpty() ? "goopdl couldn't be installed." : why.toString());
         }
         Optional<Path> python = ManagedTools.goopdlPython();

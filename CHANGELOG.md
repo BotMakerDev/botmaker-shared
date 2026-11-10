@@ -16,6 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `GoogleAccount` allows one sign-in at a time, whoever starts it (the Game dialog or the SDK's `setup
+  google_sign_in`): `signingIn()` says whether one waits in the browser, `cancelSignIn()` stops it, and a stop
+  during goopdl's install answers "Stopped signing in.". `SIGNED_OUT` is the one sign-out sentence.
 - `emulator.GoogleAccount`: one Google account for Google Play's files on every emulator, signed in by goopdl's own
   browser capture run from its venv; its email and AAS token are kept in `credentials.json` (`google_play_email`,
   `google_play_aas`). `PlayDownload.fetch` and `newestVersion` try again with it, as goopdl's direct account, when
