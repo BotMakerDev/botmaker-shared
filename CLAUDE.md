@@ -61,7 +61,8 @@ ordered cross-module release: land the shared change, release it, then bump both
 - **`UserDirs.config()` is what the user told us, `cache()` what can be fetched again**; never swap them
   (`architecture.md`).
 - **scrcpy: no `max_size`, ever; the server is located or downloaded, never vendored** (`device.md`).
-- **`credentials.json` is shared with Studio's `GoogleAuth`**: every write merges the whole map (`github.md`).
+- **`credentials.json` is shared with core's `GoogleAuth`**: every write merges the whole map; it lives in
+  `UserDirs.config()`, never the cache (`github.md`).
 
 ## Planning
 

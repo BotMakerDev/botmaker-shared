@@ -16,6 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `credentials.json` (GitHub, Google and Google Play sign-ins) moved from the cache dir to the config dir
+  (`UserDirs.config()`, `%LOCALAPPDATA%\BotMaker` on Windows), so clearing BotMaker's cache no longer signs you out.
+  The first use moves the old file over, merging when both exist.
 - `GoogleAccount` allows one sign-in at a time, whoever starts it (the Game dialog or the SDK's `setup
   google_sign_in`): `signingIn()` says whether one waits in the browser, `cancelSignIn()` stops it, and a stop
   during goopdl's install answers "Stopped signing in.". `SIGNED_OUT` is the one sign-out sentence.

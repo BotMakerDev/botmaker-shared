@@ -29,3 +29,8 @@ pom.
 **`credentials.json` is shared with `GoogleAuth`, which still lives in Studio**, so every write merges the
 whole map rather than overwriting it. Signing into one provider must not wipe the other's token — that is
 why `store` reads before it writes, and it is now a rule spanning two repositories.
+
+**It lives in the config dir** (`UserDirs.config()`: `%LOCALAPPDATA%\BotMaker`, `~/.config/botmaker`,
+`~/Library/Application Support/botmaker`), since 2026-11-10 (the user's call): a sign-in cannot be fetched again,
+and the cache dir, where it was, is the folder a user may clear. `Credentials` moves the cache dir's file on its
+first use in a process, merging when both exist (the config dir's keys win).
