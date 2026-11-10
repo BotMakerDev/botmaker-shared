@@ -6,6 +6,8 @@ import com.botmaker.shared.Spawn;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Comparator;
@@ -291,7 +293,8 @@ public final class ManagedTools {
     }
 
     /**
-     * Makes BotMaker's goopdl venv with this computer's Python 3.11 or newer when there is none; returns goopdl, or
+     * Makes BotMaker's goopdl venv with this computer's Python 3.11 or newer, else with a Python BotMaker fetches
+     * ({@link #python}), when there is none; returns goopdl, or
      * empty with {@code why} told the reason. Blocking: pip downloads about 3 MB. One at a time: the dialog and the
      * assistant installing together would each delete the other's half-made venv.
      */
@@ -299,10 +302,12 @@ public final class ManagedTools {
         Optional<Path> installed = goopdlInstalled();
         if (installed.isPresent()) return installed;
         Optional<Path> python = python311();
-        if (python.isEmpty()) {
-            why.accept("goopdl needs Python 3.11 or newer, and none is on this computer.");
+        if (python.isEmpty() && Thread.currentThread().isInterrupted()) {
+            why.accept("Stopped installing goopdl.");
             return Optional.empty();
         }
+        if (python.isEmpty()) python = installPython(why);
+        if (python.isEmpty()) return Optional.empty();
         Path venv = goopdlVenv();
         try {
             deleteTree(venv);
@@ -337,15 +342,136 @@ public final class ManagedTools {
 
     private static final Duration PIP_TIMEOUT = Duration.ofMinutes(5);
 
-    /** {@code python3}, else {@code python}, when it is 3.11 or newer. */
-    private static Optional<Path> python311() {
-        for (String name : List.of("python3", "python")) {
-            Optional<File> found = Executables.find(name);
-            if (found.isEmpty()) continue;
+    /** The CPython BotMaker fetches when the computer has none new enough, and the python-build-standalone build. */
+    public static final String PYTHON_VERSION = "3.12.15";
+    static final String PYTHON_BUILD = "20261021";
+
+    /**
+     * Astral's python-build-standalone CPython, the {@code install_only} archive: a whole Python with venv and pip that
+     * runs from any folder, installed nowhere (2026-11-10, the user's call: BotMaker fetches one rather than asking the
+     * user to install Python). Digests are the ones GitHub lists for the release's assets. Only goopdl uses it.
+     */
+    static Downloads.Remote python(String osName, String arch) {
+        String os = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
+        String cpu = arch == null ? "" : arch.toLowerCase(Locale.ROOT);
+        boolean x64 = cpu.equals("amd64") || cpu.equals("x86_64");
+        boolean arm64 = cpu.equals("aarch64") || cpu.equals("arm64");
+        if (os.contains("win") && x64) {
+            return pythonRemote("x86_64-pc-windows-msvc",
+                    "be7f14464d1d66f84429ad27e01f6d1482963afff64a2fb5256b2a51c7b5d398", 46_388_793);
+        }
+        if (os.contains("nux") && x64) {
+            return pythonRemote("x86_64-unknown-linux-gnu",
+                    "5ff9f0602ce964a529ed1e8555d3abab6341926d724402ba9a15e9e877191124", 67_908_973);
+        }
+        if (os.contains("nux") && arm64) {
+            return pythonRemote("aarch64-unknown-linux-gnu",
+                    "f53cca8fcd20805bddaa8bff1ef722a6918f8225d37561bd36ad901d13d580af", 53_023_905);
+        }
+        if (os.contains("mac") && arm64) {
+            return pythonRemote("aarch64-apple-darwin",
+                    "a18cc33862b53bd54a148c710def5375c1b47470cccedf817a19c2d211764584", 25_158_763);
+        }
+        if (os.contains("mac") && x64) {
+            return pythonRemote("x86_64-apple-darwin",
+                    "869e0b30959beccc616ce14907439f4d0b3170c5830a2362dade07f07b0ed3b8", 24_858_259);
+        }
+        return null;
+    }
+
+    private static Downloads.Remote pythonRemote(String target, String sha256, long size) {
+        return new Downloads.Remote("https://github.com/astral-sh/python-build-standalone/releases/download/"
+                + PYTHON_BUILD + "/cpython-" + PYTHON_VERSION + "%2B" + PYTHON_BUILD + "-" + target
+                + "-install_only.tar.gz", Downloads.Digest.SHA_256, sha256, size);
+    }
+
+    /** The folder BotMaker's own Python is unpacked into; the archive's own {@code python/} root sits in it. */
+    static Path pythonHome() {
+        return directory().resolve("python-" + PYTHON_VERSION);
+    }
+
+    /** The interpreter in an unpacked archive at {@code home}. */
+    static Path pythonIn(Path home, boolean windows) {
+        Path root = home.resolve("python");
+        return windows ? root.resolve("python.exe") : root.resolve("bin").resolve("python3");
+    }
+
+    /**
+     * The command that unpacks {@code archive} into {@code into}. On Windows it is the system's own {@code tar.exe}
+     * (bsdtar, there since Windows 10 1803) by its full path: a Git or MSYS {@code tar} first on {@code PATH} reads
+     * {@code C:\…} as a remote host. Pure.
+     */
+    static List<String> untar(Path archive, Path into, boolean windows) {
+        String tar = windows ? System.getenv().getOrDefault("SystemRoot", "C:\\Windows") + "\\System32\\tar.exe"
+                : "tar";
+        return List.of(tar, "-xzf", archive.toString(), "-C", into.toString());
+    }
+
+    /**
+     * BotMaker's own Python, fetched and unpacked when it isn't there yet; empty with {@code why} told the reason.
+     * Blocking: the archive is 25 to 70 MB.
+     */
+    private static Optional<Path> installPython(Consumer<String> why) {
+        Path home = pythonHome();
+        Path python = pythonIn(home, windows());
+        if (Files.isRegularFile(home.resolve(PYTHON_DONE)) && Files.isRegularFile(python)) return Optional.of(python);
+        Downloads.Remote remote = python(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
+        if (remote == null) {
+            why.accept("goopdl needs Python 3.11 or newer: none is on this computer, and BotMaker has no Python to "
+                    + "fetch for it.");
+            return Optional.empty();
+        }
+        Path archive = directory().resolve("python-" + PYTHON_VERSION + ".tar.gz");
+        try {
+            deleteTree(home);
+            if (!Downloads.fetch(remote, archive, Downloads.Progress.IGNORED)) {
+                why.accept("goopdl needs Python 3.11 or newer: none is on this computer, and BotMaker couldn't "
+                        + "download one (" + remote.url() + ").");
+                return Optional.empty();
+            }
+            Files.createDirectories(home);
+            Spawn.Completed unpacked = Spawn.run(PIP_TIMEOUT, untar(archive, home, windows()));
+            if (unpacked == null || !unpacked.ok() || !Files.isRegularFile(python)) {
+                why.accept("Couldn't unpack the Python BotMaker downloaded: " + (unpacked == null ? "it took too long"
+                        : lastLine(unpacked.output())));
+                deleteTree(home);
+                return Optional.empty();
+            }
+            Files.writeString(home.resolve(PYTHON_DONE), PYTHON_VERSION + "+" + PYTHON_BUILD + "\n");
+            return Optional.of(python);
+        } catch (IOException e) {
+            why.accept("Couldn't install Python for goopdl: " + e.getMessage());
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            // No done-file yet: the next install unpacks it again.
+            Thread.currentThread().interrupt();
+            why.accept("Stopped installing Python for goopdl.");
+            return Optional.empty();
+        } finally {
             try {
-                Spawn.Completed version = Spawn.run(Duration.ofSeconds(10), found.get().getPath(), "-c",
-                        "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)");
-                if (version != null && version.ok()) return Optional.of(found.get().toPath());
+                Files.deleteIfExists(archive);
+            } catch (IOException ignored) {
+                // a leftover archive costs disk, not correctness
+            }
+        }
+    }
+
+    /** The file whose presence says the Python archive was unpacked whole. */
+    private static final String PYTHON_DONE = "botmaker-installed";
+
+    /**
+     * The first of {@link #pythonNames} that is 3.11 or newer, as the interpreter it says it is. Each name is spawned
+     * bare, not looked up first: Windows' {@code python.exe} in {@code WindowsApps} is an app alias, a link Java
+     * cannot read as a file but process creation runs (2026-11-10, Python's install manager put only those on
+     * {@code PATH}), and the {@code py} launcher is a Python too.
+     */
+    private static Optional<Path> python311() {
+        for (String name : pythonNames(windows())) {
+            try {
+                Spawn.Completed said = Spawn.run(Duration.ofSeconds(10), name, "-c",
+                        "import sys; sys.exit(1) if sys.version_info < (3, 11) else print(sys.executable)");
+                Optional<Path> python = said == null || !said.ok() ? Optional.empty() : interpreter(said.output());
+                if (python.isPresent()) return python;
             } catch (IOException e) {
                 // try the next name
             } catch (InterruptedException e) {
@@ -354,6 +480,27 @@ public final class ManagedTools {
             }
         }
         return Optional.empty();
+    }
+
+    /** The names a Python answers to, in the order asked: on Windows the {@code py} launcher last. */
+    static List<String> pythonNames(boolean windows) {
+        return windows ? List.of("python3", "python", "py") : List.of("python3", "python");
+    }
+
+    /**
+     * The interpreter {@code print(sys.executable)} named on its last line, when that file is there. Not followed: a
+     * Microsoft Store Python's {@code sys.executable} is itself a WindowsApps alias, there but not a regular file.
+     */
+    static Optional<Path> interpreter(String output) {
+        String said = lastLine(output);
+        if (said.isBlank()) return Optional.empty();
+        try {
+            Path path = Path.of(said);
+            return path.isAbsolute() && Files.exists(path, LinkOption.NOFOLLOW_LINKS) && !Files.isDirectory(path)
+                    ? Optional.of(path) : Optional.empty();
+        } catch (InvalidPathException e) {
+            return Optional.empty();
+        }
     }
 
     private static String lastLine(String output) {

@@ -14,10 +14,12 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -91,14 +93,15 @@ public final class ApkDownload {
     }
 
     /**
-     * Downloads {@code packageName}'s newest version from APKPure into {@code library}, for a device whose processor
-     * is {@code abi} ({@code x86_64}, {@code arm64-v8a}…; blank: apkeep's default). Installs the pinned apkeep first
-     * when there is none.
+     * Downloads {@code packageName}'s newest version from APKPure into {@code library}, for a device whose processors
+     * are {@code abis}, best first ({@code x86_64}, {@code arm64-v8a}…; none: apkeep's default), trying the next when
+     * APKPure has nothing for one: BlueStacks and LDPlayer list {@code x86_64} first and run an ARM-only game
+     * (2026-11-10). Installs the pinned apkeep first when there is none.
      *
      * @param acknowledged whether the user accepted that APKPure is a third-party mirror ({@link #DANGERS})
      * @param progress     optional narration; apkeep's own lines come on a reader thread
      */
-    public static Result fetch(String packageName, String abi, boolean acknowledged, ApkLibrary library,
+    public static Result fetch(String packageName, List<String> abis, boolean acknowledged, ApkLibrary library,
                                Consumer<String> progress) {
         if (packageName == null || !PlayStoreSearch.PACKAGE.matcher(packageName).matches()) {
             return Result.failed("\"" + packageName + "\" isn't an Android package name.");
@@ -113,32 +116,57 @@ public final class ApkDownload {
             return Result.failed("apkeep isn't installed and BotMaker has no copy for this computer: install it "
                     + "(cargo install apkeep), or download the game from a store page.");
         }
-        Path out;
-        try {
-            out = Files.createTempDirectory("botmaker-apkeep-");
-        } catch (IOException e) {
-            return Result.failed("Couldn't make a folder to download into: " + e.getMessage());
-        }
-        try {
-            report(progress, "Downloading " + packageName + " from APKPure…");
-            List<String> command = command(apkeep.get(), packageName, abi, out);
-            Diag.log("[Apk] " + String.join(" ", command));
-            String failure = run(command, progress);
-            Optional<Path> file = downloadedFile(out);
-            if (file.isEmpty()) {
-                return Result.failed("APKPure gave no file for " + packageName
-                        + (failure.isBlank() ? "." : ": " + failure) + " Download it from a store page instead.");
+        String failure = "";
+        for (String arch : archs(abis)) {
+            Path out;
+            try {
+                out = Files.createTempDirectory("botmaker-apkeep-");
+            } catch (IOException e) {
+                return Result.failed("Couldn't make a folder to download into: " + e.getMessage());
             }
-            ApkLibrary.Entry entry = library.add(file.get());
-            return new Result(Optional.of(entry), "Downloaded " + packageName + " " + entry.version() + ".");
-        } catch (IOException e) {
-            return Result.failed(e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return Result.failed("Stopped downloading " + packageName + ".");
-        } finally {
-            deleteTree(out);
+            try {
+                report(progress, "Downloading " + packageName + " from APKPure"
+                        + (arch.isEmpty() ? "" : " for " + arch) + "…");
+                List<String> command = command(apkeep.get(), packageName, arch, out);
+                Diag.log("[Apk] " + String.join(" ", command));
+                Spawn.Completed done = Spawn.streamed(TIMEOUT, command, Map.of(), progress);
+                if (done == null) {
+                    return Result.failed("APKPure's download of " + packageName + " took over "
+                            + TIMEOUT.toMinutes() + " minutes.");
+                }
+                Optional<Path> file = downloadedFile(out);
+                if (file.isEmpty()) {
+                    // Nothing for this processor: the next one may have it.
+                    failure = done.ok() ? "" : done.output().isBlank() ? "apkeep exited with " + done.exitCode()
+                            : done.output();
+                    continue;
+                }
+                ApkLibrary.Entry entry = library.add(file.get());
+                return new Result(Optional.of(entry), "Downloaded " + packageName + " " + entry.version() + ".");
+            } catch (IOException e) {
+                return Result.failed(e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Result.failed("Stopped downloading " + packageName + ".");
+            } finally {
+                deleteTree(out);
+            }
         }
+        return Result.failed("APKPure gave no file for " + packageName
+                + (failure.isBlank() ? "." : ": " + failure));
+    }
+
+    /**
+     * The processors apkeep is asked for, in the device's order, each once; one that isn't an ABI (a comma would add
+     * an option) is left out, and none at all is one run with apkeep's default, blank. Pure.
+     */
+    static List<String> archs(List<String> abis) {
+        Set<String> archs = new LinkedHashSet<>();
+        for (String abi : abis == null ? List.<String>of() : abis) {
+            String arch = abi == null ? "" : abi.strip();
+            if (arch.matches("[A-Za-z0-9_-]+")) archs.add(arch);
+        }
+        return archs.isEmpty() ? List.of("") : List.copyOf(archs);
     }
 
     /**
@@ -172,15 +200,6 @@ public final class ApkDownload {
         } catch (IOException e) {
             return Optional.empty();
         }
-    }
-
-    /** Runs apkeep, passing each line on; returns its last line when it failed, else blank. */
-    private static String run(List<String> command, Consumer<String> progress)
-            throws IOException, InterruptedException {
-        Spawn.Completed done = Spawn.streamed(TIMEOUT, command, Map.of(), progress);
-        if (done == null) return "it took over " + TIMEOUT.toMinutes() + " minutes";
-        if (done.ok()) return "";
-        return done.output().isBlank() ? "apkeep exited with " + done.exitCode() : done.output();
     }
 
     private static long size(Path file) {

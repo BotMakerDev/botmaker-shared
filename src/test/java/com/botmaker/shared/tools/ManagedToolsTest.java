@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -30,7 +31,37 @@ class ManagedToolsTest {
                 ManagedTools.platformTools("Windows 11"),
                 ManagedTools.apkeep("Linux", "amd64"),
                 ManagedTools.apkeep("Linux", "aarch64"),
-                ManagedTools.apkeep("Windows 11", "amd64"));
+                ManagedTools.apkeep("Windows 11", "amd64"),
+                ManagedTools.python("Windows 11", "amd64"),
+                ManagedTools.python("Linux", "amd64"),
+                ManagedTools.python("Linux", "aarch64"),
+                ManagedTools.python("Mac OS X", "aarch64"),
+                ManagedTools.python("Mac OS X", "x86_64"));
+    }
+
+    /** The Python fetched when the computer has none is CPython 3.11 or newer, one archive per OS and processor. */
+    @Test
+    void pythonIsPinnedPerOsAndProcessor() {
+        String[] version = ManagedTools.PYTHON_VERSION.split("\\.");
+        assertTrue(Integer.parseInt(version[0]) == 3 && Integer.parseInt(version[1]) >= 11, ManagedTools.PYTHON_VERSION);
+        assertTrue(ManagedTools.python("Windows 11", "amd64").url().endsWith("-x86_64-pc-windows-msvc-install_only.tar.gz"));
+        assertTrue(ManagedTools.python("Linux", "arm64").url().contains("/" + ManagedTools.PYTHON_BUILD + "/cpython-"
+                + ManagedTools.PYTHON_VERSION + "%2B" + ManagedTools.PYTHON_BUILD + "-aarch64-unknown-linux-gnu"));
+        assertTrue(ManagedTools.python("Mac OS X", "aarch64").url().contains("-aarch64-apple-darwin-"));
+        assertNull(ManagedTools.python("Windows 11", "aarch64"));
+        assertNull(ManagedTools.python("Linux", "riscv64"));
+        assertEquals(Path.of("/h/python/python.exe"), ManagedTools.pythonIn(Path.of("/h"), true));
+        assertEquals(Path.of("/h/python/bin/python3"), ManagedTools.pythonIn(Path.of("/h"), false));
+    }
+
+    /** Windows unpacks with its own tar.exe by full path: an MSYS tar on PATH reads C:\ as a host. */
+    @Test
+    void windowsUnpacksWithItsOwnTar() {
+        List<String> windows = ManagedTools.untar(Path.of("/a.tar.gz"), Path.of("/into"), true);
+        assertTrue(windows.getFirst().toLowerCase().endsWith("system32\\tar.exe"), windows.getFirst());
+        assertEquals(List.of("-xzf", Path.of("/a.tar.gz").toString(), "-C", Path.of("/into").toString()),
+                windows.subList(1, 5));
+        assertEquals("tar", ManagedTools.untar(Path.of("/a.tar.gz"), Path.of("/into"), false).getFirst());
     }
 
     @Test
@@ -93,5 +124,22 @@ class ManagedToolsTest {
         System.setProperty(UserDirs.CACHE_PROPERTY, dir.toString());
         assertEquals(dir.resolve("tools"), ManagedTools.directory());
         assertTrue(ManagedTools.scrcpyServerPath().startsWith(dir));
+    }
+
+    /** Windows asks the py launcher too, last; elsewhere there is none. */
+    @Test
+    void windowsAsksThePyLauncherLast() {
+        assertEquals(List.of("python3", "python", "py"), ManagedTools.pythonNames(true));
+        assertEquals(List.of("python3", "python"), ManagedTools.pythonNames(false));
+    }
+
+    /** The interpreter is the file Python printed on its last line, not the alias it was run by. */
+    @Test
+    void theInterpreterIsThePathPythonPrinted(@TempDir Path dir) throws Exception {
+        Path python = Files.createFile(dir.resolve("python.exe"));
+        assertEquals(python, ManagedTools.interpreter("a warning\n" + python + "\r\n").orElseThrow());
+        assertTrue(ManagedTools.interpreter("").isEmpty());
+        assertTrue(ManagedTools.interpreter(dir.resolve("gone.exe").toString()).isEmpty());
+        assertTrue(ManagedTools.interpreter("python.exe").isEmpty());
     }
 }

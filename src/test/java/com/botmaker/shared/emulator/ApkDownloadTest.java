@@ -27,12 +27,23 @@ class ApkDownloadTest {
                 "a comma is no ABI and adds no option");
     }
 
+    /** An x86_64-first emulator still gets an ARM-only game: each processor is asked in turn (2026-11-10). */
+    @Test
+    void apkPureIsAskedForEachOfTheDevicesProcessorsInTurn() {
+        assertEquals(List.of("x86_64", "x86", "arm64-v8a", "armeabi-v7a"),
+                ApkDownload.archs(List.of("x86_64", " x86", "arm64-v8a", "armeabi-v7a", "x86_64")));
+        assertEquals(List.of("arm64-v8a"), ApkDownload.archs(List.of("x86,split_apk=1", "arm64-v8a")));
+        assertEquals(List.of(""), ApkDownload.archs(List.of()), "no processor: one run with apkeep's default");
+        assertEquals(List.of(""), ApkDownload.archs(null));
+    }
+
     @Test
     void withoutTheUsersOkNothingIsDownloaded(@TempDir Path dir) {
-        ApkDownload.Result result = ApkDownload.fetch("com.foo.game", "x86_64", false, new ApkLibrary(dir), null);
+        ApkDownload.Result result = ApkDownload.fetch("com.foo.game", List.of("x86_64"), false, new ApkLibrary(dir),
+                null);
         assertFalse(result.ok());
         assertTrue(result.message().contains(ApkDownload.DANGERS), result.message());
-        assertFalse(ApkDownload.fetch("not a package", "", true, new ApkLibrary(dir), null).ok());
+        assertFalse(ApkDownload.fetch("not a package", List.of(), true, new ApkLibrary(dir), null).ok());
     }
 
     @Test

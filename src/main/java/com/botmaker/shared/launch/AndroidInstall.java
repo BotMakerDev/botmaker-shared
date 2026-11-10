@@ -19,13 +19,14 @@ import java.util.function.Consumer;
 
 /**
  * An Android game on an emulator instance or a phone ({@code emu-app:<package>@<instance>}). Where its file comes
- * from, first that answers (2026-11-01, the user's order):
+ * from, first that answers (2026-11-01, the user's order; the Play app moved last on 2026-11-10):
  *
  * <ol>
  *   <li>the {@link ApkLibrary}, when it holds a version newer than the one installed;</li>
  *   <li>Google Play's own files through goopdl ({@link PlayDownload}): no Play app, no account;</li>
- *   <li>Google Play on the instance, when it has it: the user presses Install or Update there;</li>
  *   <li>APKPure through apkeep ({@link ApkDownload}), only once the user accepted APKPure's risk;</li>
+ *   <li>Google Play on the instance, when it has it: the user presses Install or Update there, signed in on that
+ *   instance;</li>
  *   <li>a store page opened in the browser, the file picked up from Downloads when it lands there.</li>
  * </ol>
  *
@@ -103,21 +104,28 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
             }
             report(progress, fromPlay.message());
         }
-        if (device.facts().hasPlay()) {
-            return result(EmulatorInstall.openStorePage(device.live(), pkg(), name()), Outcome.WAITING_FOR_USER,
-                    Source.PLAY_APP);
-        }
         if (apkPureAcknowledged) {
-            ApkDownload.Result fetched = ApkDownload.fetch(pkg(), device.facts().abi(), true, library, progress);
+            ApkDownload.Result fetched = ApkDownload.fetch(pkg(), device.facts().abis(), true, library, progress);
             if (Thread.currentThread().isInterrupted()) return stopped();
             if (fetched.ok()) {
                 ApkLibrary.Entry entry = fetched.entry().orElseThrow();
-                return entry.newerThan(installed)
-                        ? install(device, entry.file(), progress, Outcome.UPDATED, Source.APKPURE)
-                        : new Result(Outcome.UP_TO_DATE, Source.APKPURE.said(name() + " is up to date on "
-                        + device.live().name() + " (APKPure's newest is " + entry.version() + ")"));
+                if (entry.newerThan(installed)) {
+                    return install(device, entry.file(), progress, Outcome.UPDATED, Source.APKPURE);
+                }
+                // APKPure lags Play: up to date only when Play said nothing newer.
+                if (newest.isEmpty()) {
+                    return new Result(Outcome.UP_TO_DATE, Source.APKPURE.said(name() + " is up to date on "
+                            + device.live().name() + " (APKPure's newest is " + entry.version() + ")"));
+                }
+                report(progress, "APKPure's newest " + name() + " is " + entry.version() + ", older than Google "
+                        + "Play's " + newest.getAsLong() + ".");
+            } else {
+                report(progress, fetched.message());
             }
-            report(progress, fetched.message());
+        }
+        if (device.facts().hasPlay()) {
+            return result(EmulatorInstall.openStorePage(device.live(), pkg(), name()), Outcome.WAITING_FOR_USER,
+                    Source.PLAY_APP);
         }
         return fromPage(device, progress, Outcome.UPDATED);
     }
@@ -149,11 +157,15 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
 
     @Override
     public String source() {
-        return apkPureAcknowledged ? "the APK library, Google Play (goopdl or the Play app), APKPure (apkeep) or a "
-                + "store page" : "the APK library, Google Play (goopdl or the Play app) or a store page";
+        return apkPureAcknowledged ? "the APK library, Google Play's files (goopdl), APKPure (apkeep), the Play app "
+                + "or a store page" : "the APK library, Google Play's files (goopdl), the Play app or a store page";
     }
 
-    /** The first way in that answers, past the library: goopdl, the Play app, apkeep, then a store page. */
+    /**
+     * The first way in that answers, past the library: goopdl, apkeep, the Play app, then a store page. The Play app
+     * comes after the downloads because it needs the instance signed in to Google, which each instance of each
+     * emulator would do on its own (2026-11-10, the user's call).
+     */
     private Result obtainAndInstall(Device device, Consumer<String> progress, Outcome outcome) {
         Optional<ApkLibrary.Entry> kept = library.newest(pkg());
         if (kept.isPresent()) return install(device, kept.get().file(), progress, outcome, Source.LIBRARY);
@@ -163,17 +175,18 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
             return install(device, fromPlay.entry().orElseThrow().file(), progress, outcome, Source.GOOGLE_PLAY_FILES);
         }
         report(progress, fromPlay.message());
-        if (device.facts().hasPlay()) {
-            return result(EmulatorInstall.fromStore(device.live(), pkg(), name(), progress), outcome, Source.PLAY_APP);
-        }
         if (apkPureAcknowledged) {
-            ApkDownload.Result fetched = ApkDownload.fetch(pkg(), device.facts().abi(), true, library, progress);
+            ApkDownload.Result fetched = ApkDownload.fetch(pkg(), device.facts().abis(), true, library, progress);
             if (Thread.currentThread().isInterrupted()) return stopped();
             if (fetched.ok()) {
                 return install(device, fetched.entry().orElseThrow().file(), progress, outcome, Source.APKPURE);
             }
             report(progress, fetched.message());
-        } else {
+        }
+        if (device.facts().hasPlay()) {
+            return result(EmulatorInstall.fromStore(device.live(), pkg(), name(), progress), outcome, Source.PLAY_APP);
+        }
+        if (!apkPureAcknowledged) {
             report(progress, device.live().name() + " has no Google Play, and downloading from APKPure isn't allowed.");
         }
         return fromPage(device, progress, outcome);

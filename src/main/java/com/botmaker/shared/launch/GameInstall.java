@@ -74,7 +74,7 @@ public sealed interface GameInstall permits AndroidInstall, HeroicInstall, GameI
     /** Brings the game up to date; a game not installed yet is installed. */
     Result update(Consumer<String> progress);
 
-    /** Where the game comes from, a phrase for the user ("Steam", "Google Play (goopdl or the Play app) or a store page"). */
+    /** Where the game comes from, a phrase for the user ("Steam", "Google Play's files (goopdl), the Play app or a store page"). */
     String source();
 
     /**

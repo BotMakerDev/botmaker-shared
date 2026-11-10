@@ -19,6 +19,20 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - `checks.CheckAnswers`: the emulator checks and their fixes as an assistant reads them (one row a line, the fix
   started on the emulator's one runner, how the last fix went), moved from the SDK's `setup` tool so the core's
   `device` tool says the same. `runnerOf` and `ended` moved with it from the SDK's `ChecksRow`.
+- `ManagedTools` fetches a standalone CPython (python-build-standalone 3.12.15, pinned by sha256 per OS and
+  processor) for goopdl's venv when the computer has no Python 3.11 or newer; nothing is installed system-wide.
+
+### Changed
+
+- `ApkDownload.fetch` takes the device's ABI list and asks APKPure for each in turn, so an x86_64-first emulator
+  (BlueStacks, LDPlayer) gets an ARM-only game's arm64 build.
+- `AndroidInstall` tries APKPure before the instance's Play app: library, Google Play's files, APKPure, the Play
+  app, then a store page.
+
+### Fixed
+
+- goopdl found no Python on Windows when only the WindowsApps aliases or the `py` launcher were on `PATH`: each
+  name is now run and the interpreter it prints is kept.
 
 ## [0.8.0] — 2026-11-10
 
