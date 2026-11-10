@@ -7,6 +7,7 @@ import com.botmaker.shared.emulator.ApkLibrary;
 import com.botmaker.shared.emulator.EmulatorInstall;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
+import com.botmaker.shared.emulator.GoogleAccount;
 import com.botmaker.shared.emulator.PlayDownload;
 
 import java.io.IOException;
@@ -23,7 +24,8 @@ import java.util.function.Consumer;
  *
  * <ol>
  *   <li>the {@link ApkLibrary}, when it holds a version newer than the one installed;</li>
- *   <li>Google Play's own files through goopdl ({@link PlayDownload}): no Play app, no account;</li>
+ *   <li>Google Play's own files through goopdl ({@link PlayDownload}): no Play app, Aurora's anonymous accounts, then
+ *   the Google account signed in to BotMaker ({@link GoogleAccount}) when there is one;</li>
  *   <li>APKPure through apkeep ({@link ApkDownload}), only once the user accepted APKPure's risk;</li>
  *   <li>Google Play on the instance, when it has it: the user presses Install or Update there, signed in on that
  *   instance;</li>
@@ -157,8 +159,10 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
 
     @Override
     public String source() {
-        return apkPureAcknowledged ? "the APK library, Google Play's files (goopdl), APKPure (apkeep), the Play app "
-                + "or a store page" : "the APK library, Google Play's files (goopdl), the Play app or a store page";
+        String play = GoogleAccount.signedIn().isPresent() ? "Google Play's files (goopdl, then your Google account)"
+                : "Google Play's files (goopdl)";
+        return "the APK library, " + play + (apkPureAcknowledged ? ", APKPure (apkeep)" : "")
+                + ", the Play app or a store page";
     }
 
     /**

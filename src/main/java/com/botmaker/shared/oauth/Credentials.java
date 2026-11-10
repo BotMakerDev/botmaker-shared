@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,6 +43,7 @@ public final class Credentials {
     public static void store(String key, String value) {
         try {
             Files.createDirectories(FILE.getParent());
+            createPrivate();
             Map<String, String> all = readAll();
             all.put(key, value);
             MAPPER.writeValue(FILE.toFile(), all);
@@ -73,12 +75,29 @@ public final class Credentials {
         try {
             if (Files.exists(FILE)) {
                 JsonNode n = MAPPER.readTree(FILE.toFile());
-                n.properties().forEach(e -> all.put(e.getKey(), e.getValue().asText("")));
+                // null: the file createPrivate just made, still empty
+                if (n != null) n.properties().forEach(e -> all.put(e.getKey(), e.getValue().asText("")));
             }
         } catch (Exception e) {
             System.err.println("Failed to read credentials: " + e.getMessage());
         }
         return all;
+    }
+
+    /**
+     * Creates the file owner-only before anything is written to it, so no token sits in it readable by others between
+     * the write and {@link #restrictPermissions}. Windows: the cache folder's own ACL, the user's.
+     */
+    private static void createPrivate() {
+        if (Files.exists(FILE)) return;
+        try {
+            Files.createFile(FILE, PosixFilePermissions.asFileAttribute(EnumSet.of(
+                    PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)));
+        } catch (UnsupportedOperationException notPosix) {
+            // Windows: written plainly below
+        } catch (Exception e) {
+            // a race with another writer, or no permission: the write below says so
+        }
     }
 
     private static void restrictPermissions() {

@@ -286,6 +286,16 @@ public final class ManagedTools {
                 : Optional.empty();
     }
 
+    /** The Python of BotMaker's goopdl venv when it is complete: what runs goopdl's own modules. */
+    public static Optional<Path> goopdlPython() {
+        return goopdlInstalled().map(goopdl -> venvPython(goopdlVenv(), windows()));
+    }
+
+    /** A venv's own Python. */
+    static Path venvPython(Path venv, boolean windows) {
+        return windows ? venv.resolve("Scripts").resolve("python.exe") : venv.resolve("bin").resolve("python");
+    }
+
     /** pip's command line that installs {@link #GOOPDL_REQUIREMENTS} from {@code requirements}. Pure, for the tests. */
     static List<String> goopdlPip(Path python, Path requirements) {
         return List.of(python.toString(), "-m", "pip", "install", "--disable-pip-version-check", "--no-input",
@@ -318,9 +328,7 @@ public final class ManagedTools {
             }
             Path requirements = venv.resolve("requirements.txt");
             Files.writeString(requirements, String.join("\n", GOOPDL_REQUIREMENTS) + "\n");
-            Path venvPython = windows() ? venv.resolve("Scripts").resolve("python.exe")
-                    : venv.resolve("bin").resolve("python");
-            Spawn.Completed pip = Spawn.run(PIP_TIMEOUT, goopdlPip(venvPython, requirements));
+            Spawn.Completed pip = Spawn.run(PIP_TIMEOUT, goopdlPip(venvPython(venv, windows()), requirements));
             if (pip == null || !pip.ok()) {
                 why.accept("pip couldn't install goopdl " + GOOPDL_VERSION + ": " + (pip == null ? "it took too long"
                         : lastLine(pip.output())));

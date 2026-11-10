@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `emulator.GoogleAccount`: one Google account for Google Play's files on every emulator, signed in by goopdl's own
+  browser capture run from its venv; its email and AAS token are kept in `credentials.json` (`google_play_email`,
+  `google_play_aas`). `PlayDownload.fetch` and `newestVersion` try again with it, as goopdl's direct account, when
+  Aurora's anonymous accounts give nothing; `AndroidInstall.source()` says so when it is signed in.
+  `ManagedTools.goopdlPython()` names the venv's Python.
 - `checks.CheckAnswers`: the emulator checks and their fixes as an assistant reads them (one row a line, the fix
   started on the emulator's one runner, how the last fix went), moved from the SDK's `setup` tool so the core's
   `device` tool says the same. `runnerOf` and `ended` moved with it from the SDK's `ChecksRow`.

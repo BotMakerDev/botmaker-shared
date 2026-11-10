@@ -34,7 +34,9 @@ import java.util.zip.ZipOutputStream;
  *
  * <p>goopdl runs from the venv BotMaker owns ({@link ManagedTools#installGoopdl}). The tokens it fetches stay in its
  * own files under the user's home; BotMaker never reads them, and gives goopdl blank account variables so a
- * personal account set in the environment is never used. The files are packed into one {@code .xapk} — APKs at its
+ * personal account set in the environment is never used. When those accounts give nothing (none to give, Play's
+ * 429, nothing for any processor), the account the user signed in to BotMaker ({@link GoogleAccount}) tries again
+ * (2026-11-10, the user's call). The files are packed into one {@code .xapk} — APKs at its
  * root, OBBs under {@code Android/obb/<package>/} — which {@link EmulatorInstall#fromFile} installs together.
  *
  * <p>Blocking, and interruptible.
@@ -66,26 +68,43 @@ public final class PlayDownload {
         AtomicReference<String> why = new AtomicReference<>("");
         Optional<Path> goopdl = goopdl(progress, why::set);
         if (goopdl.isEmpty()) return ApkDownload.Result.failed(why.get());
+        Tried anonymous = attempt(goopdl.get(), packageName, abis, library, progress, ENVIRONMENT);
+        if (!anonymous.another()) return anonymous.result();
+        Optional<GoogleAccount.Account> account = GoogleAccount.account();
+        if (account.isEmpty()) return anonymous.result();
+        report(progress, anonymous.result().message() + " Trying again with your Google account…");
+        ApkDownload.Result signed = attempt(goopdl.get(), packageName, abis, library, progress,
+                environment(account.get())).result();
+        return signed.ok() ? signed : ApkDownload.Result.failed(anonymous.result().message()
+                + " With your Google account: " + signed.message());
+    }
+
+    /** One pass over the processors; {@code another} when a pass with other credentials may still get the game. */
+    private record Tried(ApkDownload.Result result, boolean another) {}
+
+    private static Tried attempt(Path goopdl, String packageName, List<String> abis, ApkLibrary library,
+                                 Consumer<String> progress, Map<String, String> env) {
         String failure = "";
         for (String arch : archs(abis)) {
             Path out;
             try {
                 out = Files.createTempDirectory("botmaker-goopdl-");
             } catch (IOException e) {
-                return ApkDownload.Result.failed("Couldn't make a folder to download into: " + e.getMessage());
+                return new Tried(ApkDownload.Result.failed("Couldn't make a folder to download into: "
+                        + e.getMessage()), false);
             }
             try {
                 report(progress, "Downloading " + packageName + " from Google Play for " + arch + "…");
-                Ran done = run(command(goopdl.get(), packageName, arch, out), TIMEOUT, progress);
-                if (done == null) return ApkDownload.Result.failed("Google Play's download of " + packageName
-                        + " took over " + TIMEOUT.toMinutes() + " minutes.");
+                Ran done = run(command(goopdl, packageName, arch, out), TIMEOUT, env, progress);
+                if (done == null) return new Tried(ApkDownload.Result.failed("Google Play's download of "
+                        + packageName + " took over " + TIMEOUT.toMinutes() + " minutes."), false);
                 if (done.exit() == 0) {
                     try {
                         Path xapk = out.resolve(packageName + ".xapk");
                         pack(out, packageName, xapk);
                         ApkLibrary.Entry entry = library.add(xapk);
-                        return new ApkDownload.Result(Optional.of(entry), "Downloaded " + packageName + " "
-                                + entry.version() + " from Google Play.");
+                        return new Tried(new ApkDownload.Result(Optional.of(entry), "Downloaded " + packageName
+                                + " " + entry.version() + " from Google Play."), false);
                     } catch (IOException e) {
                         // What this processor got isn't an app: the next one may be.
                         failure = e.getMessage();
@@ -94,18 +113,18 @@ public final class PlayDownload {
                 }
                 failure = done.said();
                 Optional<String> stop = stop(done.exit(), failure);
-                if (stop.isPresent()) return ApkDownload.Result.failed(stop.get());
+                if (stop.isPresent()) return new Tried(ApkDownload.Result.failed(stop.get()), true);
             } catch (IOException e) {
-                return ApkDownload.Result.failed(e.getMessage());
+                return new Tried(ApkDownload.Result.failed(e.getMessage()), false);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return ApkDownload.Result.failed("Stopped downloading " + packageName + ".");
+                return new Tried(ApkDownload.Result.failed("Stopped downloading " + packageName + "."), false);
             } finally {
                 deleteTree(out);
             }
         }
-        return ApkDownload.Result.failed("Google Play gave no file for " + packageName
-                + (failure.isBlank() ? "." : ": " + failure));
+        return new Tried(ApkDownload.Result.failed("Google Play gave no file for " + packageName
+                + (failure.isBlank() ? "." : ": " + failure)), true);
     }
 
     /**
@@ -118,27 +137,43 @@ public final class PlayDownload {
         Optional<Path> goopdl = goopdl(progress, why -> report(progress, why));
         if (goopdl.isEmpty()) return OptionalLong.empty();
         report(progress, "Asking Google Play for " + packageName + "'s newest version…");
+        Asked anonymous = newestVersion(goopdl.get(), packageName, abis, progress, ENVIRONMENT);
+        if (!anonymous.another()) return anonymous.code();
+        Optional<GoogleAccount.Account> account = GoogleAccount.account();
+        if (account.isEmpty()) return anonymous.code();
+        report(progress, "Asking again with your Google account…");
+        return newestVersion(goopdl.get(), packageName, abis, progress, environment(account.get())).code();
+    }
+
+    /**
+     * What {@code goopdl info} answered; {@code another} only when the anonymous accounts were the trouble (none
+     * given, 429), not a timeout or a game Play serves to no processor.
+     */
+    private record Asked(OptionalLong code, boolean another) {}
+
+    private static Asked newestVersion(Path goopdl, String packageName, List<String> abis,
+                                       Consumer<String> progress, Map<String, String> env) {
         for (String arch : archs(abis)) {
             try {
                 AtomicReference<String> version = new AtomicReference<>("");
-                Ran done = run(List.of(goopdl.get().toString(), "info", packageName, "--arch", arch), INFO_TIMEOUT,
+                Ran done = run(List.of(goopdl.toString(), "info", packageName, "--arch", arch), INFO_TIMEOUT, env,
                         line -> { if (line.startsWith("Version ")) version.set(line); });
-                if (done == null) return OptionalLong.empty();
+                if (done == null) return new Asked(OptionalLong.empty(), false);
                 OptionalLong code = versionCode(version.get());
-                if (done.exit() == 0 && code.isPresent()) return code;
+                if (done.exit() == 0 && code.isPresent()) return new Asked(code, false);
                 Optional<String> stop = stop(done.exit(), done.said());
                 if (stop.isPresent()) {
                     report(progress, stop.get());
-                    return OptionalLong.empty();
+                    return new Asked(OptionalLong.empty(), true);
                 }
             } catch (IOException e) {
-                return OptionalLong.empty();
+                return new Asked(OptionalLong.empty(), false);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return OptionalLong.empty();
+                return new Asked(OptionalLong.empty(), false);
             }
         }
-        return OptionalLong.empty();
+        return new Asked(OptionalLong.empty(), false);
     }
 
     private static final Pattern VERSION = Pattern.compile("^Version\\s.*\\((\\d+)\\)\\s*$");
@@ -174,11 +209,12 @@ public final class PlayDownload {
     private record Ran(int exit, String said) {}
 
     /** Runs goopdl, passing on each line with words; {@code null} past {@code timeout}. */
-    private static Ran run(List<String> command, Duration timeout, Consumer<String> progress)
-            throws IOException, InterruptedException {
-        Diag.log("[Apk] " + String.join(" ", command));
+    private static Ran run(List<String> command, Duration timeout, Map<String, String> env,
+                           Consumer<String> progress) throws IOException, InterruptedException {
+        Diag.log("[Apk] " + String.join(" ", command)
+                + (env.get("GOOPDL_ACCOUNT_EMAIL").isEmpty() ? "" : " (with the Google account)"));
         AtomicReference<String> said = new AtomicReference<>("");
-        Spawn.Completed done = Spawn.streamed(timeout, command, ENVIRONMENT, line -> {
+        Spawn.Completed done = Spawn.streamed(timeout, command, env, line -> {
             String words = words(line);
             if (words.isEmpty()) return;
             said.set(words);
@@ -191,8 +227,16 @@ public final class PlayDownload {
      * Blank account variables, so goopdl stays anonymous whatever the environment holds; no colours, a wide
      * terminal, so each line it writes reads as one line.
      */
-    static final Map<String, String> ENVIRONMENT = Map.of("GOOPDL_ACCOUNT_EMAIL", "", "GOOPDL_AAS_TOKEN", "",
-            "NO_COLOR", "1", "TERM", "dumb", "COLUMNS", "160", "PYTHONIOENCODING", "utf-8");
+    static final Map<String, String> ENVIRONMENT = environment(new GoogleAccount.Account("", ""));
+
+    /**
+     * {@link #ENVIRONMENT} with {@code account} as goopdl's direct Google account, when the anonymous ones gave nothing
+     * ({@link GoogleAccount}). Pure.
+     */
+    static Map<String, String> environment(GoogleAccount.Account account) {
+        return Map.of("GOOPDL_ACCOUNT_EMAIL", account.email(), "GOOPDL_AAS_TOKEN", account.token(),
+                "NO_COLOR", "1", "TERM", "dumb", "COLUMNS", "160", "PYTHONIOENCODING", "utf-8");
+    }
 
     /** goopdl's command line for one package and processor: splits and extras (asset packs, OBBs) included. Pure. */
     static List<String> command(Path goopdl, String packageName, String arch, Path out) {

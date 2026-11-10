@@ -55,6 +55,14 @@ class PlayDownloadTest {
     }
 
     @Test
+    void theSignedInAccountIsGoopdlsDirectAccountOnTheSecondTry() {
+        var env = PlayDownload.environment(new GoogleAccount.Account("bot@example.com", "aas_et/abc"));
+        assertEquals("bot@example.com", env.get("GOOPDL_ACCOUNT_EMAIL"));
+        assertEquals("aas_et/abc", env.get("GOOPDL_AAS_TOKEN"));
+        assertEquals(PlayDownload.ENVIRONMENT.get("COLUMNS"), env.get("COLUMNS"));
+    }
+
+    @Test
     void theFilesArePackedAsOneXapkWithTheObbsUnderAndroidObb(@TempDir Path dir) throws IOException {
         Files.write(dir.resolve("com.foo.game-7.apk"), new byte[]{1});
         Files.write(dir.resolve("com.foo.game-7-UnityDataAssetPack.apk"), new byte[]{2});
