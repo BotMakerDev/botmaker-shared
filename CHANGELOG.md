@@ -12,6 +12,14 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Added
+
+- `checks.CheckAnswers`: the emulator checks and their fixes as an assistant reads them (one row a line, the fix
+  started on the emulator's one runner, how the last fix went), moved from the SDK's `setup` tool so the core's
+  `device` tool says the same. `runnerOf` and `ended` moved with it from the SDK's `ChecksRow`.
+
 ## [0.8.0] — 2026-11-10
 
 ### Fixed
