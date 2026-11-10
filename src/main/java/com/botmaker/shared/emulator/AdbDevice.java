@@ -7,6 +7,7 @@ import dadb.adbserver.AdbServer;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -56,8 +57,42 @@ public final class AdbDevice implements AutoCloseable {
     private AdbShellSession session;
 
     private AdbDevice(AdbEndpoint endpoint, Dadb dadb) {
+        this(endpoint, dadb, null, STREAMED_LIMIT);
+    }
+
+    /**
+     * Package-visible for the tests, which give a fake {@code dadb} and {@code uploader} and a small
+     * {@code streamedLimit}; everything else connects.
+     *
+     * @param uploader      how an APK over the limit reaches the device, null for the adb binary's
+     * @param streamedLimit the largest APK file streamed into the package manager
+     */
+    AdbDevice(AdbEndpoint endpoint, Dadb dadb, Uploader uploader, long streamedLimit) {
         this.endpoint = endpoint;
         this.dadb = dadb;
+        this.uploader = uploader != null ? uploader : this::uploadedByAdb;
+        this.streamedLimit = streamedLimit;
+    }
+
+    /** Copies a local APK to a path on the device for {@link #install}, or throws saying why not. */
+    interface Uploader {
+        void upload(File file, String remote) throws IOException;
+    }
+
+    private final Uploader uploader;
+    private final long streamedLimit;
+
+    /**
+     * {@link AdbTools#push}: Google's push carries gigabytes where dadb's was reset at 138 MB (BlueStacks, 2026-11-10),
+     * so with no adb binary an APK this big is refused with how to get one, rather than tried and broken.
+     */
+    private void uploadedByAdb(File file, String remote) throws IOException {
+        if (AdbTools.binary().isEmpty()) {
+            throw new IOException(file.getName() + " is over 2 GB, which only Android's own adb copies to an emulator. "
+                    + AdbTools.installHint());
+        }
+        AdbTools.Outcome outcome = AdbTools.push(endpoint.label(), endpoint instanceof AdbEndpoint.Tcp, file, remote);
+        if (!outcome.ok()) throw new IOException("adb push of " + file.getName() + " failed: " + outcome.message());
     }
 
     /**
@@ -627,7 +662,7 @@ public final class AdbDevice implements AutoCloseable {
      * /data/local/tmp}, a full filesystem) is a {@code false} the caller degrades on, not an exception into a
      * bring-up path that has a working fallback.
      */
-    public boolean push(java.io.File file, String remotePath) {
+    public boolean push(File file, String remotePath) {
         if (file == null || !file.isFile()) {
             return false;
         }
@@ -644,9 +679,88 @@ public final class AdbDevice implements AutoCloseable {
      * an older version. Throws with the package manager's own reason ("INSTALL_FAILED_NO_MATCHING_ABIS…") when
      * Android refuses it.
      */
-    public void install(List<java.io.File> apks) throws IOException {
-        if (apks.size() == 1) dadb.install(apks.getFirst(), "-r");
-        else dadb.installMultiple(apks, "-r");
+    public void install(List<File> apks) throws IOException {
+        if (apks.stream().anyMatch(apk -> apk.length() > streamedLimit) && sdk() <= LAST_UNSTREAMED_SDK) {
+            installUploaded(apks);
+        } else if (apks.size() == 1) {
+            dadb.install(apks.getFirst(), "-r");
+        } else {
+            dadb.installMultiple(apks, "-r");
+        }
+    }
+
+    /**
+     * The largest APK file streamed into the package manager: a bigger one stalls there (2026-11-10, BlueStacks on
+     * Android 9: Sword x Staff's 3.08 GB asset pack stopped at 0.5%, and Google's {@code adb install-multiple} failed to
+     * write it too), so it is uploaded first, by the adb binary ({@link #uploadedByAdb}), and installed from the
+     * device's copy.
+     */
+    static final long STREAMED_LIMIT = Integer.MAX_VALUE;
+    /**
+     * The newest Android that never takes a streamed APK over {@link #STREAMED_LIMIT}: 9 (API 28), seen on BlueStacks.
+     * A newer one streams it, and must: LDPlayer's Android 14 took the same 3 GB pack streamed but refused it written
+     * by path ("Split null was defined multiple times"). Android 10 to 13 are untried and stream.
+     */
+    static final int LAST_UNSTREAMED_SDK = 28;
+
+    /** The device's API level, or {@link Integer#MAX_VALUE} when it doesn't say: streamed, as before. */
+    private int sdk() {
+        try {
+            return Integer.parseInt(dadb.shell("getprop ro.build.version.sdk").getAllOutput().strip());
+        } catch (Exception e) {
+            return Integer.MAX_VALUE;
+        }
+    }
+    private static final Pattern SESSION = Pattern.compile("\\[(\\d+)]");
+    private static final String COPY = "/data/local/tmp/botmaker-install.apk";
+
+    /**
+     * Installs {@code apks} through a package manager session that reads each from a copy on the device, one at a
+     * time: uploaded, written into the session, deleted, so the device holds one copy beside what the session staged.
+     * A copy goes whatever happens, and a session not committed is abandoned.
+     */
+    private void installUploaded(List<File> apks) throws IOException {
+        long total = apks.stream().mapToLong(File::length).sum();
+        String created = dadb.shell("pm install-create -r -S " + total).getAllOutput();
+        Matcher session = SESSION.matcher(created);
+        if (!session.find()) throw new IOException("The package manager opened no install: " + created.strip());
+        String id = session.group(1);
+        boolean committed = false;
+        try {
+            for (int i = 0; i < apks.size(); i++) {
+                File apk = apks.get(i);
+                String wrote;
+                try {
+                    uploader.upload(apk, COPY);
+                    wrote = dadb.shell("pm install-write -S " + apk.length() + " " + id + " " + i + " " + COPY)
+                            .getAllOutput();
+                } finally {
+                    removeQuietly(COPY);
+                }
+                if (!wrote.contains("Success")) {
+                    throw new IOException("The package manager didn't take " + apk.getName() + ": " + wrote.strip());
+                }
+            }
+            String said = dadb.shell("pm install-commit " + id).getAllOutput().strip();
+            committed = true;
+            if (!said.startsWith("Success")) throw new IOException(said);
+        } finally {
+            if (!committed) {
+                try {
+                    dadb.shell("pm install-abandon " + id);
+                } catch (Exception e) {
+                    Diag.log("[Emulator] couldn't abandon install session " + id + ": " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    private void removeQuietly(String path) {
+        try {
+            dadb.shell("rm -f " + path);
+        } catch (Exception e) {
+            Diag.log("[Emulator] couldn't remove " + path + ": " + e.getMessage());
+        }
     }
 
     /**
@@ -671,7 +785,7 @@ public final class AdbDevice implements AutoCloseable {
     }
 
     /** Copies a local file to {@code remotePath}, readable, creating its folders; throws when it can't. */
-    public void pushData(java.io.File file, String remotePath) throws IOException {
+    public void pushData(File file, String remotePath) throws IOException {
         int slash = remotePath.lastIndexOf('/');
         if (slash > 0) shell("mkdir -p '" + remotePath.substring(0, slash).replace("'", "") + "'");
         // dadb takes milliseconds and converts them itself.

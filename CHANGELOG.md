@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- A game with an APK file over 2 GiB installs on Android 9 and older: `AdbDevice.install` uploads each split with the
+  adb binary (`AdbTools.push`) and writes it into a package manager session from the device's copy, one at a time.
+  Streamed, it never landed on BlueStacks' Android 9 (Sword x Staff's 3.08 GB asset pack), and dadb's own push was
+  reset at 138 MB. A newer Android streams it as before: LDPlayer's Android 14 refused the same pack written by path.
+- Install messages name the game by its package, not its whole launch spec, which repeated the instance.
 - `credentials.json` (GitHub, Google and Google Play sign-ins) moved from the cache dir to the config dir
   (`UserDirs.config()`, `%LOCALAPPDATA%\BotMaker` on Windows), so clearing BotMaker's cache no longer signs you out.
   The first use moves the old file over, merging when both exist.

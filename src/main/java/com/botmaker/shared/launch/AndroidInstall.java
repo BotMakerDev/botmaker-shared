@@ -269,8 +269,9 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
         return spec.emulatorPackage();
     }
 
+    /** The game as messages name it: its package; the whole spec repeats the instance each message names already. */
     private String name() {
-        return spec.describe();
+        return pkg();
     }
 
     private static void report(Consumer<String> progress, String message) {

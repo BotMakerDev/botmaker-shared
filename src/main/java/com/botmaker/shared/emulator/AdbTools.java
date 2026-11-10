@@ -564,8 +564,28 @@ public final class AdbTools {
         }
     }
 
+    /**
+     * {@code adb -s <serial> push <file> <remote>}, connecting a TCP device first: Google's push carries a file of
+     * gigabytes to an emulator whose adbd resets dadb's (2026-11-10, BlueStacks: a 3 GB asset pack reset at 138 MB). A
+     * minute, plus one per 500 MB.
+     *
+     * @param tcp whether {@code serial} is a {@code host:port} the server must {@link #connect} first
+     */
+    public static Outcome push(String serial, boolean tcp, File file, String remote) {
+        if (tcp) {
+            Outcome connected = connect(serial);
+            if (!connected.ok()) return connected;
+        }
+        Duration timeout = Duration.ofMinutes(1 + file.length() / 500_000_000L);
+        return run(List.of("-s", serial, "push", file.getAbsolutePath(), remote), "1 file pushed", timeout);
+    }
+
     /** Runs one adb subcommand and decides success by what it said, since adb's exit status does not say. */
     private static Outcome run(List<String> arguments, String successMarker) {
+        return run(arguments, successMarker, COMMAND_TIMEOUT);
+    }
+
+    private static Outcome run(List<String> arguments, String successMarker, Duration timeout) {
         Optional<File> adb = binary();
         if (adb.isEmpty()) {
             return new Outcome(false, installHint());
@@ -574,10 +594,10 @@ public final class AdbTools {
         command.add(adb.get().getAbsolutePath());
         command.addAll(arguments);
         try {
-            Spawn.Completed completed = Spawn.run(COMMAND_TIMEOUT, command);
+            Spawn.Completed completed = Spawn.run(timeout, command);
             if (completed == null) {
-                return new Outcome(false, "adb " + arguments.get(0) + " did not answer within "
-                        + COMMAND_TIMEOUT.toSeconds() + "s");
+                return new Outcome(false, "adb " + String.join(" ", arguments.subList(0, Math.min(3, arguments.size())))
+                        + " did not answer within " + timeout.toSeconds() + "s");
             }
             String message = completed.output().trim();
             // The daemon's own start-up chatter arrives on the same merged stream; the verdict is the last line.
