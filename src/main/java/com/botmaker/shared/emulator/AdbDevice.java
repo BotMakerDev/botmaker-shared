@@ -57,20 +57,22 @@ public final class AdbDevice implements AutoCloseable {
     private AdbShellSession session;
 
     private AdbDevice(AdbEndpoint endpoint, Dadb dadb) {
-        this(endpoint, dadb, null, STREAMED_LIMIT);
+        this(endpoint, dadb, null, null, STREAMED_LIMIT);
     }
 
     /**
-     * Package-visible for the tests, which give a fake {@code dadb} and {@code uploader} and a small
+     * Package-visible for the tests, which give a fake {@code dadb}, {@code uploader} and {@code streamer} and a small
      * {@code streamedLimit}; everything else connects.
      *
      * @param uploader      how an APK over the limit reaches the device, null for the adb binary's
+     * @param streamer      how APKs stream into the package manager, null for the adb binary's, else dadb's
      * @param streamedLimit the largest APK file streamed into the package manager
      */
-    AdbDevice(AdbEndpoint endpoint, Dadb dadb, Uploader uploader, long streamedLimit) {
+    AdbDevice(AdbEndpoint endpoint, Dadb dadb, Uploader uploader, Streamer streamer, long streamedLimit) {
         this.endpoint = endpoint;
         this.dadb = dadb;
         this.uploader = uploader != null ? uploader : this::uploadedByAdb;
+        this.streamer = streamer != null ? streamer : this::streamed;
         this.streamedLimit = streamedLimit;
     }
 
@@ -79,8 +81,30 @@ public final class AdbDevice implements AutoCloseable {
         void upload(File file, String remote) throws IOException;
     }
 
+    /** Streams APKs, one or a base and its splits, into the device's package manager, or throws its reason. */
+    interface Streamer {
+        void install(List<File> apks) throws IOException;
+    }
+
     private final Uploader uploader;
+    private final Streamer streamer;
     private final long streamedLimit;
+
+    /**
+     * {@link AdbTools#install} when this computer has the adb binary, dadb's install otherwise: dadb's stream stalled
+     * at the package manager on GameLoop's Android 13 (2026-11-10, 3 GB asset pack, idle after 3.2 GB) where Google's
+     * carried it in 159 s, as it had stalled on BlueStacks.
+     */
+    private void streamed(List<File> apks) throws IOException {
+        if (AdbTools.binary().isPresent()) {
+            AdbTools.Outcome outcome = AdbTools.install(endpoint.label(), endpoint instanceof AdbEndpoint.Tcp, apks);
+            if (!outcome.ok()) throw new IOException(outcome.message());
+        } else if (apks.size() == 1) {
+            dadb.install(apks.getFirst(), "-r");
+        } else {
+            dadb.installMultiple(apks, "-r");
+        }
+    }
 
     /**
      * {@link AdbTools#push}: Google's push carries gigabytes where dadb's was reset at 138 MB (BlueStacks, 2026-11-10),
@@ -682,10 +706,8 @@ public final class AdbDevice implements AutoCloseable {
     public void install(List<File> apks) throws IOException {
         if (apks.stream().anyMatch(apk -> apk.length() > streamedLimit) && sdk() <= LAST_UNSTREAMED_SDK) {
             installUploaded(apks);
-        } else if (apks.size() == 1) {
-            dadb.install(apks.getFirst(), "-r");
         } else {
-            dadb.installMultiple(apks, "-r");
+            streamer.install(apks);
         }
     }
 
@@ -699,7 +721,8 @@ public final class AdbDevice implements AutoCloseable {
     /**
      * The newest Android that never takes a streamed APK over {@link #STREAMED_LIMIT}: 9 (API 28), seen on BlueStacks.
      * A newer one streams it, and must: LDPlayer's Android 14 took the same 3 GB pack streamed but refused it written
-     * by path ("Split null was defined multiple times"). Android 10 to 13 are untried and stream.
+     * by path ("Split null was defined multiple times"), and GameLoop's Android 13 took it streamed by Google's adb. Android
+     * 10 to 12 are untried and stream.
      */
     static final int LAST_UNSTREAMED_SDK = 28;
 

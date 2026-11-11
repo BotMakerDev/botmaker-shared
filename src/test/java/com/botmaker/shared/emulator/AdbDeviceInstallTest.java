@@ -24,7 +24,7 @@ class AdbDeviceInstallTest {
     private static final long LIMIT = 5;
     private static final String COPY = "/data/local/tmp/botmaker-install.apk";
 
-    /** What the fake device was asked: {@code upload <file>}, {@code shell <command>}, {@code installMultiple}. */
+    /** What the fake device was asked: {@code upload <file>}, {@code shell <command>}, {@code stream [<files>]}. */
     private final List<String> asked = new ArrayList<>();
 
     private AdbDevice device(Function<String, String> shell, AdbDevice.Uploader uploader) {
@@ -41,7 +41,8 @@ class AdbDeviceInstallTest {
                     case "close" -> null;
                     default -> throw new UnsupportedOperationException(method.getName());
                 });
-        return new AdbDevice(AdbEndpoint.loopback(5555), dadb, uploader, LIMIT);
+        return new AdbDevice(AdbEndpoint.loopback(5555), dadb, uploader,
+                apks -> asked.add("stream " + apks.stream().map(File::getName).toList()), LIMIT);
     }
 
     private AdbDevice device(Function<String, String> shell) {
@@ -59,7 +60,7 @@ class AdbDeviceInstallTest {
     void splitsUnderTheLimitStreamAsBefore(@TempDir Path dir) throws IOException {
         device(command -> "").install(List.of(apk(dir, "base.apk", 3), apk(dir, "config.apk", 3)));
 
-        assertEquals(List.of("installMultiple"), asked);
+        assertEquals(List.of("stream [base.apk, config.apk]"), asked);
     }
 
     @Test
@@ -67,7 +68,7 @@ class AdbDeviceInstallTest {
         device(command -> command.startsWith("getprop") ? "34\n" : "")
                 .install(List.of(apk(dir, "base.apk", 3), apk(dir, "assets.apk", 10)));
 
-        assertEquals(List.of("shell getprop ro.build.version.sdk", "installMultiple"), asked);
+        assertEquals(List.of("shell getprop ro.build.version.sdk", "stream [base.apk, assets.apk]"), asked);
     }
 
     @Test

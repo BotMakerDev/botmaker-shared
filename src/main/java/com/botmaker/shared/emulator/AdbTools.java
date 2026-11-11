@@ -580,6 +580,26 @@ public final class AdbTools {
         return run(List.of("-s", serial, "push", file.getAbsolutePath(), remote), "1 file pushed", timeout);
     }
 
+    /**
+     * {@code adb -s <serial> install -r <apk>}, or {@code install-multiple -r} for a base and its splits, connecting a TCP
+     * device first: Google's stream carried a 3 GB asset pack into GameLoop's Android 13 in 159 s where dadb's stalled
+     * at the package manager (2026-11-10). Two minutes, plus one per 250 MB; a refusal's message is the package
+     * manager's {@code Failure […]} line.
+     *
+     * @param tcp whether {@code serial} is a {@code host:port} the server must {@link #connect} first
+     */
+    public static Outcome install(String serial, boolean tcp, List<File> apks) {
+        if (tcp) {
+            Outcome connected = connect(serial);
+            if (!connected.ok()) return connected;
+        }
+        long bytes = apks.stream().mapToLong(File::length).sum();
+        List<String> arguments = new ArrayList<>(List.of("-s", serial, apks.size() == 1 ? "install" : "install-multiple",
+                "-r"));
+        apks.forEach(apk -> arguments.add(apk.getAbsolutePath()));
+        return run(arguments, "Success", Duration.ofMinutes(2 + bytes / 250_000_000L));
+    }
+
     /** Runs one adb subcommand and decides success by what it said, since adb's exit status does not say. */
     private static Outcome run(List<String> arguments, String successMarker) {
         return run(arguments, successMarker, COMMAND_TIMEOUT);

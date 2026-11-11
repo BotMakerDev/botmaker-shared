@@ -16,6 +16,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- GameLoop 7 is found: `C:\Program Files\Tencent\GameLoop`, started by `Application\GameLoopLauncher.exe` (which
+  asks Windows once to raise its engine), its instance there once an Android image is under `Image\<version>`,
+  running while `GameLoopEmulator.exe` is. ADB answers on 127.0.0.1:5555 with no setting. The older layout
+  (`ui\AndroidEmulator.exe`) is found as before.
+- APKs stream into an emulator by Google's adb (`AdbTools.install`) when BotMaker has it, dadb's own stream
+  otherwise: dadb's stalled at the package manager on GameLoop's Android 13 with a 3 GB asset pack, which Google's
+  carried in 159 s.
 - A game with an APK file over 2 GiB installs on Android 9 and older: `AdbDevice.install` uploads each split with the
   adb binary (`AdbTools.push`) and writes it into a package manager session from the device's copy, one at a time.
   Streamed, it never landed on BlueStacks' Android 9 (Sword x Staff's 3.08 GB asset pack), and dadb's own push was

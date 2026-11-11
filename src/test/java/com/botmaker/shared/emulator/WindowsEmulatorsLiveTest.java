@@ -52,7 +52,7 @@ class WindowsEmulatorsLiveTest {
     /** The process whose death is an emulator crashing or its window closed, per product. */
     private static final Map<PlatformId, String> PLAYER = Map.of(PlatformId.BLUESTACKS, "HD-Player.exe",
             PlatformId.LDPLAYER, "dnplayer.exe", PlatformId.MEMU, "MEmu.exe", PlatformId.MUMU, "MuMuNxDevice.exe",
-            PlatformId.GAMELOOP, "AndroidEmulatorEn.exe");
+            PlatformId.GAMELOOP, "GameLoopEmulator.exe");
     private static final Pattern SIZE = Pattern.compile("(\\d+)x(\\d+)");
     private static final Path OUT = Path.of("target", "emulators-live");
     /**
@@ -69,6 +69,8 @@ class WindowsEmulatorsLiveTest {
     private static final boolean GAME_ONLY = Boolean.getBoolean("botmaker.live.gameOnly");
     /** A title screen fades in: a frame taken this long after the launch shows it. */
     private static final Duration SETTLE = Duration.ofSeconds(20);
+    /** How long after its settle the game may take to draw its first frame and take the focus. */
+    private static final Duration DRAWN = Duration.ofSeconds(90);
 
     private final String pkg = System.getProperty("botmaker.live.package").strip();
 
@@ -141,6 +143,9 @@ class WindowsEmulatorsLiveTest {
             })) return finish(wasRunning);
             Thread.sleep(SETTLE.toMillis());
             step("still running", this::stillRunning);
+            // Android 9 on BlueStacks drew the game's first frame only after 20-40 s (2026-11-10): until then the frame
+            // is black and no window has the focus.
+            waitFor(DRAWN, this::inFront);
             step("focus", this::focus);
             step("capture", () -> capture("launched"));
             if (GAME_ONLY) return finish(wasRunning);
@@ -185,6 +190,14 @@ class WindowsEmulatorsLiveTest {
             Thread.sleep(SETTLE.toMillis());
             return running() ? ok("died after its first start; the second stayed up, pid " + pid())
                     : no("died after its first start and again after the second");
+        }
+
+        private boolean inFront() {
+            try (AdbDevice device = AdbDevice.connect(instance.adb())) {
+                return device.focusedPackage().filter(pkg::equals).isPresent();
+            } catch (RuntimeException e) {
+                return false;
+            }
         }
 
         private boolean running() {
@@ -244,16 +257,34 @@ class WindowsEmulatorsLiveTest {
                     : no("\"" + window.get().getTitle() + "\": " + first.detail + " / " + second.detail);
         }
 
+        /**
+         * The game's own process crashed, by its pid: {@code am crash <package>} crashed the game's WebView renderer
+         * instead on LDPlayer's Android 14 (2026-11-10), an isolated process of the same package, and the game stayed.
+         */
         private Result crash() throws InterruptedException {
             try (AdbDevice device = AdbDevice.connect(instance.adb())) {
-                String said = device.shell("am crash " + pkg);
+                String main = device.shell("pidof " + pkg).strip();
+                if (main.isEmpty()) return no("not running before the crash");
+                String said = device.shell("am crash " + main.split("\\s+")[0]);
                 long start = System.nanoTime();
                 while (System.nanoTime() - start < Duration.ofSeconds(15).toNanos()) {
                     Optional<SystemDialog.Shown> dialog = device.systemDialog();
                     if (dialog.isPresent()) return ok(dialog.get().dialog() + (dialog.get().theApps() ? " (the game's)" : ""));
                     String pids = device.shell("pidof " + pkg);
                     if (pids == null || pids.isBlank()) return ok("gone with no dialog; am crash said " + oneLine(said));
+                    // The game's crash reporter (CrashSight) caught it on BlueStacks (2026-11-10): the process lived on,
+                    // its screen closed, and the emulator's own app came to the front, as a run's focus guard sees it.
+                    Optional<String> focused = device.focusedPackage();
+                    if (focused.isPresent() && !focused.get().equals(pkg)) {
+                        return ok("its screen closed, the process kept; in front " + focused.get());
+                    }
                     Thread.sleep(500);
+                }
+                // On BlueStacks' Android 9 (2026-11-11) CrashSight also caught it with the game left in front and
+                // drawing: no crash reaches a run, so there is nothing to recover, and shell has no root to kill it.
+                String pid = main.split("\\s+")[0];
+                if (device.shell("logcat -d --pid=" + pid).contains("shell-induced crash")) {
+                    return ok("the game caught it itself and kept running (its crash reporter); nothing to recover");
                 }
                 return no("still running 15 s after am crash; it said " + oneLine(said));
             }
