@@ -16,6 +16,17 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **The tested version, and an install of it** (`checks.TestedVersions`, `checks.WindowsInstallers`): each Windows
+  emulator's row *Tested version* compares the instance's product, read from the *Apps & features* entry holding its
+  program (`emulator.InstalledProduct`), with the version phase 1 passed on: older fails, newer is only said, and
+  neither stops a launch. Where the vendor serves that version's offline installer at a fixed address (LDPlayer 14,
+  `LDPlayer_14.0.29.0.exe`, pinned by sha256), Fix checks its instances are closed, downloads it, and runs it with `-silence` behind
+  one UAC prompt (`ElevatedCopy.runElevated`); with no emulator installed at all, the *installed* row's Fix
+  installs it. Measured over the same version: 67 s, instances kept. BlueStacks (an online stub of the newest
+  only), MEmu (only its newest offline installer), MuMu and GameLoop (no fixed address) link their site instead.
+- **The Windows hypervisor row** (`WindowsEmulatorChecks.hypervisor`): off, every build runs; on, a version at or
+  above the tested one was tested with it, LDPlayer before 9 fails (no Hyper-V build), anything else is only said.
+
 - **Setup checks for the Windows emulators** (`checks.WindowsEmulatorChecks`): BlueStacks, LDPlayer, MuMu, MEmu and
   GameLoop get the rows Waydroid and the AVD have. In order: installed, instance found, ADB port its own (naming the
   program listening on it: MuMu's `MuMuNxDevice.exe` holds 5555 while it runs), ADB turned on, memory for it (the

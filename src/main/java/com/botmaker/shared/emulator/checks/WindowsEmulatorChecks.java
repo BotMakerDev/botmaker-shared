@@ -7,6 +7,7 @@ import com.botmaker.shared.emulator.EmulatorLiveness;
 import com.botmaker.shared.emulator.EmulatorPlatform;
 import com.botmaker.shared.emulator.EmulatorReadiness;
 import com.botmaker.shared.emulator.EmulatorState;
+import com.botmaker.shared.emulator.InstalledProduct;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.emulator.WaydroidResolution;
@@ -19,6 +20,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -52,6 +54,10 @@ public final class WindowsEmulatorChecks {
     public static List<CheckResult> run(EmulatorInstance instance, WaydroidResolution expected) {
         List<CheckResult> rows = new ArrayList<>();
         rows.add(CheckResult.ok(EmulatorCheck.EMULATOR_INSTALLED, instance.brand() + " is installed."));
+        InstalledProduct product = InstalledProduct.of(instance).orElse(null);
+        rows.add(version(product));
+        CheckResult hypervisor = hypervisor(instance.platformId(), product, hypervisorOn());
+        if (hypervisor != null) rows.add(hypervisor);
         rows.add(CheckResult.ok(EmulatorCheck.INSTANCE_EXISTS, instance.caption() + "."));
         EmulatorLiveness liveness = EmulatorLiveness.check(instance);
         WindowsSettings settings = WindowsSettings.of(instance);
@@ -94,10 +100,15 @@ public final class WindowsEmulatorChecks {
 
     static List<CheckResult> notFound(String reference, List<String> installed) {
         if (installed.isEmpty()) {
-            return List.of(CheckResult.byHand(EmulatorCheck.EMULATOR_INSTALLED, "No Android emulator is installed.",
+            Optional<TestedVersions.Tested> pinned = TestedVersions.installable().stream().findFirst();
+            CheckResult none = pinned.map(tested -> CheckResult.fixable(EmulatorCheck.EMULATOR_INSTALLED,
+                    "No Android emulator is installed.", "Fix installs " + tested.product() + " " + tested.version()
+                            + ", the version BotMaker is tested on (" + sizeOf(tested) + " from its maker's site), "
+                            + "behind one Windows permission prompt; then create an instance in it."))
+                    .orElse(CheckResult.byHand(EmulatorCheck.EMULATOR_INSTALLED, "No Android emulator is installed.",
                             "Install BlueStacks, LDPlayer, MuMu Player, MEmu or GameLoop from its own site, then "
-                                    + "create an instance in it.", List.of(), null),
-                    CheckResult.afterAbove(EmulatorCheck.INSTANCE_EXISTS));
+                                    + "create an instance in it.", List.of(), null));
+            return List.of(none, CheckResult.afterAbove(EmulatorCheck.INSTANCE_EXISTS));
         }
         return List.of(CheckResult.ok(EmulatorCheck.EMULATOR_INSTALLED, String.join(", ", installed)
                         + (installed.size() == 1 ? " is" : " are") + " installed."),
@@ -107,6 +118,91 @@ public final class WindowsEmulatorChecks {
     }
 
     // --- the probes: pure over what they examine ---
+
+    /** The installed version against the tested one: older fails, newer only says so; neither stops a launch. */
+    static CheckResult version(InstalledProduct product) {
+        if (product == null) return CheckResult.info(EmulatorCheck.EMULATOR_VERSION, "BotMaker can't find this "
+                + "emulator's entry in Apps & features, so it can't tell its version.");
+        Optional<TestedVersions.Tested> found = TestedVersions.forKey(product.key());
+        if (found.isEmpty()) return CheckResult.info(EmulatorCheck.EMULATOR_VERSION, product.name()
+                + (product.version() == null ? "" : " " + product.version())
+                + ": BotMaker was not tested on this edition.");
+        TestedVersions.Tested tested = found.get();
+        if (product.version() == null) return CheckResult.info(EmulatorCheck.EMULATOR_VERSION, product.name()
+                + " doesn't say its version; BotMaker is tested on " + tested.version() + ".");
+        String now = product.name() + " " + product.version();
+        int order = TestedVersions.compare(product.version(), tested.version());
+        if (order == 0) return CheckResult.ok(EmulatorCheck.EMULATOR_VERSION, now + ", the version BotMaker is "
+                + "tested on.");
+        if (order > 0) return CheckResult.info(EmulatorCheck.EMULATOR_VERSION, now + " is newer than the tested "
+                + tested.version() + ": it should work, and if a check or a run fails here, " + tested.version()
+                + " is the one known to work.");
+        String reason = now + " is older than " + tested.version() + ", the version BotMaker is tested on.";
+        if (tested.installer() != null) {
+            return CheckResult.fixable(EmulatorCheck.EMULATOR_VERSION, reason, "Fix downloads " + tested.version()
+                    + " (" + sizeOf(tested) + " from its maker's site) and installs it over this one, behind one "
+                    + "Windows permission prompt. Close its instances first; they are kept.");
+        }
+        return CheckResult.byHand(EmulatorCheck.EMULATOR_VERSION, reason, "Install " + tested.product() + " "
+                + tested.version() + " or newer from its maker's site.", List.of(), tested.downloadPage());
+    }
+
+    private static String sizeOf(TestedVersions.Tested tested) {
+        return tested.installer().remote().size() / (1024 * 1024) + " MB";
+    }
+
+    /**
+     * Whether the product runs beside Windows' hypervisor (Hyper-V, WSL 2, Memory Integrity), which takes the CPU's
+     * virtualisation for itself. Null when Windows did not say. A version at or above the tested one was tested
+     * with it on (every product, 2026-11-10/11); LDPlayer before 9 has no Hyper-V build and fails; any other
+     * version is only said.
+     */
+    static CheckResult hypervisor(PlatformId platform, InstalledProduct product, Boolean on) {
+        if (on == null) return null;
+        if (!on) return CheckResult.ok(EmulatorCheck.HYPERVISOR, "Windows' hypervisor is off: every emulator build "
+                + "runs.");
+        String name = product == null ? platform.displayName() : product.name()
+                + (product.version() == null ? "" : " " + product.version());
+        Optional<TestedVersions.Tested> tested = product == null ? Optional.empty()
+                : TestedVersions.forKey(product.key());
+        if (tested.isPresent() && product.version() != null
+                && TestedVersions.compare(product.version(), tested.get().version()) >= 0) {
+            return CheckResult.ok(EmulatorCheck.HYPERVISOR, "Windows' hypervisor is on, and " + name + " was tested "
+                    + "with it on.");
+        }
+        if (platform == PlatformId.LDPLAYER && product != null && product.version() != null
+                && TestedVersions.major(product.version()) >= 0 && TestedVersions.major(product.version()) < 9) {
+            return CheckResult.byHand(EmulatorCheck.HYPERVISOR, "Windows' hypervisor is on, and " + name + " can't "
+                    + "run beside it: LDPlayer runs on Hyper-V from version 9.", "Install LDPlayer 14 from its site "
+                    + "(its instances are its own: recreate them there), or turn off Hyper-V, WSL and Memory "
+                    + "Integrity in Windows.", List.of(),
+                    "https://www.ldplayer.net/");
+        }
+        return CheckResult.info(EmulatorCheck.HYPERVISOR, "Windows' hypervisor is on, and " + name + " was not "
+                + "tested with it on: if an instance won't start, install the tested version.");
+    }
+
+    private static volatile Boolean hypervisorOn;
+    private static volatile boolean hypervisorAsked;
+
+    /**
+     * {@code Win32_ComputerSystem.HypervisorPresent}, asked once: it changes only on a restart, and a slow WMI must
+     * not hold every later run of the checks. Null if unknown.
+     */
+    static Boolean hypervisorOn() {
+        if (hypervisorAsked || !Os.current().isWindows()) return hypervisorOn;
+        hypervisorAsked = true;
+        try {
+            ElevatedCopy.Ran ran = ElevatedCopy.run(List.of("powershell.exe", "-NoProfile", "-NonInteractive",
+                    "-Command", "(Get-CimInstance Win32_ComputerSystem).HypervisorPresent"), Duration.ofSeconds(20));
+            String said = ran.finished() && ran.exit() == 0 ? ran.said().trim() : "";
+            if (said.equalsIgnoreCase("True")) hypervisorOn = true;
+            else if (said.equalsIgnoreCase("False")) hypervisorOn = false;
+            return hypervisorOn;
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     /**
      * {@code clash} with "another program" replaced by the program listening on the instance's port, which is not

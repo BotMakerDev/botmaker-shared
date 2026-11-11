@@ -5,6 +5,7 @@ import com.botmaker.shared.emulator.EmulatorLauncher;
 import com.botmaker.shared.emulator.EmulatorLiveness;
 import com.botmaker.shared.emulator.EmulatorReadiness;
 import com.botmaker.shared.emulator.EmulatorState;
+import com.botmaker.shared.emulator.InstalledProduct;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.emulator.WaydroidResolution;
@@ -46,8 +47,22 @@ public final class WindowsFixes {
             case ADB_ENABLED -> WindowsSettings.adbInFile(platform) ? Optional.of(adb(instance)) : Optional.empty();
             case RESOLUTION -> expected != null && WindowsEmulatorChecks.SIZE_FIXED.contains(platform)
                     ? Optional.of(size(instance, expected)) : Optional.empty();
+            case EMULATOR_VERSION -> InstalledProduct.of(instance)
+                    .flatMap(product -> TestedVersions.forKey(product.key()))
+                    .filter(tested -> tested.installer() != null)
+                    .map(tested -> WindowsInstallers.install(tested, instance,
+                            () -> WindowsInstallers.versionNow(instance)));
             default -> Optional.empty();
         };
+    }
+
+    /** The Fix of "no emulator installed": the first product BotMaker can install. Empty when none is pinned. */
+    public static Optional<Fix> install() {
+        return TestedVersions.installable().stream().findFirst().map(tested -> WindowsInstallers.install(tested, null,
+                () -> WindowsInstallers.installed(tested)
+                        ? CheckResult.ok(EmulatorCheck.EMULATOR_INSTALLED, tested.product() + " is installed.")
+                        : CheckResult.byHand(EmulatorCheck.EMULATOR_INSTALLED, tested.product() + " did not install.",
+                        "Install it from its maker's site.", List.of(), tested.downloadPage())));
     }
 
     /** Puts back what the newest Fix of {@code check} on {@code instance} changed; empty with no backup left. */

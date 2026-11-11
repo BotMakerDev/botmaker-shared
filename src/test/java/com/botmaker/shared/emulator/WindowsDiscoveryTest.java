@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * How current versions of each Windows product are found: their uninstall entries, the console tools' instance
@@ -49,6 +50,35 @@ class WindowsDiscoveryTest {
         var onlyUninstaller = new InstallLocator.UninstallEntry("X", null, null, null, "\"D:\\X\\u.exe\" /S");
         assertEquals(Path.of("D:\\X"), onlyUninstaller.folder());
         assertNull(new InstallLocator.UninstallEntry("Y", null, null, null, null).folder());
+    }
+
+    /** This PC's entries, 2026-11-11: the version row reads the one holding the instance's program. */
+    @Test
+    void anInstancesProductIsTheEntryWhoseFolderHoldsItsProgram() {
+        List<InstallLocator.UninstallEntry> entries = List.of(
+                new InstallLocator.UninstallEntry("BlueStacks_nxt", "BlueStacks", null,
+                        "\"C:\\Program Files\\BlueStacks_nxt\\ProductLogo.ico\"", null, "5.22.265.1012"),
+                new InstallLocator.UninstallEntry("BlueStacks_msi5", "MSI App Player Engine", null,
+                        "C:\\Program Files\\BlueStacks_msi5\\ProductLogo.ico", null, "5.22.75.6322"),
+                new InstallLocator.UninstallEntry("GameLoop", "GameLoop", null,
+                        "C:\\Program Files\\Tencent\\GameLoop\\Application\\Uninstall.exe", null, "7.0.19.05"),
+                new InstallLocator.UninstallEntry("MEmu", "MEmu", "C:\\Program Files\\Microvirt",
+                        "\"C:\\Program Files\\Microvirt\\MEmu\\MEmu.ico\",0", null, "9.5.5.1"));
+        assertEquals("BlueStacks_msi5", InstallLocator.owning(
+                Path.of("C:\\Program Files\\BlueStacks_msi5\\HD-Player.exe"), entries).orElseThrow().key());
+        assertEquals("MEmu", InstallLocator.owning(
+                Path.of("C:\\Program Files\\Microvirt\\MEmu\\memuc.exe"), entries).orElseThrow().key());
+        assertEquals("GameLoop", InstallLocator.owning(
+                Path.of("C:\\Program Files\\Tencent\\GameLoop\\AndroidEmulatorEn.exe"), entries).orElseThrow().key(),
+                "the uninstaller's folder's parent");
+        assertTrue(InstallLocator.owning(Path.of("C:\\Program Files\\BlueStacks_nxt2\\HD-Player.exe"), entries)
+                .isEmpty(), "a folder's name prefix is not the folder");
+        List<InstallLocator.UninstallEntry> withRoot = List.of(entries.get(3),
+                new InstallLocator.UninstallEntry("Tool", "Tool", "C:\\", null, null, "1.0"));
+        assertTrue(InstallLocator.owning(Path.of("C:\\Program Files\\Nox\\Nox.exe"), withRoot).isEmpty(),
+                "a drive's root holds no product");
+        InstalledProduct msi = InstalledProduct.of(entries.get(1));
+        assertEquals(new InstalledProduct("BlueStacks_msi5", "MSI App Player Engine", "5.22.75.6322"), msi);
     }
 
     @Test

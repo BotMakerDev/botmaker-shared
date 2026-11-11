@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit;
 /**
  * Writes an emulator's settings file, through one UAC prompt when Windows refuses the user: the counterpart of
  * {@code pkexec} for a file under {@code Program Files} or {@code ProgramData}. The text goes to a file of the user's
- * first, and an elevated PowerShell copies it over the original; nothing else runs elevated.
+ * first, and an elevated PowerShell copies it over the original. The one other elevated run is an emulator's
+ * pinned installer ({@link #runElevated}), its sha256 checked again on the elevated side before it starts.
  *
  * <p>A file is read and written byte for byte ({@link #BYTES}): the writers change ASCII settings only, so a byte
  * in another encoding (a GBK instance name) comes back as it was.
@@ -92,13 +93,42 @@ final class ElevatedCopy {
     }
 
     /**
+     * Runs {@code program} with {@code arguments} elevated, through one UAC prompt, and waits for it: an emulator's
+     * installer. A prompt declined ends with a non-zero exit.
+     */
+    static Ran runElevated(Path program, String sha256, List<String> arguments, Duration timeout)
+            throws IOException, InterruptedException {
+        return run(command(program, sha256, arguments), timeout);
+    }
+
+    /** The exit of {@link #runElevated} when the program's sha256 is no longer the pinned one. */
+    static final int CHANGED_SINCE_DOWNLOAD = 1_000_001;
+
+    /**
+     * The PowerShell that runs {@code program} elevated and exits with its exit code. The elevated side hashes the
+     * program first: the file sits in a folder the user's own processes can write, and the prompt may wait.
+     */
+    static List<String> command(Path program, String sha256, List<String> arguments) {
+        String path = quoted(program.toString());
+        String list = arguments.isEmpty() ? "" : " -ArgumentList " + String.join(",",
+                arguments.stream().map(ElevatedCopy::quoted).toList());
+        return elevated("if ((Get-FileHash -LiteralPath " + path + " -Algorithm SHA256).Hash -ne " + quoted(sha256)
+                + ") { exit " + CHANGED_SINCE_DOWNLOAD + " }; $q = Start-Process -FilePath " + path + list
+                + " -Wait -PassThru; exit $q.ExitCode");
+    }
+
+    /**
      * The PowerShell that asks for elevation and copies. The elevated copy is passed encoded, so no path is ever
      * re-quoted by a second command line; its exit code comes back through {@code -PassThru}.
      */
     static List<String> command(Path from, Path to) {
-        String copy = "Copy-Item -LiteralPath " + quoted(from.toString()) + " -Destination " + quoted(to.toString())
-                + " -Force -ErrorAction Stop";
-        String encoded = Base64.getEncoder().encodeToString(copy.getBytes(StandardCharsets.UTF_16LE));
+        return elevated("Copy-Item -LiteralPath " + quoted(from.toString()) + " -Destination "
+                + quoted(to.toString()) + " -Force -ErrorAction Stop");
+    }
+
+    /** {@code inner}, a PowerShell command, run in an elevated PowerShell whose exit code becomes this one's. */
+    private static List<String> elevated(String inner) {
+        String encoded = Base64.getEncoder().encodeToString(inner.getBytes(StandardCharsets.UTF_16LE));
         String outer = "$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden "
                 + "-ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','" + encoded + "'; exit $p.ExitCode";
         return List.of("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", outer);

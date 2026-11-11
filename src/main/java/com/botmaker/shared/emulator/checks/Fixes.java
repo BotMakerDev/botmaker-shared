@@ -10,6 +10,7 @@ import com.botmaker.shared.emulator.WaydroidCli;
 import com.botmaker.shared.emulator.WaydroidResolution;
 import com.botmaker.shared.emulator.WaydroidStatus;
 import com.botmaker.shared.launch.UriLauncher;
+import com.botmaker.shared.platform.Os;
 import com.botmaker.shared.tools.Downloads;
 
 import java.nio.file.Files;
@@ -46,6 +47,9 @@ public final class Fixes {
     /** The Fix for {@code result}; empty when its row offers none. */
     public static Optional<Fix> of(CheckResult result, Context context) {
         if (!result.failed() || !result.fixable()) return Optional.empty();
+        if (result.check() == EmulatorCheck.EMULATOR_INSTALLED && Os.current().isWindows()) {
+            return WindowsFixes.install();
+        }
         if (windows(context)) {
             return result.check() == EmulatorCheck.ADB_BOOTED ? Optional.of(booted(context))
                     : WindowsFixes.of(result, context.instance(), context.expected());

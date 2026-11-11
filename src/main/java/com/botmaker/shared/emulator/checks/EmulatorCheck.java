@@ -8,6 +8,8 @@ public enum EmulatorCheck {
     WAYDROID_INSTALLED("waydroid_installed", "Waydroid installed"),
     WAYDROID_RUNNING("waydroid_running", "Container and session running"),
     EMULATOR_INSTALLED("emulator_installed", "Emulator installed"),
+    EMULATOR_VERSION("emulator_version", "Tested version"),
+    HYPERVISOR("hypervisor", "Windows hypervisor"),
     INSTANCE_EXISTS("instance_exists", "Instance found"),
     PORT_FREE("port_free", "ADB port its own"),
     ADB_ENABLED("adb_enabled", "ADB turned on"),

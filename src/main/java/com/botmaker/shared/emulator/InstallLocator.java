@@ -13,7 +13,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.Function;
@@ -54,7 +56,12 @@ final class InstallLocator {
      * @param key the entry's registry key name ({@code LDPlayer14}, {@code MuMuPlayerGlobal}, …)
      */
     record UninstallEntry(String key, String displayName, String installLocation, String displayIcon,
-                          String uninstallString) {
+                          String uninstallString, String displayVersion) {
+
+        UninstallEntry(String key, String displayName, String installLocation, String displayIcon,
+                       String uninstallString) {
+            this(key, displayName, installLocation, displayIcon, uninstallString, null);
+        }
 
         /**
          * The folder the product lives in: {@code InstallLocation}, else the folder of its icon, else of its
@@ -101,11 +108,55 @@ final class InstallLocator {
         return folders;
     }
 
+    /** The entry of the product {@code program} belongs to: {@link #owning(Path, List)} over this machine's. */
+    static Optional<UninstallEntry> owning(Path program) {
+        return owning(program, allUninstallEntries());
+    }
+
+    /**
+     * The entry whose folder holds {@code program}, the deepest one winning; an entry whose folder holds only the
+     * product's icon or uninstaller (GameLoop's {@code Application\}) is matched by that folder's parent too, after
+     * every exact one, when the parent is three folders deep or more.
+     */
+    static Optional<UninstallEntry> owning(Path program, List<UninstallEntry> entries) {
+        if (program == null) return Optional.empty();
+        String file = program.toString().toLowerCase(Locale.ROOT).replace('/', '\\');
+        UninstallEntry best = null;
+        int bestScore = -1;
+        for (UninstallEntry entry : entries) {
+            Path folder = entry.folder();
+            if (folder == null) continue;
+            String exact = folder.toString().toLowerCase(Locale.ROOT).replace('/', '\\');
+            if (exact.endsWith("\\")) exact = exact.substring(0, exact.length() - 1);
+            if (exact.indexOf('\\') < 0) continue; // a drive's root holds every program on it
+            int score = inside(file, exact) ? 2 * exact.length() + 1 : -1;
+            int cut = exact.lastIndexOf('\\');
+            String parent = cut > 2 ? exact.substring(0, cut) : "";
+            // never a shared root: C:\Program Files holds every product
+            if (score < 0 && parent.chars().filter(c -> c == '\\').count() >= 3 && inside(file, parent)) {
+                score = 2 * cut;
+            }
+            if (score > bestScore) {
+                best = entry;
+                bestScore = score;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private static boolean inside(String file, String folder) {
+        return file.startsWith(folder + "\\");
+    }
+
     /** How long one read of every uninstall entry answers for: one discovery scan asks for it a dozen times. */
     private static final long UNINSTALL_SNAPSHOT_MS = 30_000;
 
     private static volatile List<UninstallEntry> snapshot;
     private static volatile long snapshotAt;
+
+    static void forgetUninstallEntries() {
+        snapshot = null;
+    }
 
     /** Every uninstall entry on the machine, read once per {@link #UNINSTALL_SNAPSHOT_MS}. */
     private static List<UninstallEntry> allUninstallEntries() {
@@ -116,7 +167,7 @@ final class InstallLocator {
             for (String key : WindowsRegistry.subkeys(root)) {
                 Map<String, String> values = WindowsRegistry.values(root + "\\" + key);
                 entries.add(new UninstallEntry(key, values.get("DisplayName"), values.get("InstallLocation"),
-                        values.get("DisplayIcon"), values.get("UninstallString")));
+                        values.get("DisplayIcon"), values.get("UninstallString"), values.get("DisplayVersion")));
             }
         }
         snapshot = List.copyOf(entries);

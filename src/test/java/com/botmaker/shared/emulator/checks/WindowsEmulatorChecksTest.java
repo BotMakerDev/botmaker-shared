@@ -1,14 +1,17 @@
 package com.botmaker.shared.emulator.checks;
 
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.InstalledProduct;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.WaydroidResolution;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -89,9 +92,71 @@ class WindowsEmulatorChecksTest {
     }
 
     @Test
+    void anOlderVersionIsInstalledOverWhereAnInstallerIsPinnedAndANewerOneOnlySaid() {
+        CheckResult same = WindowsEmulatorChecks.version(new InstalledProduct("LDPlayer14", "LDPlayer 14", "14.0.29.0"));
+        assertEquals(CheckState.OK, same.state(), same.toString());
+        CheckResult older = WindowsEmulatorChecks.version(new InstalledProduct("LDPlayer14", "LDPlayer 14", "14.0.9.0"));
+        assertTrue(older.failed() && older.fixable(), older.toString());
+        assertTrue(older.remedy().contains("929 MB"), older.remedy());
+        CheckResult newer = WindowsEmulatorChecks.version(new InstalledProduct("LDPlayer14", "LDPlayer 14", "14.0.34.1"));
+        assertEquals(CheckState.INFO, newer.state());
+        CheckResult memu = WindowsEmulatorChecks.version(new InstalledProduct("MEmu", "MEmu", "9.0.1"));
+        assertTrue(memu.failed() && !memu.fixable(), "no pinned installer: by hand");
+        assertEquals("https://www.memuplay.com/", memu.link());
+        assertEquals(CheckState.INFO, WindowsEmulatorChecks.version(new InstalledProduct("LDPlayer9", "LDPlayer 9",
+                "9.1.0")).state(), "an edition never tested");
+        assertEquals(CheckState.INFO, WindowsEmulatorChecks.version(null).state());
+        assertTrue(EmulatorChecks.stoppingLaunch(List.of(older)).isEmpty(), "a version never stops a launch");
+    }
+
+    @Test
+    void versionsCompareByTheirNumbers() {
+        assertTrue(TestedVersions.compare("7.0.19.05", "7.0.9") > 0);
+        assertEquals(0, TestedVersions.compare("14.0.29", "14.0.29.0"));
+        assertTrue(TestedVersions.compare("5.22.75.6322", "5.22.265.1012") < 0);
+        assertEquals(14, TestedVersions.major("14.0.29.0"));
+        assertEquals(-1, TestedVersions.major("beta"));
+        for (TestedVersions.Tested tested : TestedVersions.ALL) {
+            if (tested.installer() == null) continue;
+            assertTrue(tested.installer().remote().wellFormed() && tested.installer().remote().secure(),
+                    tested.key());
+        }
+        assertEquals("LDPlayer_14.0.29.0.exe", TestedVersions.LDPLAYER_14.fileName());
+    }
+
+    @Test
+    void theHypervisorFailsOnlyABuildThatCantRunBesideIt() {
+        InstalledProduct ld14 = new InstalledProduct("LDPlayer14", "LDPlayer 14", "14.0.29.0");
+        assertNull(WindowsEmulatorChecks.hypervisor(PlatformId.LDPLAYER, ld14, null), "Windows did not say");
+        assertEquals(CheckState.OK, WindowsEmulatorChecks.hypervisor(PlatformId.LDPLAYER, ld14, false).state());
+        assertEquals(CheckState.OK, WindowsEmulatorChecks.hypervisor(PlatformId.LDPLAYER, ld14, true).state());
+        CheckResult ld4 = WindowsEmulatorChecks.hypervisor(PlatformId.LDPLAYER,
+                new InstalledProduct("LDPlayer4", "LDPlayer 4", "4.0.83"), true);
+        assertTrue(ld4.failed() && !ld4.fixable(), ld4.toString());
+        assertEquals(CheckState.INFO, WindowsEmulatorChecks.hypervisor(PlatformId.MEMU,
+                new InstalledProduct("MEmu", "MEmu", "7.6.6"), true).state(), "not known to fail: only said");
+        assertTrue(EmulatorChecks.stoppingLaunch(List.of(ld4)).isEmpty());
+    }
+
+    @Test
+    void anInstallerRunsElevatedWithItsArgumentsEncoded() {
+        List<String> command = ElevatedCopy.command(Path.of("C:\\Cache\\LDPlayer_14.0.29.0.exe"), "AB12",
+                List.of("-silence"));
+        String outer = command.getLast();
+        assertTrue(outer.contains("-Verb RunAs") && outer.contains("exit $p.ExitCode"), outer);
+        String encoded = outer.substring(outer.indexOf("'-EncodedCommand','") + 19, outer.lastIndexOf("'; exit"));
+        String inner = new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_16LE);
+        assertEquals("if ((Get-FileHash -LiteralPath 'C:\\Cache\\LDPlayer_14.0.29.0.exe' -Algorithm SHA256).Hash "
+                + "-ne 'AB12') { exit 1000001 }; $q = Start-Process -FilePath 'C:\\Cache\\LDPlayer_14.0.29.0.exe' "
+                + "-ArgumentList '-silence' -Wait -PassThru; exit $q.ExitCode", inner);
+    }
+
+    @Test
     void anInstanceDiscoveryDidNotFindStopsALaunch() {
         assertTrue(WindowsEmulatorChecks.notFound(null).isEmpty(), "a spec naming no instance has no row");
         List<CheckResult> none = WindowsEmulatorChecks.notFound("Pie64", List.of());
+        assertTrue(none.getFirst().fixable(), "LDPlayer's installer is pinned");
+        assertTrue(none.getFirst().remedy().contains("LDPlayer 14 14.0.29.0"), none.getFirst().remedy());
         assertEquals(EmulatorCheck.EMULATOR_INSTALLED, EmulatorChecks.stoppingLaunch(none).orElseThrow().check());
         List<CheckResult> noInstance = WindowsEmulatorChecks.notFound("Pie64", List.of("LDPlayer", "MuMu Player"));
         CheckResult stopping = EmulatorChecks.stoppingLaunch(noInstance).orElseThrow();
