@@ -5,12 +5,16 @@ import com.botmaker.shared.steps.DeviceSteps;
 import dadb.AdbStream;
 import dadb.Dadb;
 import dadb.adbserver.AdbServer;
+import okio.Sink;
+import okio.Source;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -101,6 +105,8 @@ public final class AdbDevice implements AutoCloseable {
             AdbTools.Outcome outcome = AdbTools.install(endpoint.label(), endpoint instanceof AdbEndpoint.Tcp, apks);
             if (!outcome.ok()) throw new IOException(outcome.message());
         } else if (apks.size() == 1) {
+            // By file, never a counted Source: without `cmd` (Android ≤ 6) dadb 1.2.9 copies a Source to a temp file it
+            // never deletes, so a streamed install tells no progress.
             dadb.install(apks.getFirst(), "-r");
         } else {
             dadb.installMultiple(apks, "-r");
@@ -861,10 +867,35 @@ public final class AdbDevice implements AutoCloseable {
     /** Copies a local file to {@code remotePath}, readable, creating its folders; throws when it can't. */
     public void pushData(File file, String remotePath) throws IOException {
         int slash = remotePath.lastIndexOf('/');
-        DeviceSteps.step(endpoint(), "push " + file.getName() + " " + remotePath, () -> {
+        String command = "push " + file.getName() + " " + remotePath;
+        DeviceSteps.step(endpoint(), command, () -> {
             if (slash > 0) shell("mkdir -p '" + remotePath.substring(0, slash).replace("'", "") + "'");
             // dadb takes milliseconds and converts them itself.
-            dadb.push(file, remotePath, 0644, file.lastModified());
+            try (Source counted = Counted.source(file, DeviceSteps.progress(endpoint(), command))) {
+                dadb.push(counted, remotePath, 0644, file.lastModified());
+            }
+            return null;
+        });
+    }
+
+    /**
+     * Copies {@code remotePath} on the device to {@code to} on this computer, its bytes told as progress when the device
+     * says the file's size. It lands whole or not at all, through a {@code .part} file beside it, and never replaces a
+     * file already there: that throws {@link java.nio.file.FileAlreadyExistsException}.
+     */
+    public void pull(String remotePath, File to) throws IOException {
+        String command = "pull " + remotePath + " " + to.getName();
+        Path part = to.toPath().resolveSibling(to.getName() + ".part");
+        DeviceSteps.step(endpoint(), command, () -> {
+            long total = fileSize("'" + remotePath.replace("'", "") + "'");
+            try {
+                try (Sink counted = Counted.sink(part.toFile(), total, DeviceSteps.progress(endpoint(), command))) {
+                    dadb.pull(counted, remotePath);
+                }
+                Files.move(part, to.toPath());
+            } finally {
+                Files.deleteIfExists(part);
+            }
             return null;
         });
     }

@@ -22,6 +22,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   Typed text is told by its length only. A step inside another is the outer one's; a step with no recorder is only
   counted. An install uploaded to an Android 9 device reports its bytes each second. The core binds one around each
   MCP call (the Assistant window).
+- `AdbDevice.pull` copies a device file to this computer, whole or not at all (through a `.part` file), and never
+  over a file already there. `pull` and `pushData` report their bytes as they pass, at most twice a second
+  (`Counted`); a streamed install still reports none.
 - GameLoop 7 is found: `C:\Program Files\Tencent\GameLoop`, started by `Application\GameLoopLauncher.exe` (which
   asks Windows once to raise its engine), its instance there once an Android image is under `Image\<version>`,
   running while `GameLoopEmulator.exe` is. ADB answers on 127.0.0.1:5555 with no setting. The older layout
