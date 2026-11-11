@@ -85,6 +85,27 @@ class AdbDeviceTest {
     }
 
     @Test
+    void onlyAFocusThatNamesNothingFallsBackToTheResumedActivity() {
+        assertTrue(AdbDevice.noFocus("  mCurrentFocus=null\n  mFocusedApp=null"), "BlueStacks after a cold boot");
+        assertTrue(AdbDevice.noFocus(""));
+        assertFalse(AdbDevice.noFocus("  mCurrentFocus=Window{9f8e u0 StatusBar}\n  mFocusedApp=null"),
+                "the status bar has the focus: nothing is read through it");
+        assertFalse(AdbDevice.noFocus("  mCurrentFocus=null\n  mFocusedApp=ActivityRecord{3c4d u0 com.foo/.Main t12}"));
+    }
+
+    @Test
+    void theHomeAppIsTheResolvedComponentsPackage() {
+        assertEquals(Optional.of("com.ldmnq.launcher3"), AdbDevice.parseHomePackage("""
+                priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true
+                com.ldmnq.launcher3/com.android.launcher3.Launcher
+                """));
+        assertEquals(Optional.empty(), AdbDevice.parseHomePackage("No activity found"));
+        assertEquals(Optional.empty(), AdbDevice.parseHomePackage("android/com.android.internal.app.ResolverActivity"),
+                "two launchers and no default: Android's chooser");
+        assertEquals(Optional.empty(), AdbDevice.parseHomePackage(null));
+    }
+
+    @Test
     void foregroundPackageEmptyWhenAbsent() {
         assertEquals("", AdbDevice.parseForegroundPackage("nothing interesting here"));
         assertEquals("", AdbDevice.parseForegroundPackage(""));

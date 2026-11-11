@@ -660,14 +660,57 @@ public final class AdbDevice implements AutoCloseable {
 
     /**
      * The package of the window that has focus, which is the app a bot means: a permission dialog's package
-     * while one is up, rather than the activity behind it {@link #currentApp()} reads. Empty when unknown.
+     * while one is up, rather than the activity behind it {@link #currentApp()} reads. When no window at all has the
+     * focus and no app is focused, the resumed activity's: BlueStacks and MEmu on Android 9 leave both empty for
+     * minutes after a cold boot while the game is resumed and drawn (2026-11-11), and their launcher the same way
+     * (2026-11-12). A window with no package in focus (the status bar, a lock screen) stays empty. Empty when unknown.
      */
     public Optional<String> focusedPackage() {
+        String focus;
         try {
-            return parseFocusedPackage(shell(FOCUS));
+            focus = shell(FOCUS);
         } catch (Exception e) {
             return Optional.empty();
         }
+        Optional<String> focused = parseFocusedPackage(focus);
+        if (focused.isPresent() || !noFocus(focus)) return focused;
+        return Optional.of(currentApp()).filter(app -> !app.isEmpty());
+    }
+
+    /** Whether {@link #FOCUS}'s lines name no focused window and no focused app. */
+    static boolean noFocus(String focus) {
+        return focus == null || !(focus.contains("mCurrentFocus=Window") || SOME_FOCUSED_APP.matcher(focus).find());
+    }
+
+    private static final Pattern SOME_FOCUSED_APP = Pattern.compile("mFocusedApp=(?!null)\\S");
+
+    /**
+     * The package of the app Android opens for Home, its launcher, or empty when it doesn't say. An emulator's own
+     * launcher ({@code com.ldmnq.launcher3}, {@code app.lawnchair}) is one of these.
+     */
+    public Optional<String> homePackage() {
+        try {
+            return parseHomePackage(shell(HOME));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    static final String HOME =
+            "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+
+    private static final Pattern COMPONENT = Pattern.compile("^([\\w.]+)/[\\w.$]+$", Pattern.MULTILINE);
+
+    /**
+     * {@code resolve-activity --brief}'s component line's package: its last line, after the priority line. Android's
+     * chooser ({@code android/…ResolverActivity}, two launchers and no default) is no home app.
+     */
+    static Optional<String> parseHomePackage(String resolved) {
+        if (resolved == null) return Optional.empty();
+        Matcher m = COMPONENT.matcher(resolved.strip());
+        String found = null;
+        while (m.find()) found = m.group(1);
+        return Optional.ofNullable(found).filter(pkg -> !pkg.equals("android"));
     }
 
     /**

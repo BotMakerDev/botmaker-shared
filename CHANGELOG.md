@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **The app in front is known on every emulator, and so are the emulator's own apps** (`emulator.AdbDevice`,
+  `emulator.EmulatorOwnApps`): `focusedPackage` answers the resumed activity's package when no window has the
+  focus, as BlueStacks and MEmu leave it after a cold boot; `homePackage` names Android's home app; and
+  `EmulatorOwnApps.covers` tells an emulator's launcher, store, game center or ads (LDPlayer, BlueStacks, MuMu, MEmu,
+  and any product's home app) from the apps a game opens itself.
 - **Every Windows emulator stops, and a hung one is restarted** (`emulator.WindowsCommands`,
   `launch.EmulatorAppLauncher.restart`): BlueStacks' stop ends the `HD-Player.exe` that names its instance, by its
   command line or its window's title, and only that edition's; GameLoop's ends its engine and window. A stop never
