@@ -46,6 +46,10 @@ public final class Fixes {
     /** The Fix for {@code result}; empty when its row offers none. */
     public static Optional<Fix> of(CheckResult result, Context context) {
         if (!result.failed() || !result.fixable()) return Optional.empty();
+        if (windows(context)) {
+            return result.check() == EmulatorCheck.ADB_BOOTED ? Optional.of(booted(context))
+                    : WindowsFixes.of(result, context.instance(), context.expected());
+        }
         return switch (result.check()) {
             case WAYDROID_RUNNING -> Optional.of(running(context));
             case ADB_BOOTED -> Optional.of(booted(context));
@@ -58,9 +62,17 @@ public final class Fixes {
         };
     }
 
-    /** Puts back what the newest translator Fix replaced; empty when no backup is left. */
-    public static Optional<Fix> undo() {
+    /**
+     * Puts back what the newest Fix of {@code check} changed: a Windows emulator's settings file, else Waydroid's
+     * translator. Empty when no backup is left.
+     */
+    public static Optional<Fix> undo(Context context, EmulatorCheck check) {
+        if (windows(context)) return WindowsFixes.undo(context.instance(), check);
         return undo(Backups.newest());
+    }
+
+    private static boolean windows(Context context) {
+        return context.instance() != null && WindowsEmulatorChecks.PRODUCTS.contains(context.instance().platformId());
     }
 
     static Optional<Fix> undo(Optional<Path> backup) {

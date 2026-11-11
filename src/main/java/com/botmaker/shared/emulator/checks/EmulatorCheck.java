@@ -7,6 +7,11 @@ package com.botmaker.shared.emulator.checks;
 public enum EmulatorCheck {
     WAYDROID_INSTALLED("waydroid_installed", "Waydroid installed"),
     WAYDROID_RUNNING("waydroid_running", "Container and session running"),
+    EMULATOR_INSTALLED("emulator_installed", "Emulator installed"),
+    INSTANCE_EXISTS("instance_exists", "Instance found"),
+    PORT_FREE("port_free", "ADB port its own"),
+    ADB_ENABLED("adb_enabled", "ADB turned on"),
+    HOST_MEMORY("host_memory", "Memory for it"),
     ADB_BOOTED("adb_booted", "Android started, adb connected"),
     INTERNET("internet", "Internet inside Android"),
     GOOGLE_PLAY("google_play", "Google Play"),

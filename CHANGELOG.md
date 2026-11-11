@@ -16,6 +16,23 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **Setup checks for the Windows emulators** (`checks.WindowsEmulatorChecks`): BlueStacks, LDPlayer, MuMu, MEmu and
+  GameLoop get the rows Waydroid and the AVD have. In order: installed, instance found, ADB port its own (naming the
+  program listening on it: MuMu's `MuMuNxDevice.exe` holds 5555 while it runs), ADB turned on, memory for it (the
+  instance's RAM against what Windows can still commit, before a start), booted, Google Play, ARM apps, and the
+  screen size against the bot's. A stopped instance stops at booted, with its screen size read from its file. An
+  instance discovery did not find says whether no emulator is installed or which are (`notFound`).
+  `EmulatorChecks.stoppingLaunch` also refuses a launch on *not installed*, *no instance* and *ADB off* in the file.
+- `checks.WindowsSettings` reads each product's own settings file: LDPlayer's `vms\config\leidian<i>.config`,
+  BlueStacks' `bluestacks.conf` (found by `BlueStacksPlatform.confFor`; its ADB switch is the edition's, not the
+  instance's), MuMu's `vm_config.json` (memory in GB) and MEmu's `.memu`. GameLoop keeps none BotMaker knows.
+- **Fix and Undo for ADB and the screen size** on LDPlayer and BlueStacks (`checks.WindowsFixes`): stop the instance,
+  keep a copy of its file under `emulator-backups/<product>-<instance>/<time>-<check>/` in the config folder
+  (`WindowsBackups`), make the change (LDPlayer's size through `ldconsole modify --resolution`), start it again if it
+  was up. A file Windows protects is written through one UAC prompt (`ElevatedCopy`). Undo copies the newest backup
+  of that check back. `Fixes.undo` takes the instance and the check, and `CheckAnswers.fix` asks for the undo by check.
+  MuMu's and MEmu's screen size stay by hand. Undo puts back only its own check's settings, read from the copy,
+  never the whole file; a BlueStacks Fix waits until the edition's other instances are closed.
 - `steps.DeviceSteps`: what a piece of work did to a device, told to the recorder its caller binds (a `ScopedValue`):
   `AdbDevice`'s shell commands, frame grabs, installs and pushes, the adb binary's commands (`AdbTools`), and window
   input (`NativeControllerFactory` hands out a controller that tells its clicks, keys, typed text, scrolls and focus).

@@ -168,7 +168,7 @@ class WindowsDiscoveryTest {
         assertNull(GameloopPlatform.engine(List.of(install)));
         Path ui = Files.createDirectories(install.resolve("ui"));
         Files.writeString(ui.resolve("AndroidEmulatorEn.exe"), "");
-        assertEquals(ui.resolve("AndroidEmulatorEn.exe"), GameloopPlatform.engine(List.of(install)));
+        assertEquals(ui.resolve("AndroidEmulatorEn.exe"), GameloopPlatform.engine(List.of(install)).launch());
     }
 
     @Test

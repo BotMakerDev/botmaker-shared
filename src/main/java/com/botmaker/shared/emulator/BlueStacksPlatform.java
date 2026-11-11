@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -115,6 +116,17 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
                     install == null ? null : install.resolve("HD-Player.exe")));
         }
         return editions;
+    }
+
+    /**
+     * The {@code bluestacks.conf} of the edition whose player is {@code hdPlayer}: where its instances' settings
+     * are, ADB's switch among them. Empty when no edition runs that player or it names no data folder.
+     */
+    public static Optional<Path> confFor(Path hdPlayer) {
+        for (Edition edition : editions()) {
+            if (edition.conf() != null && hdPlayer.equals(edition.hdPlayer())) return Optional.of(edition.conf());
+        }
+        return Optional.empty();
     }
 
     /** {@code BlueStacks_nxt}, {@code BlueStacks_msi5}, …; not {@code BlueStacksServices} or {@code BlueStacks X}. */

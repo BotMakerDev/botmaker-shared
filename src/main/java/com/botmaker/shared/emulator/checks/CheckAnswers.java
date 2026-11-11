@@ -11,7 +11,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 
 /**
  * The checks and their fixes as an assistant reads them, one row a line: the SDK's {@code setup} and the core's
@@ -81,7 +80,7 @@ public final class CheckAnswers {
      * @param checksCall the call that reads the rows again, which the answer points to
      */
     public static Said fix(String check, boolean undo, List<CheckResult> results,
-                           Function<CheckResult, Optional<Fix>> fixOf, Supplier<Optional<Fix>> undoFix,
+                           Function<CheckResult, Optional<Fix>> fixOf, Function<EmulatorCheck, Optional<Fix>> undoFix,
                            FixRunner runner, String checksCall) {
         EmulatorCheck named = EmulatorCheck.fromId(check);
         CheckResult result = results.stream().filter(r -> r.check() == named).findFirst().orElse(null);
@@ -91,7 +90,7 @@ public final class CheckAnswers {
         }
         if (undo) {
             if (!result.undoable()) return new Said(true, named.displayName() + " has no fix to undo.");
-            return undoFix.get().map(fix -> started(fix, runner, checksCall))
+            return undoFix.apply(named).map(fix -> started(fix, runner, checksCall))
                     .orElseGet(() -> new Said(true, "No backup is left to restore."));
         }
         if (!result.failed()) return new Said(true, named.displayName() + " does not fail; nothing to fix.");

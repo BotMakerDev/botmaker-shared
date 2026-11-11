@@ -36,12 +36,12 @@ class CheckAnswersTest {
     void aFixOfACheckThatPassesIsRefusedAndTheUnknownOneNamesTheChecks() {
         FixRunner runner = FixRunner.of("check-answers-test-refused");
         CheckAnswers.Said passing = CheckAnswers.fix("internet", false, List.of(OK), r -> Optional.empty(),
-                Optional::empty, runner, "device checks");
+                c -> Optional.empty(), runner, "device checks");
         assertTrue(passing.refused());
         assertTrue(passing.text().contains("does not fail"), passing.text());
 
         CheckAnswers.Said unknown = CheckAnswers.fix("nonsense", false, List.of(OK), r -> Optional.empty(),
-                Optional::empty, runner, "device checks");
+                c -> Optional.empty(), runner, "device checks");
         assertTrue(unknown.refused());
         assertTrue(unknown.text().endsWith("they are internet."), unknown.text());
         assertFalse(runner.running());
