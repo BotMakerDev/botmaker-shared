@@ -1,6 +1,7 @@
 package com.botmaker.shared.emulator;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.steps.DeviceSteps;
 import dadb.AdbStream;
 import dadb.Dadb;
 import dadb.adbserver.AdbServer;
@@ -181,6 +182,11 @@ public final class AdbDevice implements AutoCloseable {
      * caller gets an exception instead of waiting forever, and {@link #isConnected()} says false from then on.
      */
     public BufferedImage screencap() {
+        return DeviceSteps.step(endpoint(), "screencap", this::grab,
+                frame -> frame == null ? "no frame" : frame.getWidth() + "×" + frame.getHeight());
+    }
+
+    private BufferedImage grab() {
         ScheduledFuture<?> cut = cutAfter(GRAB_DEADLINE, "a frame grab");
         try {
             if (endpoint.local()) {
@@ -290,7 +296,15 @@ public final class AdbDevice implements AutoCloseable {
         if (argument.isEmpty()) {
             return;
         }
-        shell("input text " + argument);
+        // Its step says the length only: the text may be a password a bot types into a game.
+        DeviceSteps.step(endpoint(), "input text (" + text.length() + " characters)", () -> {
+            try {
+                return shell("input text " + argument);
+            } catch (RuntimeException e) {
+                // shell's own message quotes the command, and so the text.
+                throw new RuntimeException("input text failed on " + endpoint());
+            }
+        }, result -> "");
     }
 
     /**
@@ -578,6 +592,10 @@ public final class AdbDevice implements AutoCloseable {
      * provably never left this machine — see {@link AdbShellSession.Failed#delivered()}.
      */
     public String shell(String command) {
+        return DeviceSteps.step(endpoint(), command, () -> shellOnce(command), DeviceSteps::clip);
+    }
+
+    private String shellOnce(String command) {
         try {
             return session().run(command);
         } catch (AdbShellSession.Failed e) {
@@ -691,7 +709,10 @@ public final class AdbDevice implements AutoCloseable {
             return false;
         }
         try {
-            dadb.push(file, remotePath, 0755, file.lastModified());
+            DeviceSteps.step(endpoint(), "push " + file.getName() + " " + remotePath, () -> {
+                dadb.push(file, remotePath, 0755, file.lastModified());
+                return null;
+            });
             return true;
         } catch (Exception e) {
             return false;
@@ -704,11 +725,15 @@ public final class AdbDevice implements AutoCloseable {
      * Android refuses it.
      */
     public void install(List<File> apks) throws IOException {
-        if (apks.stream().anyMatch(apk -> apk.length() > streamedLimit) && sdk() <= LAST_UNSTREAMED_SDK) {
-            installUploaded(apks);
-        } else {
-            streamer.install(apks);
-        }
+        String command = "install " + String.join(" ", apks.stream().map(File::getName).toList());
+        DeviceSteps.step(endpoint(), command, () -> {
+            if (apks.stream().anyMatch(apk -> apk.length() > streamedLimit) && sdk() <= LAST_UNSTREAMED_SDK) {
+                installUploaded(apks, DeviceSteps.progress(endpoint(), command));
+            } else {
+                streamer.install(apks);
+            }
+            return null;
+        });
     }
 
     /**
@@ -742,8 +767,9 @@ public final class AdbDevice implements AutoCloseable {
      * time: uploaded, written into the session, deleted, so the device holds one copy beside what the session staged.
      * A copy goes whatever happens, and a session not committed is abandoned.
      */
-    private void installUploaded(List<File> apks) throws IOException {
+    private void installUploaded(List<File> apks, DeviceSteps.Progress progress) throws IOException {
         long total = apks.stream().mapToLong(File::length).sum();
+        long[] before = {0};
         String created = dadb.shell("pm install-create -r -S " + total).getAllOutput();
         Matcher session = SESSION.matcher(created);
         if (!session.find()) throw new IOException("The package manager opened no install: " + created.strip());
@@ -753,11 +779,20 @@ public final class AdbDevice implements AutoCloseable {
             for (int i = 0; i < apks.size(); i++) {
                 File apk = apks.get(i);
                 String wrote;
+                long start = before[0];
+                // The tick reads only finals: a late one, past cancel, never counts this file twice.
+                ScheduledFuture<?> told = progress == DeviceSteps.Progress.NONE ? null
+                        : PROGRESS.scheduleWithFixedDelay(() -> progress.report(
+                                start + Math.min(copied(), apk.length()), total), 1, 1, TimeUnit.SECONDS);
                 try {
                     uploader.upload(apk, COPY);
+                    if (told != null) told.cancel(false);
+                    before[0] += apk.length();
+                    progress.report(before[0], total);
                     wrote = dadb.shell("pm install-write -S " + apk.length() + " " + id + " " + i + " " + COPY)
                             .getAllOutput();
                 } finally {
+                    if (told != null) told.cancel(false);
                     removeQuietly(COPY);
                 }
                 if (!wrote.contains("Success")) {
@@ -775,6 +810,22 @@ public final class AdbDevice implements AutoCloseable {
                     Diag.log("[Emulator] couldn't abandon install session " + id + ": " + e.getMessage());
                 }
             }
+        }
+    }
+
+    /** Reads an upload's progress each second, apart from {@link #DEADLINES}, which a slow read must never hold up. */
+    private static final ScheduledExecutorService PROGRESS = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "adb-upload-progress");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** The bytes of the upload's copy on the device so far, 0 while it isn't there or doesn't say. */
+    private long copied() {
+        try {
+            return Long.parseLong(dadb.shell("stat -c %s " + COPY).getAllOutput().strip());
+        } catch (Exception e) {
+            return 0;
         }
     }
 
@@ -810,9 +861,12 @@ public final class AdbDevice implements AutoCloseable {
     /** Copies a local file to {@code remotePath}, readable, creating its folders; throws when it can't. */
     public void pushData(File file, String remotePath) throws IOException {
         int slash = remotePath.lastIndexOf('/');
-        if (slash > 0) shell("mkdir -p '" + remotePath.substring(0, slash).replace("'", "") + "'");
-        // dadb takes milliseconds and converts them itself.
-        dadb.push(file, remotePath, 0644, file.lastModified());
+        DeviceSteps.step(endpoint(), "push " + file.getName() + " " + remotePath, () -> {
+            if (slash > 0) shell("mkdir -p '" + remotePath.substring(0, slash).replace("'", "") + "'");
+            // dadb takes milliseconds and converts them itself.
+            dadb.push(file, remotePath, 0644, file.lastModified());
+            return null;
+        });
     }
 
     /** Whether the connection still answers a trivial shell round-trip. */

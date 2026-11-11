@@ -224,4 +224,14 @@ class AdbToolsTest {
         assertEquals(AdbTools.MdnsKind.UNKNOWN, AdbTools.MdnsKind.fromId(""));
         assertEquals(AdbTools.MdnsKind.CONNECT, AdbTools.MdnsKind.fromId("_adb-tls-connect._tcp."));
     }
+
+    @Test
+    void aStepShowsAFileByItsNameAndHidesAPairingCode(@TempDir Path dir) throws Exception {
+        Path apk = Files.createFile(dir.resolve("base.apk"));
+
+        assertEquals("adb -s 127.0.0.1:5555 push base.apk /data/local/tmp/base.apk",
+                AdbTools.said(List.of("-s", "127.0.0.1:5555", "push", apk.toString(), "/data/local/tmp/base.apk")));
+        assertEquals("adb pair 192.168.1.5:37000 (code)",
+                AdbTools.said(List.of("pair", "192.168.1.5:37000", "123456")));
+    }
 }

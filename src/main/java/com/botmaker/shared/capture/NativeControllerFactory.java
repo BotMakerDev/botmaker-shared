@@ -5,6 +5,7 @@ import com.botmaker.shared.capture.mac.MacController;
 import com.botmaker.shared.capture.windows.WindowsController;
 import com.botmaker.shared.platform.Os;
 
+/** The one {@link NativeController}, its input told as device steps ({@link InputSteps}). */
 public class NativeControllerFactory {
 
     private static NativeController instance;
@@ -14,19 +15,19 @@ public class NativeControllerFactory {
      * asserted without a live X11/Windows session. Pass {@code null} to reset to auto-detection.
      */
     public static void setForTesting(NativeController controller) {
-        instance = controller;
+        instance = controller == null ? null : InputSteps.around(controller);
     }
 
     public static NativeController get() {
         if (instance == null) {
             Os os = Os.current();
-            instance = switch (os) {
+            instance = InputSteps.around(switch (os) {
                 case WINDOWS -> new WindowsController();
                 case LINUX -> new LinuxController();
                 case MAC -> new MacController();
                 case UNKNOWN ->
                         throw new UnsupportedOperationException(os.displayName() + " is not yet supported.");
-            };
+            });
         }
         return instance;
     }

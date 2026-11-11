@@ -3,6 +3,7 @@ package com.botmaker.shared.emulator;
 import com.botmaker.shared.Executables;
 import com.botmaker.shared.Spawn;
 import com.botmaker.shared.platform.Os;
+import com.botmaker.shared.steps.DeviceSteps;
 import com.botmaker.shared.tools.ManagedTools;
 
 import java.io.File;
@@ -606,6 +607,29 @@ public final class AdbTools {
     }
 
     private static Outcome run(List<String> arguments, String successMarker, Duration timeout) {
+        int serial = arguments.indexOf("-s");
+        String device = serial >= 0 && serial + 1 < arguments.size() ? arguments.get(serial + 1) : "adb";
+        return DeviceSteps.step(device, said(arguments), () -> runOnce(arguments, successMarker, timeout),
+                Outcome::message, Outcome::ok);
+    }
+
+    /**
+     * {@code arguments} as a step shows them: a file of this computer by its name, not its folders; a pairing's code
+     * hidden, since it lets anyone on the network pair.
+     */
+    static String said(List<String> arguments) {
+        List<String> shown = new ArrayList<>();
+        boolean pairing = arguments.contains("pair");
+        for (int i = 0; i < arguments.size(); i++) {
+            String argument = arguments.get(i);
+            File file = new File(argument);
+            if (pairing && i == arguments.size() - 1 && i > arguments.indexOf("pair") + 1) shown.add("(code)");
+            else shown.add(file.isAbsolute() && file.isFile() ? file.getName() : argument);
+        }
+        return "adb " + String.join(" ", shown);
+    }
+
+    private static Outcome runOnce(List<String> arguments, String successMarker, Duration timeout) {
         Optional<File> adb = binary();
         if (adb.isEmpty()) {
             return new Outcome(false, installHint());

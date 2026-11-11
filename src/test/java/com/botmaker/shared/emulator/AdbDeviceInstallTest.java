@@ -1,5 +1,6 @@
 package com.botmaker.shared.emulator;
 
+import com.botmaker.shared.steps.DeviceSteps;
 import dadb.AdbShellResponse;
 import dadb.Dadb;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -112,6 +114,34 @@ class AdbDeviceInstallTest {
                 "shell pm install-create -r -S 10",
                 "shell rm -f " + COPY,
                 "shell pm install-abandon 42"), asked);
+    }
+
+    @Test
+    void anUploadedInstallIsOneStepThatReportsItsBytes(@TempDir Path dir) throws IOException {
+        List<DeviceSteps.Step> steps = new CopyOnWriteArrayList<>();
+        List<String> progress = new CopyOnWriteArrayList<>();
+        DeviceSteps.Recorder recorder = new DeviceSteps.Recorder() {
+            @Override
+            public void step(DeviceSteps.Step step) {
+                steps.add(step);
+            }
+
+            @Override
+            public void progress(String device, String command, long done, long total) {
+                progress.add(done + "/" + total);
+            }
+        };
+        AdbDevice device = device(AdbDeviceInstallTest::accepting);
+        List<File> apks = List.of(apk(dir, "base.apk", 3), apk(dir, "assets.apk", 10));
+
+        DeviceSteps.recording(recorder, () -> {
+            device.install(apks);
+            return null;
+        });
+
+        assertEquals(List.of("install base.apk assets.apk"), steps.stream().map(DeviceSteps.Step::command).toList());
+        assertEquals("127.0.0.1:5555", steps.getFirst().device());
+        assertEquals(List.of("3/13", "13/13"), progress);
     }
 
     private static File apk(Path dir, String name, int length) throws IOException {

@@ -16,6 +16,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `steps.DeviceSteps`: what a piece of work did to a device, told to the recorder its caller binds (a `ScopedValue`):
+  `AdbDevice`'s shell commands, frame grabs, installs and pushes, the adb binary's commands (`AdbTools`), and window
+  input (`NativeControllerFactory` hands out a controller that tells its clicks, keys, typed text, scrolls and focus).
+  Typed text is told by its length only. A step inside another is the outer one's; a step with no recorder is only
+  counted. An install uploaded to an Android 9 device reports its bytes each second. The core binds one around each
+  MCP call (the Assistant window).
 - GameLoop 7 is found: `C:\Program Files\Tencent\GameLoop`, started by `Application\GameLoopLauncher.exe` (which
   asks Windows once to raise its engine), its instance there once an Android image is under `Image\<version>`,
   running while `GameLoopEmulator.exe` is. ADB answers on 127.0.0.1:5555 with no setting. The older layout
