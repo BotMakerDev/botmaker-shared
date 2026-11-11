@@ -43,8 +43,14 @@ public final class GameloopPlatform implements EmulatorPlatform {
     /** GameLoop 7's Android engine, the process that serves ADB. */
     private static final String ENGINE_7 = "GameLoopEmulator.exe";
 
-    /** A found engine: what starts the instance, and the processes any of which running says it has started. */
-    record Engine(Path launch, List<String> processes) {}
+    /**
+     * A found engine: what starts the instance, the processes any of which running says it has started, and the ones
+     * its stop ends.
+     */
+    record Engine(Path launch, List<String> processes, List<String> stops) {}
+
+    /** GameLoop 7's window, ended with its engine so no empty frame is left. */
+    private static final String WINDOW_7 = "GameLoop.exe";
 
     @Override
     public PlatformId id() {
@@ -67,8 +73,9 @@ public final class GameloopPlatform implements EmulatorPlatform {
         if (engine == null) {
             return List.of();
         }
-        // No console tool: launch is the engine's own starter; there's no clean CLI stop (close the window). Any of the
-        // engine's processes running says the one instance has started, none running that it is stopped.
+        // No console tool: launch is the engine's own starter, run through ShellExecute (EmulatorLauncher); stop ends
+        // its processes (WindowsCommands). Any of the engine's processes running says the one instance has started,
+        // none running that it is stopped.
         EmulatorState state = EmulatorState.UNKNOWN;
         for (String exe : engine.processes()) {
             Boolean running = InstallLocator.anyProcessNamed(exe);
@@ -82,8 +89,8 @@ public final class GameloopPlatform implements EmulatorPlatform {
             }
             state = EmulatorState.STOPPED;
         }
-        return List.of(singleInstance().get(0).withCommands(List.of(engine.launch().toString()), List.of())
-                .withState(state));
+        return List.of(singleInstance().get(0).withCommands(List.of(engine.launch().toString()),
+                WindowsCommands.stopProcesses(engine.stops())).withState(state));
     }
 
     @Override
@@ -152,12 +159,12 @@ public final class GameloopPlatform implements EmulatorPlatform {
         for (Path install : installs) {
             Path launcher = install.resolve("Application").resolve(LAUNCHER_7);
             if (Files.isRegularFile(launcher) && hasImage(install.resolve("Image"))) {
-                return new Engine(launcher, List.of(ENGINE_7));
+                return new Engine(launcher, List.of(ENGINE_7), List.of(ENGINE_7, WINDOW_7));
             }
             for (String exe : ENGINE_EXECUTABLES) {
                 Path candidate = install.resolve("ui").resolve(exe);
                 if (Files.isRegularFile(candidate)) {
-                    return new Engine(candidate, ENGINE_EXECUTABLES);
+                    return new Engine(candidate, ENGINE_EXECUTABLES, ENGINE_EXECUTABLES);
                 }
             }
         }

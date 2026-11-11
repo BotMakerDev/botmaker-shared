@@ -143,9 +143,9 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
 
     /**
      * As {@link #parseConf(String)}, but also attaches {@code HD-Player.exe --instance <token>} launch commands
-     * when {@code hdPlayer} is known. BlueStacks has no documented clean-stop CLI, so the stop command is left
-     * empty (the instance is stopped by closing its window / killing the process). The launch selector is the
-     * config <em>token</em> (e.g. {@code Rvc64}), not the display name.
+     * when {@code hdPlayer} is known. BlueStacks has no documented clean-stop CLI, so the stop command closes that
+     * player's window and ends what is left ({@link WindowsCommands#stopBlueStacks}). The selector is the config
+     * <em>token</em> (e.g. {@code Rvc64}), not the display name.
      */
     static List<EmulatorInstance> parseConf(String conf, Path hdPlayer) {
         Map<String, String> names = new LinkedHashMap<>();
@@ -174,7 +174,7 @@ public final class BlueStacksPlatform implements EmulatorPlatform {
             if (hdPlayer != null) {
                 instance = instance.withCommands(
                         List.of(hdPlayer.toString(), "--instance", token),
-                        List.of());
+                        WindowsCommands.stopBlueStacks(hdPlayer, token, name));
             }
             instances.add(instance);
         }

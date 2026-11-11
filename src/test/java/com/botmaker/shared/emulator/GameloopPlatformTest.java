@@ -51,7 +51,8 @@ class GameloopPlatformTest {
         assertNull(GameloopPlatform.engine(List.of(install)), "no Android image yet: launcher only");
 
         file(install.resolve("Image").resolve("5.10.7000.123").resolve("system.vhd"));
-        assertEquals(new GameloopPlatform.Engine(launcher, List.of("GameLoopEmulator.exe")),
+        assertEquals(new GameloopPlatform.Engine(launcher, List.of("GameLoopEmulator.exe"),
+                        List.of("GameLoopEmulator.exe", "GameLoop.exe")),
                 GameloopPlatform.engine(List.of(install)));
     }
 

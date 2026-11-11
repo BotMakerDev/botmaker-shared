@@ -1,5 +1,7 @@
 package com.botmaker.shared.emulator.checks;
 
+import com.botmaker.shared.emulator.WindowsCommands;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -9,7 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -128,14 +129,14 @@ final class ElevatedCopy {
 
     /** {@code inner}, a PowerShell command, run in an elevated PowerShell whose exit code becomes this one's. */
     private static List<String> elevated(String inner) {
-        String encoded = Base64.getEncoder().encodeToString(inner.getBytes(StandardCharsets.UTF_16LE));
         String outer = "$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden "
-                + "-ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','" + encoded + "'; exit $p.ExitCode";
+                + "-ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','" + WindowsCommands.encoded(inner)
+                + "'; exit $p.ExitCode";
         return List.of("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", outer);
     }
 
     /** A PowerShell single-quoted string: nothing in it is expanded, and a quote is doubled. */
     static String quoted(String text) {
-        return "'" + text.replace("'", "''") + "'";
+        return WindowsCommands.quoted(text);
     }
 }

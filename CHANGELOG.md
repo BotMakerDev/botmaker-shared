@@ -16,6 +16,22 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **Every Windows emulator stops, and a hung one is restarted** (`emulator.WindowsCommands`,
+  `launch.EmulatorAppLauncher.restart`): BlueStacks' stop ends the `HD-Player.exe` that names its instance, by its
+  command line or its window's title, and only that edition's; GameLoop's ends its engine and window. A stop never
+  asks for administrator rights or answers the emulator's "really close?": it ends the process, and a player
+  running with administrator rights stays up, which the caller says. A game restart on an emulator that is up but
+  whose ADB or Android stays silent for its whole boot timeout stops the emulator first, so the start boots it
+  again, and a game process still there 15 s after its force-stop stops the emulator too, as on Waydroid; the
+  run's `RestartCap` counts it as the one restart. A plain stop of the app never stops the emulator.
+- **A launch says what went wrong sooner** (`emulator.EmulatorLauncher`, `emulator.EmulatorReadiness`,
+  `launch.EmulatorAppLauncher`): an app missing from the instance is refused before monkey runs ("isn't installed
+  on … Install it from the game's Install… button"); a program Windows starts only with administrator rights
+  (MSI App Player, error 740) and GameLoop's launcher start through ShellExecute, from their own folder, so their own
+  permission prompt appears; and an instance whose product still says it is stopped 45 s after its start
+  (GameLoop: its boot timeout, for its launcher's update and login) is reported as not started, instead of waiting
+  out the boot timeout as "still booting".
+
 - **The tested version, and an install of it** (`checks.TestedVersions`, `checks.WindowsInstallers`): each Windows
   emulator's row *Tested version* compares the instance's product, read from the *Apps & features* entry holding its
   program (`emulator.InstalledProduct`), with the version phase 1 passed on: older fails, newer is only said, and

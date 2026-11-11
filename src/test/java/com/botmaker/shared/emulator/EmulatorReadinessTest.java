@@ -60,6 +60,26 @@ class EmulatorReadinessTest {
     }
 
     @Test
+    void aStartWhoseProductStaysStoppedIsGivenUpAfterTheGraceNotTheBootTimeout() {
+        long started = System.nanoTime();
+        Optional<EmulatorInstance> result = EmulatorReadiness.awaitReady(
+                at("127.0.0.1"), Duration.ofMinutes(4), UNCHANGED, i -> false, i -> true, Duration.ZERO);
+
+        assertTrue(result.isEmpty());
+        assertTrue(Duration.ofNanos(System.nanoTime() - started).toSeconds() < 5, "waited out the boot timeout");
+    }
+
+    @Test
+    void anInstanceThatStartsIsWaitedOnAfterItsStoppedPasses() {
+        // Stopped on the first pass (the prompt not yet answered), then booting, then ready.
+        int[] pass = {0};
+        Optional<EmulatorInstance> result = EmulatorReadiness.awaitReady(at("127.0.0.1"), Duration.ofSeconds(30),
+                i -> { pass[0]++; return i; }, i -> pass[0] >= 2, i -> pass[0] == 1, Duration.ofSeconds(10));
+
+        assertTrue(result.isPresent());
+    }
+
+    @Test
     void aNullInstanceIsNeverReadyAndNeverWaitedOn() {
         assertFalse(EmulatorReadiness.portOpen(null));
         assertTrue(EmulatorReadiness.awaitReady(null, Duration.ofSeconds(1)).isEmpty());
@@ -103,5 +123,12 @@ class EmulatorReadinessTest {
         // Guards the re-discovery path's assumption that Platforms.discoverAll never throws.
         List<EmulatorInstance> found = Platforms.discoverAll();
         assertTrue(found != null);
+    }
+
+    @Test
+    void gameLoopsLauncherHasTheWholeBootTimeoutToRaiseItsEngine() {
+        Duration timeout = Duration.ofSeconds(180);
+        assertEquals(timeout, EmulatorReadiness.startGrace(PlatformId.GAMELOOP, timeout));
+        assertEquals(EmulatorReadiness.START_GRACE, EmulatorReadiness.startGrace(PlatformId.MEMU, timeout));
     }
 }

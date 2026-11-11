@@ -88,19 +88,59 @@ public final class EmulatorReadiness {
         EmulatorLiveness liveness = EmulatorLiveness.check(instance);
         if (liveness.clash() != null) Diag.log("[Emulator] " + instance.name() + " is stopped; " + liveness.clash());
         if (liveness.state() == EmulatorState.STOPPED) {
-            Diag.log("[Emulator] starting '" + instance.name() + "'");
-            if (progress != null) progress.accept("Starting " + instance.name() + "…");
-            EmulatorLauncher.launch(instance);
+            if (!instance.canLaunch()) {
+                // Nothing here starts it: the user may, and the wait below picks it up.
+                Diag.log("[Emulator] '" + instance.name() + "' has no start command: waiting for it to be started");
+            } else {
+                Diag.log("[Emulator] starting '" + instance.name() + "'");
+                if (progress != null) progress.accept("Starting " + instance.name() + "…");
+                if (!EmulatorLauncher.launch(instance)) {
+                    Diag.log("[Emulator] '" + instance.name() + "''s start command did not run");
+                    return Optional.empty();
+                }
+            }
         }
         if (progress != null) progress.accept(instance.name() + " is booting — waiting for Android to finish starting…");
-        return awaitReady(instance, instance.platformId().bootTimeout());
+        // Only a fresh discovery says stopped: rediscover hands back the instance passed in when it finds nothing.
+        Predicate<EmulatorInstance> stopped = instance.canLaunch()
+                ? current -> current != instance && current.state() == EmulatorState.STOPPED
+                : current -> false;
+        Duration timeout = instance.platformId().bootTimeout();
+        return awaitReady(instance, timeout, EmulatorReadiness::rediscover, EmulatorReadiness::isReady, stopped,
+                startGrace(instance.platformId(), timeout));
     }
+
+    /**
+     * {@link #START_GRACE}, except for GameLoop, whose launcher may update itself or ask for a login before it starts
+     * the engine discovery sees: it has the whole boot timeout.
+     */
+    static Duration startGrace(PlatformId platform, Duration timeout) {
+        return platform == PlatformId.GAMELOOP ? timeout : START_GRACE;
+    }
+
+    /**
+     * How long an instance its product calls stopped may stay so after its start before the start counts as failed:
+     * time for Windows' permission prompt to be answered and the process to appear. Without it a start that never
+     * ran (a declined prompt, GameLoop's launcher doing nothing, 2026-11-11) or whose engine died at once (MEmu out
+     * of page file) was waited out for the whole boot timeout, then called "still booting".
+     */
+    static final Duration START_GRACE = Duration.ofSeconds(45);
 
     /** Why {@code instance} didn't become ready in {@link #bringUp}, as a sentence a UI shows. */
     public static String notReady(EmulatorInstance instance) {
-        String problem = EmulatorLiveness.check(instance).problem(instance);
+        EmulatorLiveness liveness = EmulatorLiveness.check(instance);
+        String problem = liveness.problem(instance);
         if (problem != null) {
             return instance.name() + " can't be driven: " + problem + ".";
+        }
+        // The product's own word, not the port's: BlueStacks with several instances, or with ADB off, is up with its
+        // port closed, and is then told apart by the boot message below.
+        if (rediscover(instance).state() == EmulatorState.STOPPED) {
+            return instance.canLaunch()
+                    ? instance.name() + " didn't start: " + instance.brand() + " isn't running. If Windows asked for "
+                    + "permission, allow it; if " + instance.brand() + " showed an error, it is in its window."
+                    : instance.name() + " isn't running, and BotMaker can't start it: start it in "
+                    + instance.brand() + ".";
         }
         return instance.name() + " didn't finish booting within " + instance.platformId().bootTimeout().toSeconds()
                 + "s. It may still be starting — try again in a moment — or Android is up but ADB isn't answering, "
@@ -125,17 +165,41 @@ public final class EmulatorReadiness {
     static Optional<EmulatorInstance> awaitReady(EmulatorInstance instance, Duration timeout,
                                                  UnaryOperator<EmulatorInstance> rediscover,
                                                  Predicate<EmulatorInstance> ready) {
+        return awaitReady(instance, timeout, rediscover, ready, current -> false, timeout);
+    }
+
+    /**
+     * As above, giving up early once {@code stopped} has held for {@code grace} in a row: the product says nothing of
+     * the instance runs, so no boot is going on to wait for.
+     */
+    static Optional<EmulatorInstance> awaitReady(EmulatorInstance instance, Duration timeout,
+                                                 UnaryOperator<EmulatorInstance> rediscover,
+                                                 Predicate<EmulatorInstance> ready,
+                                                 Predicate<EmulatorInstance> stopped, Duration grace) {
         if (instance == null) {
             return Optional.empty();
         }
-        long deadline = System.currentTimeMillis() + Math.max(0, timeout.toMillis());
+        long now = System.currentTimeMillis();
+        long deadline = now + Math.max(0, timeout.toMillis());
+        long stoppedSince = -1;
         EmulatorInstance current = instance;
         while (true) {
             current = rediscover.apply(current);
             if (ready.test(current)) {
                 return Optional.of(current);
             }
-            if (System.currentTimeMillis() >= deadline) {
+            now = System.currentTimeMillis();
+            if (!stopped.test(current)) {
+                stoppedSince = -1;
+            } else if (stoppedSince < 0) {
+                stoppedSince = now;
+            }
+            if (stoppedSince >= 0 && now - stoppedSince >= grace.toMillis()) {
+                Diag.log("[Emulator] " + instance.name() + " has stayed stopped " + grace.toSeconds()
+                        + "s after its start: the start failed");
+                return Optional.empty();
+            }
+            if (now >= deadline) {
                 return Optional.empty();
             }
             try {

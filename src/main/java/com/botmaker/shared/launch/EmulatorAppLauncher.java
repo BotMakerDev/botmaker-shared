@@ -7,6 +7,7 @@ import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.shared.emulator.EmulatorLauncher;
 import com.botmaker.shared.emulator.EmulatorLiveness;
 import com.botmaker.shared.emulator.EmulatorReadiness;
+import com.botmaker.shared.emulator.EmulatorState;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.emulator.QuietRun;
@@ -77,8 +78,32 @@ public final class EmulatorAppLauncher {
             report(progress, "Starting " + packageName + " on " + live.name() + "…");
             Diag.log("[Target] emu-app: starting " + packageName + " on " + instance);
             QuietRun.calm(device);
-            return startOverAdb(device, packageName, live);
+            return startOverAdb(AppDevice.of(device), packageName, live.name());
         });
+    }
+
+    /**
+     * The little a launch asks of a device, so a test answers it without dadb: a shell command, and the foreground
+     * package.
+     */
+    interface AppDevice {
+        String shell(String command);
+
+        String currentApp();
+
+        static AppDevice of(AdbDevice device) {
+            return new AppDevice() {
+                @Override
+                public String shell(String command) {
+                    return device.shell(command);
+                }
+
+                @Override
+                public String currentApp() {
+                    return device.currentApp();
+                }
+            };
+        }
     }
 
     /**
@@ -124,13 +149,13 @@ public final class EmulatorAppLauncher {
         EmulatorInstance live = ready.get();
         try (AdbDevice device = connect(live)) {
             QuietRun.calm(device);
-            if (reachedForeground(device, packageName)) {
+            if (reachedForeground(AppDevice.of(device), packageName)) {
                 return Outcome.ok("Started " + packageName + " in Waydroid.");
             }
             // Dispatched, but something else is still in front. Fall through to the ADB rung: it can start
             // the activity directly, and if that fails too it can say what Android thinks of the package.
             Diag.log("[Target] emu-app: waydroid launch didn't surface " + packageName + " — trying ADB");
-            return startOverAdb(device, packageName, live);
+            return startOverAdb(AppDevice.of(device), packageName, live.name());
         } catch (Exception e) {
             return Outcome.ok("Asked Waydroid to start " + packageName + " — couldn't confirm over ADB ("
                     + e.getMessage() + "). Check the Waydroid window.");
@@ -144,27 +169,45 @@ public final class EmulatorAppLauncher {
      * <p>The second try exists because monkey matches a launcher intent and some apps don't publish one the
      * way it expects — {@code cmd package resolve-activity} asks the package manager the same question
      * directly, and {@code am start -n} then names the component instead of hoping.
+     *
+     * <p>Before either, the package manager's list says whether the app is there at all: an app missing from an
+     * instance is the commonest reason nothing starts, and the user's remedy is an install, not a package name.
      */
-    private static Outcome startOverAdb(AdbDevice device, String packageName, EmulatorInstance live) {
-        if (AdbDevice.startedApp(device.startApp(packageName))) {
-            return awaitForeground(device, packageName, live);
+    static Outcome startOverAdb(AppDevice device, String packageName, String instance) {
+        String pkg = packageName.trim();
+        if (Boolean.FALSE.equals(installed(device.shell("pm list packages"), pkg))) {
+            Diag.log("[Target] emu-app: " + pkg + " isn't installed on " + instance);
+            return Outcome.failed(pkg + " isn't installed on " + instance + ". Install it from the game's "
+                    + "Install… button, then launch again.");
         }
-        String component = resolveLauncherComponent(device, packageName);
+        if (AdbDevice.startedApp(device.shell("monkey -p " + pkg + " -c android.intent.category.LAUNCHER 1"))) {
+            return awaitForeground(device, pkg, instance);
+        }
+        String component = resolveLauncherComponent(device, pkg);
         if (component != null) {
             Diag.log("[Target] emu-app: monkey declined, starting " + component + " directly");
             device.shell("am start -n " + component);
-            return awaitForeground(device, packageName, live);
+            return awaitForeground(device, pkg, instance);
         }
-        return Outcome.failed("Android refused to start " + packageName + " on " + live.name()
+        return Outcome.failed("Android refused to start " + pkg + " on " + instance
                 + " — no launcher activity answered, and the package manager couldn't resolve one either. "
-                + "Check the package name, and that the app is installed on this instance.");
+                + "Check the package name.");
+    }
+
+    /**
+     * Whether {@code pm list packages} lists {@code pkg}, or {@code null} when the output lists nothing at all (no
+     * answer is not evidence of absence).
+     */
+    static Boolean installed(String pmList, String pkg) {
+        if (pmList == null || !pmList.contains("package:")) return null;
+        return pmList.lines().map(String::strip).anyMatch(line -> line.equals("package:" + pkg));
     }
 
     /**
      * {@code <pkg>/<activity>} for the app's launcher activity, or {@code null} when nothing resolves.
      * {@code cmd package resolve-activity --brief} prints the component on its last line.
      */
-    private static String resolveLauncherComponent(AdbDevice device, String packageName) {
+    private static String resolveLauncherComponent(AppDevice device, String packageName) {
         try {
             String output = device.shell("cmd package resolve-activity --brief " + packageName.trim());
             if (output == null) {
@@ -208,14 +251,80 @@ public final class EmulatorAppLauncher {
      *
      * <p>The stop is always ADB ({@code am force-stop}, which Waydroid's CLI has no equivalent for); the
      * start then goes through {@link #start}, so it takes the same rung a fresh launch would.
+     *
+     * <p><b>The emulator is restarted too when it is the broken part.</b> A restart is what a run's recovery asks
+     * for when the game can't be got home, and on a desktop emulator that is often the emulator: its process up
+     * but ADB gone or Android no longer booted. An instance that is up but not ready within {@link #HUNG_GRACE} is
+     * stopped first, so the start boots it again; an emulator that died outright is started by the start
+     * itself. Either way the restart is the one the run's {@code RestartCap} counted.
      */
     public static Outcome restart(String packageName, String instance) {
-        stop(packageName, instance);
+        Optional<EmulatorInstance> desktop = find(instance).filter(match -> match.platformId() != PlatformId.WAYDROID);
+        desktop.ifPresent(EmulatorAppLauncher::rebootIfHung);
+        if (desktop.isEmpty()) {
+            stop(packageName, instance);
+        } else if (forceStop(packageName, instance, RESTART_LEFTOVER_WAIT) == Leftover.STAYED) {
+            stopEmulator(desktop.get(), "a process of " + packageName.trim() + " outlived the force-stop");
+        }
         return start(packageName, instance, null);
+    }
+
+    /** How long a reboot's stop may take. */
+    private static final Duration STOP_TIMEOUT = Duration.ofSeconds(60);
+
+    /**
+     * Stops {@code instance} when it is up but not ready within its product's boot timeout, so a start boots it
+     * again. The whole boot timeout, so an emulator still on a slow cold boot is never taken for a hung one.
+     */
+    private static void rebootIfHung(EmulatorInstance instance) {
+        if (EmulatorReadiness.isReady(instance)) return;
+        if (EmulatorLiveness.check(instance).state() == EmulatorState.STOPPED) return;
+        Duration grace = instance.platformId().bootTimeout();
+        Diag.log("[Target] emu-app: " + instance.name() + " is up but not answering — waiting up to "
+                + grace.toSeconds() + "s before restarting it");
+        long end = System.nanoTime() + grace.toNanos();
+        try {
+            while (System.nanoTime() < end) {
+                Thread.sleep(2000);
+                if (EmulatorReadiness.isReady(instance)) return;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+        stopEmulator(instance, "ADB or Android stopped answering");
+    }
+
+    /** Stops the emulator under a broken game or a hung Android, saying why in the run's log. */
+    private static boolean stopEmulator(EmulatorInstance instance, String why) {
+        if (!instance.canStop()) {
+            Diag.log("[Target] emu-app: " + why + " on " + instance.name() + ", and BotMaker can't stop "
+                    + instance.brand() + ": restart it by hand");
+            return false;
+        }
+        Diag.log("[Target] emu-app: " + why + " on " + instance.name() + " — restarting the emulator");
+        try {
+            boolean stopped = EmulatorLauncher.stopAndWait(instance, STOP_TIMEOUT);
+            if (!stopped) Diag.log("[Target] emu-app: " + instance.name() + " did not stop within "
+                    + STOP_TIMEOUT.toSeconds() + "s");
+            return stopped;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     /** How long a force-stopped app's processes may take to go before what is left counts as a leftover. */
     private static final Duration LEFTOVER_WAIT = Duration.ofSeconds(3);
+
+    /**
+     * As {@link #LEFTOVER_WAIT}, before a restart stops a desktop emulator for it: a game still saving as it exits
+     * must not cost the whole emulator.
+     */
+    private static final Duration RESTART_LEFTOVER_WAIT = Duration.ofSeconds(15);
+
+    /** What a force-stop left. */
+    private enum Leftover { NONE, STAYED, NOT_SENT }
 
     /**
      * Force-stops {@code packageName} and starts nothing: the stop half of {@link #restart}. A stop that cannot be
@@ -224,33 +333,41 @@ public final class EmulatorAppLauncher {
      * <p>A process of the app that outlives the force-stop is a leftover: a game's own forked helper, which Android
      * no longer tracks, cannot end and will not start the app again beside ("refused to die", Sword x Staff on
      * Waydroid, 2026-11-03); only root could kill it. On Waydroid the session is stopped then, which ends every
-     * process in the container; the next start boots Android again.
+     * process in the container, so the next start boots Android again. A desktop emulator is stopped for it only by
+     * {@link #restart}, which starts it again; a plain stop of the app never takes the emulator and its other apps.
      *
      * @return whether the emulator itself was stopped to end the app, so whatever showed it is gone too
      */
     public static boolean stop(String packageName, String instance) {
-        Optional<EmulatorInstance> match = find(instance);
-        if (match.isEmpty() || !EmulatorLiveness.running(match.get())) return false;
-        String pkg = packageName.trim();
-        boolean leftover;
-        try (AdbDevice device = connect(match.get())) {
-            Diag.log("[Target] emu-app: stopping " + pkg + " on " + instance);
-            device.shell("am force-stop " + pkg);
-            leftover = outlives(device, pkg);
-        } catch (Exception e) {
-            Diag.log("[Target] emu-app: force-stop failed on " + instance + ": " + e.getMessage());
+        if (forceStop(packageName, instance, LEFTOVER_WAIT) != Leftover.STAYED) return false;
+        if (find(instance).map(match -> match.platformId() != PlatformId.WAYDROID).orElse(true)) {
+            Diag.log("[Target] emu-app: a process of " + packageName.trim() + " outlived the force-stop on " + instance);
             return false;
         }
-        if (!leftover || match.get().platformId() != PlatformId.WAYDROID) return false;
-        Diag.log("[Target] emu-app: a process of " + pkg + " outlived the force-stop and Android won't start it "
-                + "again beside it — stopping the Waydroid session");
+        Diag.log("[Target] emu-app: a process of " + packageName.trim() + " outlived the force-stop and Android won't "
+                + "start it again beside it — stopping the Waydroid session");
         WaydroidCli.waydroid("session", "stop");
         return true;
     }
 
-    /** Whether a process of {@code pkg} is still there {@link #LEFTOVER_WAIT} after its force-stop. */
-    private static boolean outlives(AdbDevice device, String pkg) throws InterruptedException {
-        long until = System.nanoTime() + LEFTOVER_WAIT.toNanos();
+    /** {@code am force-stop}, then whether a process of the app is still there after {@code wait}. */
+    private static Leftover forceStop(String packageName, String instance, Duration wait) {
+        Optional<EmulatorInstance> match = find(instance);
+        if (match.isEmpty() || !EmulatorLiveness.running(match.get())) return Leftover.NOT_SENT;
+        String pkg = packageName.trim();
+        try (AdbDevice device = connect(match.get())) {
+            Diag.log("[Target] emu-app: stopping " + pkg + " on " + instance);
+            device.shell("am force-stop " + pkg);
+            return outlives(device, pkg, wait) ? Leftover.STAYED : Leftover.NONE;
+        } catch (Exception e) {
+            Diag.log("[Target] emu-app: force-stop failed on " + instance + ": " + e.getMessage());
+            return Leftover.NOT_SENT;
+        }
+    }
+
+    /** Whether a process of {@code pkg} is still there {@code wait} after its force-stop. */
+    private static boolean outlives(AdbDevice device, String pkg, Duration wait) throws InterruptedException {
+        long until = System.nanoTime() + wait.toNanos();
         while (true) {
             String pids = device.shell("pidof " + pkg);
             if (pids == null || pids.isBlank()) return false;
@@ -320,10 +437,10 @@ public final class EmulatorAppLauncher {
      * and monkey has already returned success by then. Not reaching the foreground is reported as a partial
      * outcome rather than a failure — the intent really was accepted, and a slow game is not an error.
      */
-    private static Outcome awaitForeground(AdbDevice device, String packageName, EmulatorInstance live) {
+    private static Outcome awaitForeground(AppDevice device, String packageName, String instance) {
         return reachedForeground(device, packageName)
-                ? Outcome.ok("Started " + packageName + " on " + live.name() + ".")
-                : Outcome.ok("Launched " + packageName + " on " + live.name() + " — it hasn't reached the "
+                ? Outcome.ok("Started " + packageName + " on " + instance + ".")
+                : Outcome.ok("Launched " + packageName + " on " + instance + " — it hasn't reached the "
                         + "foreground yet, which is normal for a game that is still loading.");
     }
 
@@ -355,7 +472,7 @@ public final class EmulatorAppLauncher {
      * the {@link Outcome} above because the Waydroid rung needs the bare fact: a "no" there is not a report to
      * the user, it is the cue to try the next rung.
      */
-    private static boolean reachedForeground(AdbDevice device, String packageName) {
+    private static boolean reachedForeground(AppDevice device, String packageName) {
         long deadline = System.currentTimeMillis() + FOREGROUND_TIMEOUT.toMillis();
         while (System.currentTimeMillis() < deadline) {
             String current = device.currentApp();

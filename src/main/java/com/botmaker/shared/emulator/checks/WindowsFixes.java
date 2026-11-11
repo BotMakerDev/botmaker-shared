@@ -218,6 +218,7 @@ public final class WindowsFixes {
                 return null;
             }
         }
-        return instance.name() + " did not stop within " + STOP_TIMEOUT.toSeconds() + " seconds: nothing was changed.";
+        return instance.name() + " did not stop within " + STOP_TIMEOUT.toSeconds() + " seconds: nothing was changed. "
+                + "If " + instance.brand() + " runs with administrator rights, close it yourself.";
     }
 }

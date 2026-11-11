@@ -65,8 +65,8 @@ class BlueStacksPlatformTest {
         assertEquals("My Main", inst.name());
         // launch selector is the config token, not the display name
         assertEquals(List.of(hdPlayer.toString(), "--instance", "Rvc64"), inst.launchCommand());
-        // BlueStacks has no documented clean-stop CLI
-        assertFalse(inst.canStop());
+        // No clean-stop CLI: the stop ends the player that names the token, or whose window has the instance's name
+        assertEquals(WindowsCommands.stopBlueStacks(hdPlayer, "Rvc64", "My Main"), inst.stopCommand());
     }
 
     @Test
