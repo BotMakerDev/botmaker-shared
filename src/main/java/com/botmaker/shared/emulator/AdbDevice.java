@@ -358,6 +358,40 @@ public final class AdbDevice implements AutoCloseable {
 
     private static final Pattern EVENTS_INJECTED = Pattern.compile("(?i)events injected:\\s*(\\d+)");
 
+    /**
+     * Starts {@code packageName}, or brings its running task back in front: monkey's launcher intent, then, when
+     * monkey declines (LDPlayer's Android 14, Waydroid), the launcher activity the package manager resolves. Whether
+     * either was asked; whether the app is in front is the caller's to look.
+     */
+    public boolean bringToFront(String packageName) {
+        String pkg = packageName.trim();
+        if (startedApp(startApp(pkg))) return true;
+        Optional<String> component = launcherComponent(shell(RESOLVE_LAUNCHER + pkg), pkg);
+        component.ifPresent(found -> shell(startComponent(found)));
+        return component.isPresent();
+    }
+
+    /** What {@link #launcherComponent} reads, the package appended. */
+    public static final String RESOLVE_LAUNCHER = "cmd package resolve-activity --brief ";
+
+    /**
+     * {@code <pkg>/<activity>}, the app's launcher activity in {@code resolve-activity --brief}'s answer (its last
+     * line, after the priority line); empty when nothing resolves.
+     */
+    public static Optional<String> launcherComponent(String resolved, String packageName) {
+        if (resolved == null) return Optional.empty();
+        String prefix = packageName.trim() + "/";
+        return resolved.lines().map(String::strip).filter(line -> line.startsWith(prefix)).reduce((a, b) -> b);
+    }
+
+    /**
+     * Starts {@code component} as the launcher's icon does, its action and category with it: a running app's task
+     * comes forward, where a bare {@code am start -n} would put a second copy of its first activity on top.
+     */
+    public static String startComponent(String component) {
+        return "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n " + component;
+    }
+
     /** Reads a system property ({@code getprop <key>}), trimmed; empty string if unset. */
     public String getProp(String key) {
         return shell("getprop " + key).trim();

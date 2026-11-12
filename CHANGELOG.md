@@ -114,6 +114,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 - goopdl found no Python on Windows when only the WindowsApps aliases or the `py` launcher were on `PATH`: each
   name is now run and the interpreter it prints is kept.
+- `AdbDevice.bringToFront` brings a running app's task forward: monkey first, else its launcher activity started
+  with the launcher's action and category (LDPlayer declines monkey). `EmulatorAppLauncher` starts an app's
+  resolved activity the same way, through `AdbDevice.launcherComponent` and `startComponent`.
 
 ## [0.8.0] — 2026-11-10
 

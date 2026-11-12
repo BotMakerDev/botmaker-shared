@@ -106,6 +106,24 @@ class AdbDeviceTest {
     }
 
     @Test
+    void theLauncherComponentIsTheResolvedLineOfThePackage() {
+        assertEquals(Optional.of("com.zjcs.android.us/com.joybox.overseas.activity.SdkFirstActivity"),
+                AdbDevice.launcherComponent("""
+                        priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false
+                        com.zjcs.android.us/com.joybox.overseas.activity.SdkFirstActivity
+                        """, " com.zjcs.android.us "));
+        assertEquals(Optional.empty(), AdbDevice.launcherComponent("No activity found", "com.zjcs.android.us"));
+        assertEquals(Optional.empty(), AdbDevice.launcherComponent("com.zjcs.android.usx/.Main", "com.zjcs.android.us"));
+        assertEquals(Optional.empty(), AdbDevice.launcherComponent(null, "com.zjcs.android.us"));
+    }
+
+    @Test
+    void aComponentIsStartedAsTheLauncherIconStartsIt() {
+        assertEquals("am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n a.b/.Main",
+                AdbDevice.startComponent("a.b/.Main"));
+    }
+
+    @Test
     void foregroundPackageEmptyWhenAbsent() {
         assertEquals("", AdbDevice.parseForegroundPackage("nothing interesting here"));
         assertEquals("", AdbDevice.parseForegroundPackage(""));

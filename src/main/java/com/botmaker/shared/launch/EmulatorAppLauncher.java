@@ -186,7 +186,7 @@ public final class EmulatorAppLauncher {
         String component = resolveLauncherComponent(device, pkg);
         if (component != null) {
             Diag.log("[Target] emu-app: monkey declined, starting " + component + " directly");
-            device.shell("am start -n " + component);
+            device.shell(AdbDevice.startComponent(component));
             return awaitForeground(device, pkg, instance);
         }
         return Outcome.failed("Android refused to start " + pkg + " on " + instance
@@ -203,22 +203,11 @@ public final class EmulatorAppLauncher {
         return pmList.lines().map(String::strip).anyMatch(line -> line.equals("package:" + pkg));
     }
 
-    /**
-     * {@code <pkg>/<activity>} for the app's launcher activity, or {@code null} when nothing resolves.
-     * {@code cmd package resolve-activity --brief} prints the component on its last line.
-     */
+    /** {@code <pkg>/<activity>} for the app's launcher activity, or {@code null} when nothing resolves. */
     private static String resolveLauncherComponent(AppDevice device, String packageName) {
         try {
-            String output = device.shell("cmd package resolve-activity --brief " + packageName.trim());
-            if (output == null) {
-                return null;
-            }
-            for (String raw : output.split("\\R")) {
-                String line = raw.strip();
-                if (line.startsWith(packageName.trim() + "/")) {
-                    return line;
-                }
-            }
+            return AdbDevice.launcherComponent(device.shell(AdbDevice.RESOLVE_LAUNCHER + packageName.trim()),
+                    packageName).orElse(null);
         } catch (Exception e) {
             Diag.log("[Target] emu-app: resolve-activity failed for " + packageName + ": " + e.getMessage());
         }
