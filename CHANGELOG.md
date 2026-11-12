@@ -118,6 +118,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- `Credentials` read an unreadable `credentials.json` as empty, so moving it from the cache dir, a sign-in's store
+  or a sign-out's remove wrote over the tokens it held (or deleted the cache dir's copy). A file that is not an object
+  of strings is now left as it is and the write refused, its path and the error's kind logged, never the parser's
+  message, which quotes the file's text. Each write goes to a private `.tmp` beside it and is moved over, so a write
+  cut short leaves no torn file.
 - goopdl found no Python on Windows when only the WindowsApps aliases or the `py` launcher were on `PATH`: each
   name is now run and the interpreter it prints is kept.
 - `AdbDevice.bringToFront` brings a running app's task forward: monkey first, else its launcher activity started

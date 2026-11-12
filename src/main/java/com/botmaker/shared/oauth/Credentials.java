@@ -6,8 +6,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.EnumSet;
@@ -20,8 +23,9 @@ import java.util.Map;
  * provider's sign-in under its own key ({@code github_token}, {@code google_token}, {@code google_play_aas}, …),
  * best-effort {@code 0600}. It lived in the cache dir until 2026-11-10 (the user's call): the first use moves it.
  *
- * <p>Every write merges the whole map, or signing into one provider would wipe the other's token. Every
- * failure is logged and swallowed: a sign-in that can't be remembered still works for the session.
+ * <p>Every write merges the whole map, or signing into one provider would wipe the other's token; a file that can't
+ * be read is never written over, moved or deleted. Every failure is logged, without the file's text, and swallowed:
+ * a sign-in that can't be remembered still works for the session.
  */
 public final class Credentials {
 
@@ -65,42 +69,33 @@ public final class Credentials {
     static synchronized void moveOver(Path old, Path now) {
         try {
             if (!Files.exists(old)) return;
-            if (Files.exists(now)) {
-                Map<String, String> all = readAll(old);
-                all.putAll(readAll(now));
-                write(now, all);
-                Files.delete(old);
-                return;
-            }
+            Map<String, String> all = readAll(old);   // an unreadable old file stays where it is
+            all.putAll(readAll(now));
             Files.createDirectories(now.getParent());
-            Files.move(old, now);
-            restrictPermissions(now);
+            write(now, all);
+            Files.delete(old);
         } catch (Exception e) {
-            System.err.println("Failed to move credentials to " + now + ": " + e.getMessage());
+            System.err.println("Failed to move credentials from " + old + " to " + now + ": " + why(e));
         }
     }
 
     static synchronized String read(Path file, String key) {
         try {
-            if (Files.exists(file)) {
-                JsonNode node = MAPPER.readTree(file.toFile());
-                return node == null ? "" : node.path(key).asText("");
-            }
+            return readAll(file).getOrDefault(key, "");
         } catch (Exception e) {
-            System.err.println("Failed to read credentials: " + e.getMessage());
+            System.err.println("Failed to read credentials " + file + ": " + why(e));
+            return "";
         }
-        return "";
     }
 
     static synchronized void store(Path file, String key, String value) {
         try {
-            Files.createDirectories(file.getParent());
-            createPrivate(file);
             Map<String, String> all = readAll(file);
             all.put(key, value);
+            Files.createDirectories(file.getParent());
             write(file, all);
         } catch (Exception e) {
-            System.err.println("Failed to store credentials: " + e.getMessage());
+            System.err.println("Failed to store credentials in " + file + ": " + why(e));
         }
     }
 
@@ -115,27 +110,68 @@ public final class Credentials {
                 write(file, all);
             }
         } catch (Exception e) {
-            System.err.println("Failed to clear credentials: " + e.getMessage());
+            System.err.println("Failed to clear credentials in " + file + ": " + why(e));
         }
     }
 
+    /**
+     * Writes {@code all} to a private file beside {@code file} and moves it over {@code file}, so a write cut short
+     * never leaves a torn file that every later write would refuse.
+     */
     private static void write(Path file, Map<String, String> all) throws IOException {
-        MAPPER.writeValue(file.toFile(), all);
-        restrictPermissions(file);
+        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
+        Files.deleteIfExists(temp);
+        createPrivate(temp);
+        MAPPER.writeValue(temp.toFile(), all);
+        restrictPermissions(temp);
+        try {
+            Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
-    private static Map<String, String> readAll(Path file) {
+    /**
+     * Every key of {@code file}, empty when it does not exist or holds nothing ({@code null} or no text).
+     *
+     * @throws Unreadable when it is not an object of strings: a write over it would erase what it holds, so every
+     *                    writer stops and leaves it as it is
+     */
+    private static Map<String, String> readAll(Path file) throws IOException {
         Map<String, String> all = new LinkedHashMap<>();
+        if (!Files.exists(file)) return all;
+        JsonNode n;
         try {
-            if (Files.exists(file)) {
-                JsonNode n = MAPPER.readTree(file.toFile());
-                // null: the file createPrivate just made, still empty
-                if (n != null) n.properties().forEach(e -> all.put(e.getKey(), e.getValue().asText("")));
-            }
-        } catch (Exception e) {
-            System.err.println("Failed to read credentials: " + e.getMessage());
+            n = MAPPER.readTree(file.toFile());
+        } catch (FileSystemException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new Unreadable(file, e.getClass().getSimpleName());
+        }
+        if (n == null || n.isMissingNode() || n.isNull()) return all;
+        if (!n.isObject()) throw new Unreadable(file, "not a JSON object");
+        for (Map.Entry<String, JsonNode> e : n.properties()) {
+            if (!e.getValue().isTextual()) throw new Unreadable(file, e.getKey() + " is not a string");
+            all.put(e.getKey(), e.getValue().asText());
         }
         return all;
+    }
+
+    /** A credentials file that can't be read, said without its text, which holds tokens. */
+    private static final class Unreadable extends IOException {
+        Unreadable(Path file, String why) {
+            super(file.getFileName() + " can't be read (" + why + "); it is left as it is");
+        }
+    }
+
+    /**
+     * Why {@code e} failed. Only a file system's message (it names paths) or {@link Unreadable}'s is kept: a parser's
+     * quotes the file's text.
+     */
+    private static String why(Exception e) {
+        return e instanceof Unreadable || e instanceof FileSystemException
+                ? e.getMessage()
+                : e.getClass().getSimpleName();
     }
 
     /**
