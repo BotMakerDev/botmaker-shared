@@ -16,6 +16,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **Emulator configurations, kept on this PC** (`emulator.config`, spec `2026-11-12-emulators-window-design.md`): an
+  emulator's layer and each instance's own over it, field by field (`Layer`, `EmulatorConfig.wanted` gives each value
+  with its source), with accounts (Google, Facebook, mail; records only, no password field), games and tags. Instances
+  are keyed by product and name (`InstanceKey`), not by ADB port. `EmulatorConfigStore` keeps them in
+  `UserDirs.config()/emulators/configurations.json`, re-read and written atomically under a lock, keeping every key,
+  field, kind and product it does not know; `SavedFilters` keeps the window's saved filters beside it.
 - **The app in front is known on every emulator, and so are the emulator's own apps** (`emulator.AdbDevice`,
   `emulator.EmulatorOwnApps`): `focusedPackage` answers the resumed activity's package when no window has the
   focus, as BlueStacks and MEmu leave it after a cold boot; `homePackage` names Android's home app; and
