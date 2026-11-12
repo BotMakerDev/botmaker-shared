@@ -43,14 +43,26 @@ public interface AccountDevice extends AutoCloseable {
         tap((int) bounds.getCenterX(), (int) bounds.getCenterY());
     }
 
-    /** The running {@code instance}, over one adb connection and one tree reader, both closed with it. */
+    /**
+     * The running {@code instance}, over one adb connection and one tree reader, both closed with it. While it is open
+     * the instance is {@linkplain SignInsRunning held}, which the core's {@code device} tool respects, and its log is
+     * cleared as it closes.
+     */
     static AccountDevice of(EmulatorInstance instance) {
-        AdbDevice device = AdbDevice.connect(instance.adb());
+        // held from before the first screen to after the last: a password may be on any of them
+        SignInsRunning.Hold hold = SignInsRunning.hold(instance);
+        AdbDevice device;
         TreeReader reader;
         try {
-            reader = TreeReaders.open(device);
+            device = AdbDevice.connect(instance.adb());
+            try {
+                reader = TreeReaders.open(device);
+            } catch (RuntimeException | Error e) {
+                device.close();
+                throw e;
+            }
         } catch (RuntimeException | Error e) {
-            device.close();
+            hold.close();
             throw e;
         }
         return new AccountDevice() {
@@ -95,7 +107,17 @@ public interface AccountDevice extends AutoCloseable {
                 try {
                     reader.close();
                 } finally {
-                    device.close();
+                    try {
+                        // what was logged while a password was typed is not left for the next reader of the log
+                        try {
+                            device.shell("logcat -c");
+                        } catch (RuntimeException | Error uncleared) {
+                            // the instance is gone, and its log with it
+                        }
+                        device.close();
+                    } finally {
+                        hold.close();
+                    }
                 }
             }
         };

@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * What one instance has now, against which {@link ConfigDiff} says what Apply would change: its product's own settings,
@@ -100,6 +101,14 @@ public record InstanceFacts(InstanceKey key, Map<ConfigField, ConfigValue> setti
 
     public static InstanceFacts read(EmulatorInstance instance, AdbDevice device) {
         return read(instance, device, null, Clock.systemUTC());
+    }
+
+    /**
+     * The Google emails signed in on the running instance behind {@code device}, lower case, or null when Android did
+     * not say. Its step says how many, never which.
+     */
+    public static Set<String> googleAccounts(AdbDevice device) {
+        return AndroidState.googleAccounts(shell(device, AndroidState.ACCOUNTS));
     }
 
     /** {@code dumpsys account}'s step says how many Google accounts it found, never their emails. */

@@ -14,6 +14,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- `emulator.google.SignInsRunning`: the instances BotMaker is signing in to Google or out of it now. `AccountDevice.of`
+  holds its instance while it is open, and another BotMaker process sees the hold through a file naming the holder's
+  process by pid and start time, under the cache directory's `signing-in/`; it clears the instance's logcat as it closes. `InstanceFacts.googleAccounts(AdbDevice)` reads a running
+  instance's Google emails; its device step says how many, never which.
 - `WindowsEmulatorChecks.availableMb()` is public: the Emulators window's Running tab weighs a start against it.
 
 ### Removed
