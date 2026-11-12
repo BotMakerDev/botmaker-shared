@@ -47,7 +47,8 @@ public record WindowsSettings(Path file, Boolean adbOn, int ramMb, int width, in
         return parse(instance, file.get(), text);
     }
 
-    static WindowsSettings parse(EmulatorInstance instance, Path file, String text) {
+    /** {@code text}, the file of {@code instance}'s product, parsed; {@link #NONE} for a product with no such file. */
+    public static WindowsSettings parse(EmulatorInstance instance, Path file, String text) {
         return switch (instance.platformId()) {
             case LDPLAYER -> ldPlayer(file, text);
             case BLUESTACKS -> blueStacks(file, text, token(instance));
@@ -76,7 +77,7 @@ public record WindowsSettings(Path file, Boolean adbOn, int ramMb, int width, in
     }
 
     /** BlueStacks' instance token ({@code Pie64}), its launch command's {@code --instance}. */
-    static String token(EmulatorInstance instance) {
+    public static String token(EmulatorInstance instance) {
         return argAfter(instance.launchCommand(), "--instance").orElse(null);
     }
 

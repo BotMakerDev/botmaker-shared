@@ -22,6 +22,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   are keyed by product and name (`InstanceKey`), not by ADB port. `EmulatorConfigStore` keeps them in
   `UserDirs.config()/emulators/configurations.json`, re-read and written atomically under a lock, keeping every key,
   field, kind and product it does not know; `SavedFilters` keeps the window's saved filters beside it.
+- **What an instance has now, against its configuration** (`emulator.config.InstanceFacts`, `ConfigDiff`): each
+  product's own settings, read stopped or running (`ProductSettings`: LDPlayer's and BlueStacks' files, MEmu's `.memu`,
+  `MuMuManager setting --all`), and Android's screen, locale, time zone, root, Do Not Disturb, Google accounts and
+  third-party packages, kept with their time once the instance stops. `ConfigDiff` says per field whether it is as
+  configured, a change, set each run, or set by hand (a field the product cannot apply is never a change), the Google
+  accounts to sign in or out, and the games missing; an Android that did not answer says nothing about accounts or
+  games. `dumpsys account`'s step records a count, never an email.
 - **The app in front is known on every emulator, and so are the emulator's own apps** (`emulator.AdbDevice`,
   `emulator.EmulatorOwnApps`): `focusedPackage` answers the resumed activity's package when no window has the
   focus, as BlueStacks and MEmu leave it after a cold boot; `homePackage` names Android's home app; and

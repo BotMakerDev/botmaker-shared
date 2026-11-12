@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- MEmu 9's .memu, captured 2026-11-12: the elements read, device IDs left out -->
+<MemuHyperv>
+  <Machine name="MEmu">
+    <Hardware>
+      <CPU count="6">
+      </CPU>
+      <Memory RAMSize="6144"/>
+      <GuestProperties>
+        <GuestProperty name="enable_su" value="0" timestamp="1434179078636921600" flags=""/>
+        <GuestProperty name="resolution_height" value="900" timestamp="1784319838801035500" flags=""/>
+        <GuestProperty name="resolution_width" value="1600" timestamp="1784319838801035500" flags=""/>
+        <GuestProperty name="vbox_dpi" value="300" timestamp="1784319838801035500" flags=""/>
+      </GuestProperties>
+    </Hardware>
+  </Machine>
+</MemuHyperv>

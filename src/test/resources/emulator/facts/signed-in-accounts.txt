@@ -1,0 +1,14 @@
+User UserInfo{0:Owner:c13}:
+  Accounts: 2
+    Account {name=First.Player@example.com, type=com.google}
+    Account {name=someone, type=com.facebook.auth.login}
+
+  AccountId, Action_Type, timestamp, UID, TableName, Key
+  Accounts History
+    1,action_account_add,2026-11-12 10:00:00,10050,accounts,1
+
+  Active Sessions: 0
+
+  Account visibility:
+    Account {name=gone.long.ago@example.com, type=com.google}
+      com.google.android.gms, 1
