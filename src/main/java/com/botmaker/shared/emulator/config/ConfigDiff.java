@@ -12,7 +12,9 @@ import java.util.Set;
  * its product cannot apply is {@link Status#BY_HAND}, never a change; Facebook and mail accounts are records only, so
  * never a change either.
  *
- * @param accountsRead whether Android listed the accounts; when not, no account change is said
+ * @param accountsRead whether Android listed the accounts; when not (the instance is stopped), every wanted Google
+ *                     account is a sign-in, which reads the instance first and passes one it holds, and no removal is
+ *                     said
  * @param gamesRead    whether Android listed the packages; when not, no game is said missing
  */
 public record ConfigDiff(List<FieldState> fields, List<AccountChange> accounts, List<GameRecord> missingGames,
@@ -73,12 +75,12 @@ public record ConfigDiff(List<FieldState> fields, List<AccountChange> accounts, 
 
     /**
      * Whether the instance differs anywhere: a change, a field set by hand that was read and is not as wanted, an
-     * account, a game.
+     * account it was read not to hold, a game. An account on an instance not read is no known difference.
      */
     public boolean differs() {
         return fields.stream().anyMatch(f -> f.status() == Status.CHANGE
                         || f.status() == Status.BY_HAND && f.now().isPresent())
-                || !accounts.isEmpty() || !missingGames.isEmpty();
+                || accountsRead && !accounts.isEmpty() || !missingGames.isEmpty();
     }
 
     /** Whether Apply has something to do here. */
@@ -98,13 +100,14 @@ public record ConfigDiff(List<FieldState> fields, List<AccountChange> accounts, 
         Optional<AndroidState> android = facts.android();
         Optional<Set<String>> held = android.flatMap(AndroidState::googleAccounts);
         List<AccountChange> accounts = new ArrayList<>();
-        held.ifPresent(emails -> {
-            for (Sourced<AccountRecord> account : wanted.accounts()) {
-                AccountRecord record = account.value();
-                if (record.kind().signedInByBotMaker() && !emails.contains(lower(record.name()))) {
-                    accounts.add(new AccountChange(record, AccountChange.Op.ADD));
-                }
+        for (Sourced<AccountRecord> account : wanted.accounts()) {
+            AccountRecord record = account.value();
+            boolean isHeld = held.map(emails -> emails.contains(lower(record.name()))).orElse(false);
+            if (record.kind().signedInByBotMaker() && !isHeld) {
+                accounts.add(new AccountChange(record, AccountChange.Op.ADD));
             }
+        }
+        held.ifPresent(emails -> {
             for (AccountRecord.Key removed : wanted.removedAccounts()) {
                 if (removed.kind().signedInByBotMaker() && emails.contains(removed.name())) {
                     accounts.add(new AccountChange(new AccountRecord(removed.kind(), removed.name()),

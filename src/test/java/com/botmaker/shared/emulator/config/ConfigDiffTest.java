@@ -94,7 +94,7 @@ class ConfigDiffTest {
     }
 
     @Test
-    void missingGamesAndUnreadAndroidSayNothingFalse() {
+    void missingGamesAndUnreadAndroidSayNothingFalseButAStoppedInstanceIsSignedIn() {
         Wanted wanted = EmulatorConfig.EMPTY.withEmulator(PlatformId.LDPLAYER, Layer.EMPTY.withGame(GAME)
                 .withAccount(new AccountRecord(AccountRecord.Kind.GOOGLE, "main@example.com"))).wanted(LD);
 
@@ -109,9 +109,12 @@ class ConfigDiffTest {
         ConfigDiff unread = ConfigDiff.of(wanted, facts(LD, Map.of(), Optional.empty()));
         assertFalse(unread.accountsRead());
         assertFalse(unread.gamesRead());
-        assertEquals(List.of(), unread.accounts());
+        assertEquals(List.of(new ConfigDiff.AccountChange(
+                new AccountRecord(AccountRecord.Kind.GOOGLE, "main@example.com"), ConfigDiff.AccountChange.Op.ADD)),
+                unread.accounts());
         assertEquals(List.of(), unread.missingGames());
         assertFalse(unread.differs());
+        assertTrue(unread.applicable());
     }
 
     private static InstanceFacts facts(InstanceKey key, Map<ConfigField, ConfigValue> settings,
