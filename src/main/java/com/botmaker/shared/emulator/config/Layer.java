@@ -110,6 +110,14 @@ public record Layer(Map<ConfigField, ConfigValue> fields, List<AccountRecord> ac
                 games.stream().filter(g -> !g.packageName().equals(packageName)).toList(), removed, tags);
     }
 
+    /** Takes the game back: neither listed here nor removed, so the emulator's layer decides. */
+    public Layer inheritingGame(String packageName) {
+        Set<String> removed = new LinkedHashSet<>(removedGames);
+        removed.remove(packageName);
+        return new Layer(fields, accounts, removedAccounts, defaultGoogle,
+                games.stream().filter(g -> !g.packageName().equals(packageName)).toList(), removed, tags);
+    }
+
     /** The tags, blank and null ones dropped. */
     public Layer withTags(Collection<String> next) {
         return new Layer(fields, accounts, removedAccounts, defaultGoogle, games, removedGames, new ArrayList<>(next));

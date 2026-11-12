@@ -128,6 +128,10 @@ class LayersTest {
         EmulatorConfig without = config.withInstance(LD1, config.instance(LD1).removingGame(game.packageName()));
         assertTrue(without.wanted(LD1).games().isEmpty());
         assertEquals(Set.of(game.packageName()), without.wanted(LD1).removedGames());
+
+        EmulatorConfig back = without.withInstance(LD1, without.instance(LD1).inheritingGame(game.packageName()));
+        assertEquals(List.of(game), back.wanted(LD1).games().stream().map(Sourced::value).toList());
+        assertTrue(back.wanted(LD1).removedGames().isEmpty());
     }
 
     @Test

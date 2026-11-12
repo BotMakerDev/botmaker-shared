@@ -37,7 +37,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - **Emulator configurations, kept on this PC** (`emulator.config`, spec `2026-11-12-emulators-window-design.md`): an
   emulator's layer and each instance's own over it, field by field (`Layer`, `EmulatorConfig.wanted` gives each value
   with its source), with accounts (Google, Facebook, mail; records only, no password field), games and tags. Instances
-  are keyed by product and name (`InstanceKey`), not by ADB port. The SDK plugin keeps them as its values of this PC
+  are keyed by product and name (`InstanceKey`), not by ADB port. `Layer.inheritingGame` takes back a game an
+  instance removed; `Applies.undoneIds` says which applies were undone. The SDK plugin keeps them as its values of this PC
   (`ConfigValue.written` and `read` give each value's text); `EmulatorConfigStore` and its `configurations.json`,
   never released, are gone. `SavedFilters` keeps the window's saved filters in the folder it is given.
 - **What an instance has now, against its configuration** (`emulator.config.InstanceFacts`, `ConfigDiff`): each

@@ -166,6 +166,7 @@ class ApplyTest {
         assertNull(undone.failed());
         assertTrue(host.calls().contains("console memuc.exe setconfigex -n MEmu fps 60"), host.calls().toString());
         assertTrue(log.last(InstanceKey.of(MEMU)).isEmpty());
+        assertTrue(log.undoneIds().contains(entry.id()));
         assertTrue(Files.readString(dir.resolve("applies.jsonl")).contains("\"undone\":\"" + entry.id() + "\""));
     }
 

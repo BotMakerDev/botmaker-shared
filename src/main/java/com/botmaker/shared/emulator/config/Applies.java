@@ -97,7 +97,16 @@ public final class Applies {
         return Optional.empty();
     }
 
-    /** Every Apply on {@code instance}, oldest first, undone ones included; the window's history. */
+    /** The ids of every Apply undone, on any instance. */
+    public Set<String> undoneIds() throws IOException {
+        Set<String> undone = new HashSet<>();
+        for (JsonNode line : lines()) {
+            if (line.hasNonNull("undone")) undone.add(line.get("undone").asText());
+        }
+        return undone;
+    }
+
+    /** Every Apply on {@code instance}, oldest first, undone ones included ({@link #undoneIds}); the window's history. */
     public List<Entry> all(InstanceKey instance) throws IOException {
         List<Entry> out = new ArrayList<>();
         for (JsonNode line : lines()) {
