@@ -220,7 +220,7 @@ final class ConfigJson {
         }
     }
 
-    private static JsonNode json(ConfigValue value, ObjectNode factory) {
+    static JsonNode json(ConfigValue value, ObjectNode factory) {
         return switch (value) {
             case ConfigValue.Screen screen -> factory.objectNode()
                     .put("w", screen.width()).put("h", screen.height()).put("dpi", screen.dpi());

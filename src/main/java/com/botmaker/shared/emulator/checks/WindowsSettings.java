@@ -181,19 +181,29 @@ public record WindowsSettings(Path file, Boolean adbOn, int ramMb, int width, in
         return ldPlayerWithAdb(json, true);
     }
 
+    /**
+     * LDPlayer's file with {@code "key": raw} ({@code raw} is JSON as written: {@code 60}, {@code true}): the value
+     * replaced, or the key added as the object's first.
+     */
+    public static String ldPlayerWith(String json, String key, String raw) {
+        Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*(\"[^\"]*\"|[^,}\\s]+)").matcher(json);
+        if (m.find()) return json.substring(0, m.start(1)) + raw + json.substring(m.end(1));
+        int brace = json.indexOf('{');
+        if (brace < 0) return json;
+        String rest = json.substring(brace + 1);
+        boolean empty = rest.isBlank() || rest.trim().startsWith("}");
+        return json.substring(0, brace + 1) + "\n    \"" + key + "\": " + raw + (empty ? "" : ",") + rest;
+    }
+
     /** LDPlayer's file with ADB {@code on} or off; a missing key is off already, so off adds none. */
-    static String ldPlayerWithAdb(String json, boolean on) {
+    public static String ldPlayerWithAdb(String json, boolean on) {
         Matcher adb = LD_ADB.matcher(json);
         if (adb.find()) return json.substring(0, adb.start(1)) + (on ? "1" : "0") + json.substring(adb.end(1));
-        int brace = json.indexOf('{');
-        if (brace < 0 || !on) return json;
-        boolean empty = json.substring(brace + 1).isBlank() || json.substring(brace + 1).trim().startsWith("}");
-        return json.substring(0, brace + 1) + "\n    \"basicSettings.adbDebug\": 1" + (empty ? "" : ",")
-                + json.substring(brace + 1);
+        return on ? ldPlayerWith(json, "basicSettings.adbDebug", "1") : json;
     }
 
     /** BlueStacks' conf with {@code key="value"}: the line replaced, or added at the end. */
-    static String blueStacksWith(String conf, String key, String value) {
+    public static String blueStacksWith(String conf, String key, String value) {
         Pattern line = Pattern.compile("(?m)^" + Pattern.quote(key) + "=.*$");
         String wanted = key + "=\"" + value + "\"";
         Matcher m = line.matcher(conf);

@@ -36,7 +36,7 @@ class ConfigDiffTest {
 
         ConfigDiff diff = ConfigDiff.of(wanted, facts);
 
-        assertEquals(ConfigDiff.Status.BY_HAND, status(diff, ConfigField.SCREEN), "MuMu's screen is set by hand");
+        assertEquals(ConfigDiff.Status.UNREAD, status(diff, ConfigField.SCREEN), "neither MuMu nor Android said it");
         assertEquals(ConfigDiff.Status.CHANGE, status(diff, ConfigField.CPU_CORES));
         assertEquals(ConfigDiff.Status.SAME, status(diff, ConfigField.MEMORY));
         assertEquals(ConfigDiff.Status.SAME, status(diff, ConfigField.LOCALE), "en_us is en-US");

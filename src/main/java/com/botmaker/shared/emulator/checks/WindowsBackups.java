@@ -35,7 +35,16 @@ public final class WindowsBackups {
     /** Copies {@code file} into a new backup of {@code check}'s Fix on {@code instance}. */
     static Backup save(Path root, EmulatorInstance instance, EmulatorCheck check, Path file, LocalDateTime when)
             throws IOException {
-        Path folder = root.resolve(folderOf(instance)).resolve(Backups.stamp(when) + "-" + check.id());
+        return save(root, instance, check.id(), check, file, when);
+    }
+
+    /**
+     * Copies {@code file} into a new backup named {@code tag} ({@code apply} for a configuration's Apply, whose
+     * {@link Backup#check()} is null).
+     */
+    static Backup save(Path root, EmulatorInstance instance, String tag, EmulatorCheck check, Path file,
+                       LocalDateTime when) throws IOException {
+        Path folder = root.resolve(folderOf(instance)).resolve(Backups.stamp(when) + "-" + tag);
         Files.createDirectories(folder);
         Path copy = folder.resolve(file.getFileName().toString());
         Files.copy(file, copy, StandardCopyOption.REPLACE_EXISTING);

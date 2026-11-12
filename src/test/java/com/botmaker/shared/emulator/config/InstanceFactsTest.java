@@ -119,7 +119,7 @@ class InstanceFactsTest {
     @Test
     void muMusConsoleAndMEmusFile() throws IOException {
         Map<ConfigField, ConfigValue> mumu = ProductSettings.muMu(resource("mumu/setting_all.json"));
-        assertEquals(new ConfigValue.Screen(1600, 900, 240), mumu.get(ConfigField.SCREEN));
+        assertEquals(new ConfigValue.Screen(900, 1600, 240), mumu.get(ConfigField.SCREEN), "MuMu's 1600x900, turned");
         assertEquals(new ConfigValue.Count(4), mumu.get(ConfigField.CPU_CORES));
         assertEquals(new ConfigValue.Megabytes(4096), mumu.get(ConfigField.MEMORY));
         assertEquals(new ConfigValue.Count(60), mumu.get(ConfigField.FPS));
@@ -149,7 +149,7 @@ class InstanceFactsTest {
                 live.field(ConfigField.TIME_ZONE).orElseThrow());
 
         InstanceFacts stopped = new InstanceFacts(key, settings, later, Optional.of(android), false);
-        assertEquals(new InstanceFacts.Read(new ConfigValue.Screen(1600, 900, 240), InstanceFacts.Origin.SETTINGS,
+        assertEquals(new InstanceFacts.Read(new ConfigValue.Screen(900, 1600, 240), InstanceFacts.Origin.SETTINGS,
                 later), stopped.field(ConfigField.SCREEN).orElseThrow());
         assertEquals(AT, stopped.field(ConfigField.LOCALE).orElseThrow().at(), "kept with its time");
     }

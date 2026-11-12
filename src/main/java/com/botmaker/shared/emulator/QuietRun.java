@@ -28,6 +28,17 @@ public final class QuietRun {
         for (String command : CALM) ask(device, command);
     }
 
+    /** {@link #calm}'s commands, for a configuration's Apply to run as its popups-off change. */
+    public static List<String> calmCommands() {
+        return CALM;
+    }
+
+    /** What {@link #calmCommands} turned off, back on: the Google app and heads-up notifications. */
+    public static List<String> uncalmCommands() {
+        return List.of("pm enable com.google.android.googlequicksearchbox",
+                "settings put global heads_up_notifications_enabled 1");
+    }
+
     /**
      * {@link #calm}'s commands. The Google app, which shows Gemini, is disabled ({@code pm enable} brings it back): clearing
      * the assistant role alone hands it straight back to that app, its fallback holder. Then no assistant, no assist

@@ -29,6 +29,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   configured, a change, set each run, or set by hand (a field the product cannot apply is never a change), the Google
   accounts to sign in or out, and the games missing; an Android that did not answer says nothing about accounts or
   games. `dumpsys account`'s step records a count, never an email.
+- **Apply and Undo an instance's configuration** (`emulator.config.Apply`, `Applies`, `ProductWriters`,
+  `EmulatorOperations`): Apply stops the instance when a setting needs it, keeps the files it edits
+  (`WindowsBackups`), writes the console (LDPlayer `modify`, MuMu `setting` with its `resolution_*.custom` and
+  `performance_*.custom` keys, MEmu `setconfigex`), then the file (LDPlayer's FPS and ADB, `bluestacks.conf`), starts
+  it, runs Android's commands (time zone, popups; a locale only with root), reads it again and logs each change in
+  `applies.jsonl`. A failure or a cancel puts everything back, and a restart that fails leaves the instance stopped with
+  the reason. Undo applies the logged old values. The configured screen is what Android reports: MuMu stores it
+  turned, and its writer swaps it. A value this product cannot take is refused with why. `EmulatorOperations` queues
+  them, one at a time on a shared ADB port, side by side otherwise, listeners called on their own thread.
 - **The app in front is known on every emulator, and so are the emulator's own apps** (`emulator.AdbDevice`,
   `emulator.EmulatorOwnApps`): `focusedPackage` answers the resumed activity's package when no window has the
   focus, as BlueStacks and MEmu leave it after a cold boot; `homePackage` names Android's home app; and

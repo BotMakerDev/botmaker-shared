@@ -204,6 +204,16 @@ public final class WindowsFixes {
                 + "file and writes it back when it closes, over the change.";
     }
 
+    /**
+     * Stops {@code instance} so its settings can be written: refused while another instance sharing its file runs.
+     * Null when it is stopped, else why not.
+     */
+    public static String stopToChange(EmulatorInstance instance) throws InterruptedException {
+        String sharing = othersRunning(instance);
+        if (sharing != null) return sharing;
+        return EmulatorLiveness.check(instance).state() == EmulatorState.STOPPED ? null : stop(instance);
+    }
+
     private static String stop(EmulatorInstance instance) throws InterruptedException {
         if (!instance.canStop()) {
             return "Close " + instance.brand() + "'s window first: BotMaker can't stop " + instance.brand()

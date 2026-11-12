@@ -26,7 +26,6 @@ import static com.botmaker.shared.emulator.config.ConfigField.DO_NOT_DISTURB;
 import static com.botmaker.shared.emulator.config.ConfigField.FPS;
 import static com.botmaker.shared.emulator.config.ConfigField.LOCALE;
 import static com.botmaker.shared.emulator.config.ConfigField.MEMORY;
-import static com.botmaker.shared.emulator.config.ConfigField.PLAY_AUTO_UPDATE_OFF;
 import static com.botmaker.shared.emulator.config.ConfigField.POPUPS_OFF;
 import static com.botmaker.shared.emulator.config.ConfigField.ROOT;
 import static com.botmaker.shared.emulator.config.ConfigField.SCREEN;
@@ -45,10 +44,10 @@ import static com.botmaker.shared.emulator.config.ConfigField.TIME_ZONE;
  */
 public enum ProductSettings {
     LDPLAYER(PlatformId.LDPLAYER, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT, ADB)),
-    /** MuMu's screen stays by hand until phase 3 checks {@code MuMuManager setting} against its help. */
-    MUMU(PlatformId.MUMU, EnumSet.of(CPU_CORES, MEMORY, FPS, ROOT)),
-    /** MEmu's screen stays by hand until phase 3 checks {@code memuc setconfigex} against its help. */
-    MEMU(PlatformId.MEMU, EnumSet.of(CPU_CORES, MEMORY, FPS, ROOT)),
+    /** Written by {@code MuMuManager setting}, keys as its {@code --info} lists them (2026-11-12). */
+    MUMU(PlatformId.MUMU, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT)),
+    /** Written by {@code memuc setconfigex}, keys as its {@code getconfigex} reads them (2026-11-12). */
+    MEMU(PlatformId.MEMU, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT)),
     /** BlueStacks and MSI App Player: one product, one {@code bluestacks.conf} per edition. */
     BLUESTACKS(PlatformId.BLUESTACKS, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT, ADB)),
     GAMELOOP(PlatformId.GAMELOOP, EnumSet.noneOf(ConfigField.class)),
@@ -58,9 +57,13 @@ public enum ProductSettings {
     /** A phone, or a product this build does not know: nothing is applied. */
     NONE(PlatformId.UNKNOWN, EnumSet.noneOf(ConfigField.class));
 
-    /** Set over ADB on every emulator: Android's own settings. A holder, as an enum's constructor reads no static. */
+    /**
+     * Set over ADB on every emulator: Android's own settings. A holder, as an enum's constructor reads no static. Play's
+     * auto-update is not one: it lives in the Play app's own preferences, which no shell command writes, so it is set
+     * by hand.
+     */
     private static final class OverAdb {
-        static final Set<ConfigField> FIELDS = EnumSet.of(LOCALE, TIME_ZONE, POPUPS_OFF, PLAY_AUTO_UPDATE_OFF);
+        static final Set<ConfigField> FIELDS = EnumSet.of(LOCALE, TIME_ZONE, POPUPS_OFF);
     }
 
     private final PlatformId platform;
@@ -93,12 +96,26 @@ public enum ProductSettings {
         return applies.contains(field);
     }
 
+    /** Whether {@code field} is Android's own, set over ADB on every product. */
+    static boolean overAdb(ConfigField field) {
+        return OverAdb.FIELDS.contains(field);
+    }
+
     /**
      * Whether BotMaker sets the field for each run rather than once: Do Not Disturb is turned on as a run starts and
      * back as it ends ({@code QuietRun}), so what Android has between runs says nothing against it.
      */
     public boolean setEachRun(ConfigField field) {
         return field == DO_NOT_DISTURB && this != NONE;
+    }
+
+    /**
+     * Whether the product keeps its screen turned against Android's: MuMu's 1600×900 is Android's {@code wm size}
+     * 900×1600. A configured screen is Android's (the user's call, 2026-11-12), so this product's reads and writes swap
+     * width and height.
+     */
+    public boolean turnsScreen() {
+        return this == MUMU;
     }
 
     /** ADB is always on in these: no setting turns it off. */
@@ -184,7 +201,7 @@ public enum ProductSettings {
         int width = whole(all.path("resolution_width").asText(""));
         int height = whole(all.path("resolution_height").asText(""));
         int dpi = whole(all.path("resolution_dpi").asText(""));
-        if (width > 0 && height > 0 && dpi > 0) out.put(SCREEN, new ConfigValue.Screen(width, height, dpi));
+        if (width > 0 && height > 0 && dpi > 0) out.put(SCREEN, new ConfigValue.Screen(height, width, dpi)); // turned
         count(out, CPU_CORES, whole(all.path("vm_cpu").asText("")));
         int gb = whole(all.path("vm_mem").asText(""));
         if (gb > 0) out.put(MEMORY, new ConfigValue.Megabytes(gb * 1024));
