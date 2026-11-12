@@ -2,19 +2,19 @@ package com.botmaker.shared.emulator;
 
 /**
  * Whether an instance is up, as its own product says: {@code ldconsole list2}, {@code memuc listvms},
- * {@code MuMuManager info}, the BlueStacks or GameLoop engine process. {@link #UNKNOWN} when the product has no
+ * {@code MuMuManager info}, the BlueStacks engine process. {@link #UNKNOWN} when the product has no
  * such answer (Waydroid, a phone) or did not give one this time; the ADB port is then the only witness, which
  * is what {@link EmulatorLiveness} falls back to.
  *
- * <p>It exists because the port is not a witness on Windows. BlueStacks, LDPlayer's first instance and GameLoop
- * all ask for {@code 127.0.0.1:5555}, so whichever of them is running made every one of them look running.
+ * <p>It exists because the port is not a witness on Windows. BlueStacks and LDPlayer's first instance
+ * both ask for {@code 127.0.0.1:5555}, so whichever of them is running made every one of them look running.
  */
 public enum EmulatorState {
     /** The product says Android is up in this instance. */
     RUNNING("running", "running"),
     /**
      * The instance's process is up, and Android may or may not be: LDPlayer and MuMu while they boot, and every
-     * product that can only say its process runs (MEmu's {@code running} flag, a BlueStacks or GameLoop engine).
+     * product that can only say its process runs (MEmu's {@code running} flag, a BlueStacks engine).
      */
     STARTING("starting", "starting…"),
     /** The product says this instance is not running. */

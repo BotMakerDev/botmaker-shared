@@ -49,10 +49,10 @@ class ConfigDiffTest {
 
     @Test
     void aFieldTheProductCannotApplyIsNeverAChange() {
-        Wanted wanted = EmulatorConfig.EMPTY.withEmulator(PlatformId.GAMELOOP,
+        Wanted wanted = EmulatorConfig.EMPTY.withEmulator(PlatformId.AVD,
                 Layer.EMPTY.with(ConfigField.MEMORY, new ConfigValue.Megabytes(8192))).wanted(
-                new InstanceKey(PlatformId.GAMELOOP, "GameLoop"));
-        InstanceFacts facts = facts(new InstanceKey(PlatformId.GAMELOOP, "GameLoop"), Map.of(), Optional.empty());
+                new InstanceKey(PlatformId.AVD, "Pixel_8"));
+        InstanceFacts facts = facts(new InstanceKey(PlatformId.AVD, "Pixel_8"), Map.of(), Optional.empty());
 
         ConfigDiff diff = ConfigDiff.of(wanted, facts);
 
@@ -60,7 +60,7 @@ class ConfigDiffTest {
         assertFalse(diff.differs(), "not read: not known to differ");
         assertFalse(diff.applicable());
 
-        ConfigDiff read = ConfigDiff.of(wanted, facts(new InstanceKey(PlatformId.GAMELOOP, "GameLoop"),
+        ConfigDiff read = ConfigDiff.of(wanted, facts(new InstanceKey(PlatformId.AVD, "Pixel_8"),
                 Map.of(ConfigField.MEMORY, new ConfigValue.Megabytes(4096)), Optional.empty()));
         assertTrue(read.differs());
         assertFalse(read.applicable());

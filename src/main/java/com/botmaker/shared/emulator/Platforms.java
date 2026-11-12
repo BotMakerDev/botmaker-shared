@@ -8,8 +8,8 @@ import java.util.Set;
 
 /**
  * The registry of known {@link EmulatorPlatform}s and the one place to enumerate instances across all of
- * them. BlueStacks, LDPlayer, MEmu, MuMu and Gameloop all discover for real today (Gameloop is limited to
- * its single primary instance). Add a product by adding it to {@link #ALL}.
+ * them. BlueStacks, LDPlayer, MEmu and MuMu all discover for real today. Add a product by adding it to
+ * {@link #ALL}. GameLoop was dropped on 2026-11-12 (the user's call): elevated, one instance, no settings to write.
  *
  * <p>The list is <b>not</b> Windows-only: {@link WaydroidPlatform} is a Linux Android container and each
  * platform gates on its own OS, so a scan on either OS simply reports the products that can exist there.
@@ -30,7 +30,6 @@ public final class Platforms {
             new LdPlayerPlatform(),
             new MemuPlatform(),
             new MuMuPlatform(),
-            new GameloopPlatform(),
             new AvdPlatform(),
             new WaydroidPlatform(),
             new DevicePlatform());
@@ -116,8 +115,8 @@ public final class Platforms {
      * answers on its port (2026-10-31). A product may report the serial itself ({@link AvdPlatform}): both sides are
      * compared as the adbd they reach.
      *
-     * <p><b>Two products on one address both stay.</b> They are two instances that cannot run at once — BlueStacks,
-     * LDPlayer's first instance and GameLoop all ask for {@code 127.0.0.1:5555} — and dropping the later one hid
+     * <p><b>Two products on one address both stay.</b> They are two instances that cannot run at once — BlueStacks
+     * and LDPlayer's first instance both ask for {@code 127.0.0.1:5555} — and dropping the later one hid
      * every emulator but the first from a machine that has several.
      */
     static List<EmulatorInstance> dedupe(List<EmulatorInstance> instances) {

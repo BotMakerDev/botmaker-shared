@@ -194,14 +194,6 @@ class WindowsDiscoveryTest {
     }
 
     @Test
-    void gameLoopsEngineIsUnderUiAndWithoutItThereIsNoInstance(@TempDir Path install) throws Exception {
-        assertNull(GameloopPlatform.engine(List.of(install)));
-        Path ui = Files.createDirectories(install.resolve("ui"));
-        Files.writeString(ui.resolve("AndroidEmulatorEn.exe"), "");
-        assertEquals(ui.resolve("AndroidEmulatorEn.exe"), GameloopPlatform.engine(List.of(install)).launch());
-    }
-
-    @Test
     void twoProductsOnOnePortBothStayAndOnlyAPhoneSeenTwiceGoes() {
         EmulatorInstance blueStacks = new EmulatorInstance(PlatformId.BLUESTACKS, "BlueStacks", "127.0.0.1", 5555);
         EmulatorInstance ldPlayer = new EmulatorInstance(PlatformId.LDPLAYER, "LDPlayer", "127.0.0.1", 5555);
@@ -296,8 +288,8 @@ class WindowsDiscoveryTest {
 
     @Test
     void anInstalledProductWithNoInstanceSaysWhyWhenItCan() {
-        assertEquals("Gameloop: installed · only the launcher is installed",
-                new Platforms.PlatformStatus(PlatformId.GAMELOOP, true, 0, null, "only the launcher is installed")
+        assertEquals("Android Studio emulator: installed · " + new AvdPlatform().statusNote(),
+                new Platforms.PlatformStatus(PlatformId.AVD, true, 0, null, new AvdPlatform().statusNote())
                         .statusLine());
         assertEquals("MEmu: installed · no instances configured",
                 new Platforms.PlatformStatus(PlatformId.MEMU, true, 0, null).statusLine());

@@ -29,13 +29,13 @@ through JNA, not `reg.exe`. `BlueStacksPlatform` reads every `HKLM\SOFTWARE\Blue
 VirtualBox `.memu` NAT forwarding rule (host port of guest 5555) and `MuMuPlatform` `vms\MuMuPlayer*-<v>-<i>`
 (the port `configs\vm_config.json` forwards, else 16384+32·i). Names come from each product's console
 (`ldconsole list2`, `memuc listvms`, `MuMuManager info -v all`) when it answers, and from its last answer
-(`UserDirs.cache()/emulator-names`) when it doesn't, so a saved name doesn't flip with a slow tool. `GameloopPlatform` returns its
-single primary instance on port 5555 once its engine is downloaded, and a status note until then. Several
-products ask for 5555; `Platforms.dedupe` keeps them all and only drops a phone a product already reported.
+(`UserDirs.cache()/emulator-names`) when it doesn't, so a saved name doesn't flip with a slow tool. GameLoop
+was dropped on 2026-11-12 (elevated, one instance, no settings to write); an old `gameloop` id reads as `UNKNOWN`.
+Several products ask for 5555; `Platforms.dedupe` keeps them all and only drops a phone a product already reported.
 So the port can't say whether an instance is up: each one carries the `EmulatorState` its product reported in the
 same console call that named it (LDPlayer's `list2` Android flag, `memuc listvms`, MuMu's `is_android_started`),
 or that its engine process gives (`STARTING` — the process, not Android — for a BlueStacks edition with one
-instance and GameLoop; `STOPPED` when no process by the engine's name runs anywhere, since MuMu also answers on
+instance; `STOPPED` when no process by the engine's name runs anywhere, since MuMu also answers on
 5555; `UNKNOWN` when one runs under another path), else `UNKNOWN`.
 `EmulatorLiveness.check` puts that beside a port probe, over a discovery at most 2 s old (`Platforms.recent`;
 `EmulatorLiveness.running`, which bots and launches poll, skips the discovery for a closed port and accepts one
@@ -53,7 +53,7 @@ is one `*.ini` in `AndroidSdk.avdHome()`, named by its id and reached at the adb
 - `dedupe` compares a product's address as the adbd it reaches, so the server's generic row of a running AVD drops.
 Beyond discovery, each
 `EmulatorInstance` also carries the host `launchCommand`/`stopCommand` its platform resolved (LDPlayer
-`ldconsole`, MuMu `MuMuManager`, MEmu `memuc`, BlueStacks `HD-Player --instance`, Gameloop engine exe), which
+`ldconsole`, MuMu `MuMuManager`, MEmu `memuc`, BlueStacks `HD-Player --instance`), which
 `EmulatorLauncher` spawns to start/stop an instance the ADB transport can't reach until it's up. `AdbDevice`
 also does app queries (`installedApps`/`isInstalled`/`currentApp`), and reads an app's icon and name out of its
 installed APK without pulling it (`ApkZip` reads the ZIP backwards in a few `dd` ranges; `ApkIcon` takes the
@@ -69,7 +69,7 @@ the instance's Google Play and polls `pm list packages` until the user has press
 `ApkFile` unpacks and names out of the APKs' own manifests (`ApkLabel.manifestPackage`). Both read the instance's
 apps again afterwards, so the game's card has its name and icon. `EmulatorPlatform.newInstance` says how a product
 adds an instance (`NewInstance`): `ldconsole add`, `memuc create 96`, `MuMuManager create -n 1`, or the product's
-own manager for BlueStacks (`HD-MultiInstanceManager`) and GameLoop (its launcher). A create counts as done when
+own manager for BlueStacks (`HD-MultiInstanceManager`). A create counts as done when
 discovery finds one more instance, since `ldconsole add` exits 1 after creating one.
 A phone on Wi-Fi is found through the adb server's mDNS list (`AdbTools.mdnsServices`, `host:mdns:services` over
 the server socket; never a reason to start a server). Android 11+ announces `_adb-tls-pairing._tcp` while its

@@ -63,7 +63,7 @@ Package map:
 - `launch/` — the launch stack: `LaunchKind`/`LaunchSpec` (the `launch.target` grammar), `GameLauncher`,
   `UriLauncher`, `EmulatorAppLauncher`, `RunningProbe` and the `Launcher` facade.
 - `emulator/` — Android-emulator capability (see below): `AdbDevice` (dadb transport), `Platforms` +
-  `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/`MemuPlatform`/`MuMuPlatform`/`GameloopPlatform`
+  `EmulatorPlatform`/`BlueStacksPlatform`/`LdPlayerPlatform`/`MemuPlatform`/`MuMuPlatform`
   (all discover for real), `EmulatorLauncher` (host launch/stop), `WindowsRegistry`, `EmulatorInstance`.
   A **physical phone** is a discovery path here, not a stack of its own — `DevicePlatform` over `AdbTools`
   (the host adb server, for USB and TLS wireless; also `pair`/`connect` for Android 11+ wireless debugging,

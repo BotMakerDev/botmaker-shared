@@ -172,8 +172,8 @@ class ProductWritersTest {
     }
 
     @Test
-    void gameLoopTakesNothing() {
-        ProductWriters.Plan plan = ProductWriters.of(instance(PlatformId.GAMELOOP, "C:/GameLoop/AppMarket.exe"),
+    void anAvdTakesNothing() {
+        ProductWriters.Plan plan = ProductWriters.of(instance(PlatformId.AVD, "emulator", "-avd", "Pixel_8"),
                 Map.of(FPS, new ConfigValue.Count(30)), Map.of(), file());
         assertTrue(plan.isEmpty());
         assertTrue(plan.refused().containsKey(FPS));

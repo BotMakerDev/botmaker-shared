@@ -35,8 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The Windows emulators driven for real, one at a time (2026-11-10): for each instance of BlueStacks, LDPlayer, MEmu,
- * MuMu and Gameloop on this computer, the steps a bot's run takes on Waydroid — start, ADB, install the game
+ * The Windows emulators driven for real, one at a time (2026-11-10): for each instance of BlueStacks, LDPlayer, MEmu
+ * and MuMu on this computer, the steps a bot's run takes on Waydroid — start, ADB, install the game
  * {@code -Dbotmaker.live.package} names, launch it, focus, capture, a minimised window, a crash, a force-stop, the
  * emulator's own process killed, stop — each recorded pass or fail with its time, and the table written to
  * {@code target/emulators-live/report.md} with a frame per instance. One at a time because a PC rarely holds the RAM
@@ -48,11 +48,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WindowsEmulatorsLiveTest {
 
     private static final List<PlatformId> PRODUCTS = List.of(PlatformId.BLUESTACKS, PlatformId.LDPLAYER,
-            PlatformId.MEMU, PlatformId.MUMU, PlatformId.GAMELOOP);
+            PlatformId.MEMU, PlatformId.MUMU);
     /** The process whose death is an emulator crashing or its window closed, per product. */
     private static final Map<PlatformId, String> PLAYER = Map.of(PlatformId.BLUESTACKS, "HD-Player.exe",
-            PlatformId.LDPLAYER, "dnplayer.exe", PlatformId.MEMU, "MEmu.exe", PlatformId.MUMU, "MuMuNxDevice.exe",
-            PlatformId.GAMELOOP, "GameLoopEmulator.exe");
+            PlatformId.LDPLAYER, "dnplayer.exe", PlatformId.MEMU, "MEmu.exe", PlatformId.MUMU, "MuMuNxDevice.exe");
     private static final Pattern SIZE = Pattern.compile("(\\d+)x(\\d+)");
     private static final Path OUT = Path.of("target", "emulators-live");
     /**

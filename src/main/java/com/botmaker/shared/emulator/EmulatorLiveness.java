@@ -9,7 +9,7 @@ import java.util.function.Predicate;
  * picker's dot, a start button, and {@link EmulatorReadiness#isReady}.
  *
  * <p>The product's own word ({@link EmulatorInstance#state()}) comes first and the ADB port second, because on
- * Windows the port is shared: BlueStacks, LDPlayer's first instance and GameLoop all ask for
+ * Windows the port is shared: BlueStacks and LDPlayer's first instance both ask for
  * {@code 127.0.0.1:5555}. Trusting the port made every one of them look running when one was, and a launch
  * aimed at a stopped LDPlayer then drove the BlueStacks that held its port. A product that says nothing
  * (Waydroid, a phone, a BlueStacks edition with several instances and a player up) is judged by its port, as

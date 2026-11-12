@@ -18,7 +18,7 @@ public class PlatformIdTest {
         assertEquals("ldplayer", PlatformId.LDPLAYER.id());
         assertEquals("memu", PlatformId.MEMU.id());
         assertEquals("mumu", PlatformId.MUMU.id());
-        assertEquals("gameloop", PlatformId.GAMELOOP.id());
+        assertEquals(PlatformId.UNKNOWN, PlatformId.fromId("gameloop"), "GameLoop was dropped on 2026-11-12");
         assertEquals("avd", PlatformId.AVD.id());
         assertEquals("Android Studio emulator", PlatformId.AVD.displayName());
     }

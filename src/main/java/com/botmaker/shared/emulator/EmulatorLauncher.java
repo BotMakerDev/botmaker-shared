@@ -1,7 +1,6 @@
 package com.botmaker.shared.emulator;
 
 import com.botmaker.shared.Diag;
-import com.botmaker.shared.platform.Os;
 
 import java.io.File;
 import java.io.IOException;
@@ -23,9 +22,9 @@ import java.util.List;
  * {@code true} means "the launch was dispatched", not "the instance is up". Callers that need readiness poll
  * the ADB port afterwards ({@link EmulatorReadiness#bringUp}, which also notices a start whose process never ran).
  *
- * <p>On Windows a program runs from its own folder, as Explorer would start it. GameLoop's launcher is started
- * through ShellExecute ({@link WindowsCommands#shellExecute}), and so is any program Windows refuses to start
- * without its permission prompt (error 740: MSI App Player's player).
+ * <p>On Windows a program runs from its own folder, as Explorer would start it. A program Windows refuses to start
+ * without its permission prompt (error 740: MSI App Player's player) is started again through ShellExecute
+ * ({@link WindowsCommands#shellExecute}).
  */
 public final class EmulatorLauncher {
 
@@ -36,11 +35,7 @@ public final class EmulatorLauncher {
         if (instance == null) return false;
         // An AVD is reached through the adb server, which nothing else may have started on this login.
         if (instance.platformId() == PlatformId.AVD && instance.canLaunch()) AdbTools.startServer();
-        List<String> command = instance.launchCommand();
-        if (!command.isEmpty() && throughShell(instance.platformId(), Os.current().isWindows())) {
-            return run(WindowsCommands.shellExecute(command));
-        }
-        return run(command);
+        return run(instance.launchCommand());
     }
 
     /** Dispatches {@code instance}'s host stop command. {@code false} if it has none or the spawn fails. */
@@ -60,11 +55,6 @@ public final class EmulatorLauncher {
             if (EmulatorLiveness.check(instance).state() == EmulatorState.STOPPED) return true;
         }
         return false;
-    }
-
-    /** Whether {@code platform}'s launch goes through ShellExecute: GameLoop's launcher, on Windows. */
-    static boolean throughShell(PlatformId platform, boolean windows) {
-        return windows && platform == PlatformId.GAMELOOP;
     }
 
     private static boolean run(List<String> command) {

@@ -26,20 +26,20 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The checks on a Windows emulator — BlueStacks, LDPlayer, MuMu, MEmu and GameLoop — in the order they run: the
+ * The checks on a Windows emulator — BlueStacks, LDPlayer, MuMu and MEmu — in the order they run: the
  * product and the instance, its ADB port and switch, the memory it asks for, then, once Android is up, an ARM
  * translator, Google Play and the screen. The model is {@link WaydroidChecks}: each probe is pure over what it
  * examines and {@link #run} reads that, so the set is testable with no emulator.
  *
- * <p>What phase 1 found decided the set (2026-11-10): LDPlayer and BlueStacks ship with ADB off; LDPlayer,
- * BlueStacks and GameLoop all ask for port 5555; MEmu failed to start when Windows had no memory left to commit;
+ * <p>What phase 1 found decided the set (2026-11-10): LDPlayer and BlueStacks ship with ADB off; LDPlayer
+ * and BlueStacks both ask for port 5555; MEmu failed to start when Windows had no memory left to commit;
  * an x86-only image cannot run an ARM-only game; BlueStacks and LDPlayer gave a portrait game a landscape screen.
  */
 public final class WindowsEmulatorChecks {
 
     /** The products these checks are for. */
     public static final Set<PlatformId> PRODUCTS = EnumSet.of(PlatformId.BLUESTACKS, PlatformId.LDPLAYER,
-            PlatformId.MUMU, PlatformId.MEMU, PlatformId.GAMELOOP);
+            PlatformId.MUMU, PlatformId.MEMU);
 
     /** The products whose screen size a Fix sets (LDPlayer by its console, BlueStacks in its conf). */
     static final Set<PlatformId> SIZE_FIXED = EnumSet.of(PlatformId.LDPLAYER, PlatformId.BLUESTACKS);
@@ -106,7 +106,7 @@ public final class WindowsEmulatorChecks {
                             + ", the version BotMaker is tested on (" + sizeOf(tested) + " from its maker's site), "
                             + "behind one Windows permission prompt; then create an instance in it."))
                     .orElse(CheckResult.byHand(EmulatorCheck.EMULATOR_INSTALLED, "No Android emulator is installed.",
-                            "Install BlueStacks, LDPlayer, MuMu Player, MEmu or GameLoop from its own site, then "
+                            "Install BlueStacks, LDPlayer, MuMu Player or MEmu from its own site, then "
                                     + "create an instance in it.", List.of(), null));
             return List.of(none, CheckResult.afterAbove(EmulatorCheck.INSTANCE_EXISTS));
         }

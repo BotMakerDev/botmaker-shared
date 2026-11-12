@@ -18,8 +18,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * The queue of what the Emulators window is doing. Operations on instances that share an ADB port (LDPlayer,
- * BlueStacks and GameLoop all take 5555) run one at a time, in the order given, since only one of them can be up;
+ * The queue of what the Emulators window is doing. Operations on instances that share an ADB port (LDPlayer
+ * and BlueStacks both take 5555) run one at a time, in the order given, since only one of them can be up;
  * others run side by side. Listeners hear each change on the queue's own notifier thread, never the caller's.
  */
 public final class EmulatorOperations implements AutoCloseable {

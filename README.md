@@ -33,7 +33,7 @@ Jackson.
 |---|---|
 | `capture` | `NativeController` — list, capture, focus, move and resize windows, and drive keyboard and mouse — with one implementation per OS (`windows/`, `linux/` over X11, `mac/`); `ScreenCapture` grabs the whole desktop, through a screenshot program (Spectacle, grim, gnome-screenshot) under Wayland |
 | `input` | global key and mouse listeners (X11, macOS), which the stop key rides on |
-| `emulator` | Android emulators and devices: BlueStacks, LDPlayer, MEmu, MuMu Player, Gameloop, Waydroid and a phone over adb — find instances, read their state, install and start apps |
+| `emulator` | Android emulators and devices: BlueStacks, LDPlayer, MEmu, MuMu Player, Waydroid and a phone over adb — find instances, read their state, install and start apps |
 | `device` | the scrcpy fast path to an Android screen and input |
 | `game` | installed-game discovery: Steam, Epic, GOG, Heroic, Faugus, Lutris and desktop entries |
 | `launch` | `LaunchSpec` and `Launcher` — start a Steam, Epic, Heroic, Faugus or Lutris game, an app, a command, an `.exe` or an emulator app, and tell whether it is running |

@@ -50,7 +50,6 @@ public enum ProductSettings {
     MEMU(PlatformId.MEMU, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT)),
     /** BlueStacks and MSI App Player: one product, one {@code bluestacks.conf} per edition. */
     BLUESTACKS(PlatformId.BLUESTACKS, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT, ADB)),
-    GAMELOOP(PlatformId.GAMELOOP, EnumSet.noneOf(ConfigField.class)),
     /** Waydroid's screen is its {@code persist.waydroid.width/height}, the checks' existing Fix. */
     WAYDROID(PlatformId.WAYDROID, EnumSet.of(SCREEN)),
     AVD(PlatformId.AVD, EnumSet.noneOf(ConfigField.class)),
@@ -120,7 +119,7 @@ public enum ProductSettings {
 
     /** ADB is always on in these: no setting turns it off. */
     private boolean adbAlwaysOn() {
-        return this == MUMU || this == MEMU || this == GAMELOOP || this == WAYDROID || this == AVD;
+        return this == MUMU || this == MEMU || this == WAYDROID || this == AVD;
     }
 
     /** What the product's own file or console says now; empty for what it does not say or could not be read. */

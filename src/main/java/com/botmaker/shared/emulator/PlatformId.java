@@ -22,7 +22,6 @@ public enum PlatformId {
     LDPLAYER("ldplayer", "LDPlayer"),
     MEMU("memu", "MEmu"),
     MUMU("mumu", "MuMu Player"),
-    GAMELOOP("gameloop", "Gameloop"),
 
     /**
      * Android Studio's emulator: a virtual device (AVD) of the Android SDK, on any OS ({@link AvdPlatform}). Before
@@ -94,7 +93,6 @@ public enum PlatformId {
         return switch (this) {
             case LDPLAYER -> "Settings › Other settings › ADB debugging › Open local connection";
             case BLUESTACKS -> "Settings › Advanced › Android Debug Bridge (ADB)";
-            case GAMELOOP -> "Settings › Advanced › ADB debugging";
             default -> null;
         };
     }

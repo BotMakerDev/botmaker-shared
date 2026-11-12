@@ -25,7 +25,7 @@ public final class EmulatorOwnApps {
             "com.mumu.", "com.netease.mumu.", "com.nemu.",
             "com.microvirt.");
 
-    /** Launchers named whole: MuMu's, and Android's own that some products keep. GameLoop's is found as the home app. */
+    /** Launchers named whole: MuMu's, and Android's own that some products keep; any other is found as the home app. */
     static final Set<String> LAUNCHERS = Set.of("app.lawnchair", "com.android.launcher", "com.android.launcher3");
 
     /**

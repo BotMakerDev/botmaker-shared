@@ -30,9 +30,9 @@ class WindowsEmulatorChecksTest {
     void adbOffInAFileBotMakerWritesIsFixedElseSaidWhereToTurnItOn() {
         CheckResult ld = WindowsEmulatorChecks.adb(PlatformId.LDPLAYER, false, false);
         assertTrue(ld.failed() && ld.fixable(), ld.toString());
-        CheckResult gameLoop = WindowsEmulatorChecks.adb(PlatformId.GAMELOOP, null, true);
-        assertTrue(gameLoop.failed() && !gameLoop.fixable());
-        assertTrue(gameLoop.remedy().contains("ADB debugging"), gameLoop.remedy());
+        CheckResult closed = WindowsEmulatorChecks.adb(PlatformId.LDPLAYER, null, true);
+        assertTrue(closed.failed() && !closed.fixable());
+        assertTrue(closed.remedy().contains("ADB debugging"), closed.remedy());
         assertFalse(WindowsEmulatorChecks.adb(PlatformId.MUMU, null, false).failed());
         assertEquals("ADB is on.", WindowsEmulatorChecks.adb(PlatformId.BLUESTACKS, true, false).reason());
         assertEquals(CheckState.INFO, WindowsEmulatorChecks.adb(PlatformId.LDPLAYER, null, false).state(),
@@ -213,8 +213,8 @@ class WindowsEmulatorChecksTest {
 
     @Test
     void onlyAFixableFailureHasAFix() {
-        EmulatorInstance gameLoop = new EmulatorInstance(PlatformId.GAMELOOP, "GameLoop", "127.0.0.1", 5555);
-        assertTrue(WindowsFixes.of(WindowsEmulatorChecks.adb(PlatformId.GAMELOOP, null, true), gameLoop, null)
+        EmulatorInstance ld = new EmulatorInstance(PlatformId.LDPLAYER, "LDPlayer", "127.0.0.1", 5555);
+        assertTrue(WindowsFixes.of(WindowsEmulatorChecks.adb(PlatformId.LDPLAYER, null, true), ld, null)
                 .isEmpty());
         EmulatorInstance bs = new EmulatorInstance(PlatformId.BLUESTACKS, "Pie64", "127.0.0.1", 5555);
         Fix fix = WindowsFixes.of(WindowsEmulatorChecks.adb(PlatformId.BLUESTACKS, false, false), bs, null)

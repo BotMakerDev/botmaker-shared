@@ -122,7 +122,10 @@ class WindowsSettingsTest {
         assertEquals(memuc.resolveSibling("MemuHyperv VMs").resolve("MEmu").resolve("MEmu.memu"),
                 WindowsSettings.fileOf(memu).orElseThrow());
 
-        assertTrue(WindowsSettings.fileOf(new EmulatorInstance(PlatformId.GAMELOOP, "GameLoop", "127.0.0.1", 5555))
+        assertTrue(WindowsSettings.fileOf(new EmulatorInstance(PlatformId.LDPLAYER, "LDPlayer", "127.0.0.1", 5555))
                 .isEmpty(), "no launch command, no file");
+        assertTrue(WindowsSettings.fileOf(new EmulatorInstance(PlatformId.AVD, "Pixel_8", "127.0.0.1", 5554,
+                List.of("C:\\Android\\emulator\\emulator.exe", "-avd", "Pixel_8"), List.of())).isEmpty(),
+                "a product that keeps no settings file BotMaker knows");
     }
 }

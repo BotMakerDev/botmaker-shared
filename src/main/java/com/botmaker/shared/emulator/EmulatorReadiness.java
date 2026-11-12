@@ -107,21 +107,13 @@ public final class EmulatorReadiness {
                 : current -> false;
         Duration timeout = instance.platformId().bootTimeout();
         return awaitReady(instance, timeout, EmulatorReadiness::rediscover, EmulatorReadiness::isReady, stopped,
-                startGrace(instance.platformId(), timeout));
-    }
-
-    /**
-     * {@link #START_GRACE}, except for GameLoop, whose launcher may update itself or ask for a login before it starts
-     * the engine discovery sees: it has the whole boot timeout.
-     */
-    static Duration startGrace(PlatformId platform, Duration timeout) {
-        return platform == PlatformId.GAMELOOP ? timeout : START_GRACE;
+                START_GRACE);
     }
 
     /**
      * How long an instance its product calls stopped may stay so after its start before the start counts as failed:
      * time for Windows' permission prompt to be answered and the process to appear. Without it a start that never
-     * ran (a declined prompt, GameLoop's launcher doing nothing, 2026-11-11) or whose engine died at once (MEmu out
+     * ran (a declined prompt, or GameLoop's launcher doing nothing on 2026-11-11 before GameLoop was dropped) or whose engine died at once (MEmu out
      * of page file) was waited out for the whole boot timeout, then called "still booting".
      */
     static final Duration START_GRACE = Duration.ofSeconds(45);

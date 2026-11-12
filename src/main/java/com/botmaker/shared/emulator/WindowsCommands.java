@@ -8,12 +8,12 @@ import java.util.stream.Collectors;
 
 /**
  * The PowerShell commands that start and stop a Windows emulator where its product has no console that does:
- * BlueStacks' player and GameLoop. Each is a whole {@code powershell.exe -EncodedCommand} line, so no quote in a
- * path or a filter is ever re-read by Java's or Windows' argument splitting.
+ * BlueStacks' player. Each is a whole {@code powershell.exe -EncodedCommand} line, so no quote in a path or a filter
+ * is ever re-read by Java's or Windows' argument splitting.
  *
  * <p><b>Why ShellExecute.</b> {@code ProcessBuilder} is {@code CreateProcess}, which refuses a program whose manifest
  * asks for administrator rights (error 740: MSI App Player's {@code HD-Player.exe}) instead of showing Windows'
- * permission prompt, and GameLoop's launcher started that way never raised its engine (2026-11-11).
+ * permission prompt.
  * {@code Start-Process} is ShellExecute: the program's own prompt appears, and it runs from its own folder.
  *
  * <p><b>A stop never asks for permission</b> (the user's call, 2026-11-12). It ends the processes with the user's own
@@ -59,16 +59,6 @@ public final class WindowsCommands {
                 + " -or (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).MainWindowTitle -eq "
                 + quoted(title) + ") }";
         return end(select);
-    }
-
-    /** Stops every process named in {@code executables} (GameLoop's engine and window). */
-    public static List<String> stopProcesses(List<String> executables) {
-        return powershell(stopProcessesScript(executables));
-    }
-
-    static String stopProcessesScript(List<String> executables) {
-        String names = executables.stream().map(WindowsCommands::quoted).collect(Collectors.joining(","));
-        return end("Get-CimInstance Win32_Process | Where-Object { @(" + names + ") -contains $_.Name }");
     }
 
     /**

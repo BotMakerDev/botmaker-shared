@@ -16,14 +16,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class EmulatorLauncherTest {
 
     @Test
-    void onlyGameLoopStartsThroughShellExecuteAndOnlyOnWindows() {
-        assertTrue(EmulatorLauncher.throughShell(PlatformId.GAMELOOP, true));
-        assertFalse(EmulatorLauncher.throughShell(PlatformId.GAMELOOP, false));
-        assertFalse(EmulatorLauncher.throughShell(PlatformId.BLUESTACKS, true));
-        assertFalse(EmulatorLauncher.throughShell(PlatformId.LDPLAYER, true));
-    }
-
-    @Test
     void windowsRefusingForElevationIsError740() {
         assertTrue(EmulatorLauncher.needsElevation(new IOException(
                 "Cannot run program \"HD-Player.exe\": CreateProcess error=740, The requested operation requires elevation")));

@@ -53,7 +53,7 @@ public record PlayStoreSetup(String summary, List<Step> steps) {
                     new Step("In Android Studio, open Device Manager and create a device whose system image says "
                             + "\"Google Play\" (the Play Store icon in the device list).", null, null),
                     new Step("Start it, sign in to Google Play, and pick it as the game's emulator.", null, null)));
-            case BLUESTACKS, LDPLAYER, MEMU, MUMU, GAMELOOP -> new PlayStoreSetup(platform.displayName()
+            case BLUESTACKS, LDPLAYER, MEMU, MUMU -> new PlayStoreSetup(platform.displayName()
                     + " comes with Google Play.", List.of(
                     new Step("Open Google Play in " + name + " and sign in.", null, null)));
             case PHYSICAL -> new PlayStoreSetup("A phone without Google Play can't get it from BotMaker: install the "

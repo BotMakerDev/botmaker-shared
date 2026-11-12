@@ -124,11 +124,4 @@ class EmulatorReadinessTest {
         List<EmulatorInstance> found = Platforms.discoverAll();
         assertTrue(found != null);
     }
-
-    @Test
-    void gameLoopsLauncherHasTheWholeBootTimeoutToRaiseItsEngine() {
-        Duration timeout = Duration.ofSeconds(180);
-        assertEquals(timeout, EmulatorReadiness.startGrace(PlatformId.GAMELOOP, timeout));
-        assertEquals(EmulatorReadiness.START_GRACE, EmulatorReadiness.startGrace(PlatformId.MEMU, timeout));
-    }
 }

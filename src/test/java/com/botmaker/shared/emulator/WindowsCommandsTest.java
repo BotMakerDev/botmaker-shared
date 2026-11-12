@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** The PowerShell lines that start and stop BlueStacks and GameLoop, read back from their encoded form. */
+/** The PowerShell lines that start and stop BlueStacks, read back from their encoded form. */
 class WindowsCommandsTest {
 
     /** The script a {@code powershell.exe -EncodedCommand} line runs. */
@@ -22,10 +22,10 @@ class WindowsCommandsTest {
     @Test
     void aShellExecuteRunsTheProgramFromItsFolderWithItsArguments() {
         String script = script(WindowsCommands.shellExecute(List.of(
-                "C:\\Program Files\\Tencent\\GameLoop\\Application\\GameLoopLauncher.exe", "--instance", "my vm")));
+                "C:\\Program Files\\BlueStacks_msi5\\HD-Player.exe", "--instance", "my vm")));
 
-        assertEquals("Start-Process -FilePath 'C:\\Program Files\\Tencent\\GameLoop\\Application\\GameLoopLauncher.exe'"
-                + " -WorkingDirectory 'C:\\Program Files\\Tencent\\GameLoop\\Application'"
+        assertEquals("Start-Process -FilePath 'C:\\Program Files\\BlueStacks_msi5\\HD-Player.exe'"
+                + " -WorkingDirectory 'C:\\Program Files\\BlueStacks_msi5'"
                 + " -ArgumentList '--instance','\"my vm\"'", script);
     }
 
@@ -48,14 +48,6 @@ class WindowsCommandsTest {
     void aTokenIsMatchedLiterally() {
         assertTrue(WindowsCommands.stopBlueStacksScript(Path.of("C:\\B\\HD-Player.exe"), "Nougat.64", "x")
                 .contains("Nougat\\.64"));
-    }
-
-    @Test
-    void aGameLoopStopEndsItsProcessesAndNeverAsksForRights() {
-        String script = script(WindowsCommands.stopProcesses(List.of("GameLoopEmulator.exe", "GameLoop.exe")));
-
-        assertTrue(script.contains("@('GameLoopEmulator.exe','GameLoop.exe') -contains $_.Name"), script);
-        assertFalse(script.contains("RunAs"), script);
     }
 
     @Test

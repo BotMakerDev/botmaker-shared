@@ -20,7 +20,7 @@ import java.util.stream.Stream;
  * launch command, and each parser is pure over that file's text. Formats as measured 2026-11-11 on LDPlayer 14,
  * BlueStacks 5.22, MuMu 12 (Android 15) and MEmu 9.
  *
- * @param file   the file read, or {@code null} when the product keeps none BotMaker knows (GameLoop)
+ * @param file   the file read, or {@code null} when the product keeps none BotMaker knows
  * @param adbOn  the file's ADB switch, or {@code null} when the product has none (ADB always on)
  * @param ramMb  the memory the instance asks for, or -1 when the file does not say
  * @param width  the screen's width, or -1 when the file does not say

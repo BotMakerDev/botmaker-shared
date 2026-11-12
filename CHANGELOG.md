@@ -14,6 +14,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Removed
+
+- **GameLoop is no longer supported** (the user's call, 2026-11-12): it runs elevated, has one instance, no settings
+  BotMaker can write, a launcher that starts nothing, and takes port 5555. `GameloopPlatform`, `PlatformId.GAMELOOP`,
+  its stop (`WindowsCommands.stopProcesses`), its ShellExecute launch, its longer start grace, its tested version and
+  its checks are gone; a stored `gameloop` id reads as `PlatformId.UNKNOWN`.
+
 ### Added
 
 - **Emulator configurations, kept on this PC** (`emulator.config`, spec `2026-11-12-emulators-window-design.md`): an
@@ -45,7 +52,7 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   and any product's home app) from the apps a game opens itself.
 - **Every Windows emulator stops, and a hung one is restarted** (`emulator.WindowsCommands`,
   `launch.EmulatorAppLauncher.restart`): BlueStacks' stop ends the `HD-Player.exe` that names its instance, by its
-  command line or its window's title, and only that edition's; GameLoop's ends its engine and window. A stop never
+  command line or its window's title, and only that edition's. A stop never
   asks for administrator rights or answers the emulator's "really close?": it ends the process, and a player
   running with administrator rights stays up, which the caller says. A game restart on an emulator that is up but
   whose ADB or Android stays silent for its whole boot timeout stops the emulator first, so the start boots it
@@ -54,9 +61,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - **A launch says what went wrong sooner** (`emulator.EmulatorLauncher`, `emulator.EmulatorReadiness`,
   `launch.EmulatorAppLauncher`): an app missing from the instance is refused before monkey runs ("isn't installed
   on … Install it from the game's Install… button"); a program Windows starts only with administrator rights
-  (MSI App Player, error 740) and GameLoop's launcher start through ShellExecute, from their own folder, so their own
+  (MSI App Player, error 740) starts through ShellExecute, from its own folder, so its own
   permission prompt appears; and an instance whose product still says it is stopped 45 s after its start
-  (GameLoop: its boot timeout, for its launcher's update and login) is reported as not started, instead of waiting
+  is reported as not started, instead of waiting
   out the boot timeout as "still booting".
 
 - **The tested version, and an install of it** (`checks.TestedVersions`, `checks.WindowsInstallers`): each Windows
@@ -66,12 +73,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   `LDPlayer_14.0.29.0.exe`, pinned by sha256), Fix checks its instances are closed, downloads it, and runs it with `-silence` behind
   one UAC prompt (`ElevatedCopy.runElevated`); with no emulator installed at all, the *installed* row's Fix
   installs it. Measured over the same version: 67 s, instances kept. BlueStacks (an online stub of the newest
-  only), MEmu (only its newest offline installer), MuMu and GameLoop (no fixed address) link their site instead.
+  only), MEmu (only its newest offline installer), MuMu (no fixed address) link their site instead.
 - **The Windows hypervisor row** (`WindowsEmulatorChecks.hypervisor`): off, every build runs; on, a version at or
   above the tested one was tested with it, LDPlayer before 9 fails (no Hyper-V build), anything else is only said.
 
-- **Setup checks for the Windows emulators** (`checks.WindowsEmulatorChecks`): BlueStacks, LDPlayer, MuMu, MEmu and
-  GameLoop get the rows Waydroid and the AVD have. In order: installed, instance found, ADB port its own (naming the
+- **Setup checks for the Windows emulators** (`checks.WindowsEmulatorChecks`): BlueStacks, LDPlayer, MuMu and
+  MEmu get the rows Waydroid and the AVD have. In order: installed, instance found, ADB port its own (naming the
   program listening on it: MuMu's `MuMuNxDevice.exe` holds 5555 while it runs), ADB turned on, memory for it (the
   instance's RAM against what Windows can still commit, before a start), booted, Google Play, ARM apps, and the
   screen size against the bot's. A stopped instance stops at booted, with its screen size read from its file. An
@@ -79,7 +86,7 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   `EmulatorChecks.stoppingLaunch` also refuses a launch on *not installed*, *no instance* and *ADB off* in the file.
 - `checks.WindowsSettings` reads each product's own settings file: LDPlayer's `vms\config\leidian<i>.config`,
   BlueStacks' `bluestacks.conf` (found by `BlueStacksPlatform.confFor`; its ADB switch is the edition's, not the
-  instance's), MuMu's `vm_config.json` (memory in GB) and MEmu's `.memu`. GameLoop keeps none BotMaker knows.
+  instance's), MuMu's `vm_config.json` (memory in GB) and MEmu's `.memu`.
 - **Fix and Undo for ADB and the screen size** on LDPlayer and BlueStacks (`checks.WindowsFixes`): stop the instance,
   keep a copy of its file under `emulator-backups/<product>-<instance>/<time>-<check>/` in the config folder
   (`WindowsBackups`), make the change (LDPlayer's size through `ldconsole modify --resolution`), start it again if it
@@ -96,10 +103,6 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - `AdbDevice.pull` copies a device file to this computer, whole or not at all (through a `.part` file), and never
   over a file already there. `pull` and `pushData` report their bytes as they pass, at most twice a second
   (`Counted`); a streamed install still reports none.
-- GameLoop 7 is found: `C:\Program Files\Tencent\GameLoop`, started by `Application\GameLoopLauncher.exe` (which
-  asks Windows once to raise its engine), its instance there once an Android image is under `Image\<version>`,
-  running while `GameLoopEmulator.exe` is. ADB answers on 127.0.0.1:5555 with no setting. The older layout
-  (`ui\AndroidEmulator.exe`) is found as before.
 - APKs stream into an emulator by Google's adb (`AdbTools.install`) when BotMaker has it, dadb's own stream
   otherwise: dadb's stalled at the package manager on GameLoop's Android 13 with a 3 GB asset pack, which Google's
   carried in 159 s.

@@ -10,7 +10,7 @@ import java.util.function.IntSupplier;
 /**
  * How to add an instance to an installed emulator: its console's create command where it has one (LDPlayer,
  * MEmu, MuMu), else the product's own instance manager, where the user creates it ({@code opensManager}:
- * BlueStacks, GameLoop). {@link EmulatorPlatform#newInstance()} gives it; discovery lists the new instance on its
+ * BlueStacks). {@link EmulatorPlatform#newInstance()} gives it; discovery lists the new instance on its
  * next scan.
  *
  * @param platformId   the product

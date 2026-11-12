@@ -21,7 +21,7 @@ import java.util.Optional;
  *       installer of its own making that reads {@code -silence} (checked 2026-11-11).</li>
  *   <li>BlueStacks' download is a 1 MB online stub ({@code BlueStacksMicroInstaller}) of the newest version only.</li>
  *   <li>MEmu's offline installer is served for its newest version only (9.5.8.0), not the tested 9.5.5.1.</li>
- *   <li>MuMu's and GameLoop's sites give no fixed installer address.</li>
+ *   <li>MuMu's site gives no fixed installer address.</li>
  * </ul>
  */
 public final class TestedVersions {
@@ -69,8 +69,7 @@ public final class TestedVersions {
                     "https://www.ldplayer.net/other/version-history-and-release-notes.html", LDPLAYER_14),
             new Tested(PlatformId.MUMU, "MuMuPlayerGlobal", "MuMu Player", "6.8.0.0",
                     "https://www.mumuplayer.com/", null),
-            new Tested(PlatformId.MEMU, "MEmu", "MEmu", "9.5.5.1", "https://www.memuplay.com/", null),
-            new Tested(PlatformId.GAMELOOP, "GameLoop", "GameLoop", "7.0.19.05", "https://www.gameloop.com/", null));
+            new Tested(PlatformId.MEMU, "MEmu", "MEmu", "9.5.5.1", "https://www.memuplay.com/", null));
 
     private TestedVersions() {}
 

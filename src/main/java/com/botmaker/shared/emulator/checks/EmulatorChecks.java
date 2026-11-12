@@ -8,7 +8,7 @@ import java.util.Optional;
 
 /**
  * The checks on an emulator BotMaker can repair: Waydroid, Android Studio's emulator, and the Windows products
- * (BlueStacks, LDPlayer, MuMu, MEmu, GameLoop). A phone over adb has none. Reading them shells out: never on a UI
+ * (BlueStacks, LDPlayer, MuMu, MEmu). A phone over adb has none. Reading them shells out: never on a UI
  * thread.
  */
 public final class EmulatorChecks {
