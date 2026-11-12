@@ -39,9 +39,21 @@ public final class EmulatorOperations implements AutoCloseable {
     }
 
     /** Queues {@code body} on {@code instance}'s lane and answers it, queued; refused once the queue is closed. */
-    public synchronized Operation submit(String title, EmulatorInstance instance, Operation.Body body) {
+    public Operation submit(String title, EmulatorInstance instance, Operation.Body body) {
+        return submit(title, InstanceKey.of(instance), lane(instance), body);
+    }
+
+    /**
+     * Queues {@code body} for an instance that doesn't exist yet (a create, named {@code key}), on its product's own
+     * lane: it starts nothing, so it waits for no port.
+     */
+    public Operation submit(String title, InstanceKey key, Operation.Body body) {
+        return submit(title, key, "product-" + key.platform().id(), body);
+    }
+
+    private synchronized Operation submit(String title, InstanceKey key, String lane, Operation.Body body) {
         if (closed) throw new IllegalStateException("The operations queue is closed.");
-        Operation operation = new Operation(title, InstanceKey.of(instance), lane(instance), body);
+        Operation operation = new Operation(title, key, lane, body);
         operations.add(operation);
         notifyAll(operation.snapshot());
         lanes.computeIfAbsent(operation.lane(), name -> Executors.newSingleThreadExecutor(daemon("emulator-lane-" + name)))

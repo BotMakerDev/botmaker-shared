@@ -71,6 +71,14 @@ apps again afterwards, so the game's card has its name and icon. `EmulatorPlatfo
 adds an instance (`NewInstance`): `ldconsole add`, `memuc create 96`, `MuMuManager create -n 1`, or the product's
 own manager for BlueStacks (`HD-MultiInstanceManager`). A create counts as done when
 discovery finds one more instance, since `ldconsole add` exits 1 after creating one.
+`emulator.manage.InstanceManager` builds on it (2026-11-12): from the same console it creates, clones, renames and
+deletes instances and gives one new device IDs (`InstanceConsole`, each argument read from the console's help on this
+PC: `ldconsole add/copy/rename/remove/modify … auto`, `MuMuManager create/clone/rename/delete/simulation`, `memuc
+create/clone/rename/remove/randomize`), and opens BlueStacks' manager otherwise. Each operation finds its instance
+again by address and judges the console by what discovery lists after it. A clone gets new IDs and ADB on while
+stopped, then a first start held from every bot (`HeldInstances`: `EmulatorLauncher.launch` and
+`EmulatorReadiness.bringUp` refuse it to other threads), the Google accounts it copied removed, its configuration
+applied, and is stopped again.
 A phone on Wi-Fi is found through the adb server's mDNS list (`AdbTools.mdnsServices`, `host:mdns:services` over
 the server socket; never a reason to start a server). Android 11+ announces `_adb-tls-pairing._tcp` while its
 pairing screen is open and `_adb-tls-connect._tcp` while Wireless debugging is on; a connected phone's serial is

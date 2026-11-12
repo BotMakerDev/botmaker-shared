@@ -82,6 +82,10 @@ public final class EmulatorReadiness {
      * @param progress optional narration, called on the calling thread
      */
     public static Optional<EmulatorInstance> bringUp(EmulatorInstance instance, Consumer<String> progress) {
+        if (HeldInstances.heldElsewhere(instance)) {
+            Diag.log("[Emulator] " + HeldInstances.why(instance));
+            return Optional.empty();
+        }
         if (isReady(instance)) {
             return Optional.of(instance);
         }
@@ -113,13 +117,15 @@ public final class EmulatorReadiness {
     /**
      * How long an instance its product calls stopped may stay so after its start before the start counts as failed:
      * time for Windows' permission prompt to be answered and the process to appear. Without it a start that never
-     * ran (a declined prompt, or GameLoop's launcher doing nothing on 2026-11-11 before GameLoop was dropped) or whose engine died at once (MEmu out
-     * of page file) was waited out for the whole boot timeout, then called "still booting".
+     * ran (a declined prompt, or GameLoop's launcher doing nothing on 2026-11-11 before GameLoop was dropped) or
+     * whose engine died at once (MEmu out of page file) was waited out for the whole boot timeout, then called
+     * "still booting".
      */
     static final Duration START_GRACE = Duration.ofSeconds(45);
 
     /** Why {@code instance} didn't become ready in {@link #bringUp}, as a sentence a UI shows. */
     public static String notReady(EmulatorInstance instance) {
+        if (HeldInstances.heldElsewhere(instance)) return HeldInstances.why(instance);
         EmulatorLiveness liveness = EmulatorLiveness.check(instance);
         String problem = liveness.problem(instance);
         if (problem != null) {

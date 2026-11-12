@@ -33,6 +33,10 @@ public final class EmulatorLauncher {
     /** Dispatches {@code instance}'s host launch command. {@code false} if it has none or the spawn fails. */
     public static boolean launch(EmulatorInstance instance) {
         if (instance == null) return false;
+        if (HeldInstances.heldElsewhere(instance)) {
+            Diag.log("[Emulator] " + HeldInstances.why(instance));
+            return false;
+        }
         // An AVD is reached through the adb server, which nothing else may have started on this login.
         if (instance.platformId() == PlatformId.AVD && instance.canLaunch()) AdbTools.startServer();
         return run(instance.launchCommand());
@@ -55,6 +59,14 @@ public final class EmulatorLauncher {
             if (EmulatorLiveness.check(instance).state() == EmulatorState.STOPPED) return true;
         }
         return false;
+    }
+
+    /**
+     * Starts a product's own program detached (BlueStacks' instance manager), through Windows' permission prompt when
+     * it asks for administrator rights, as a launch does. {@code false} when it did not start.
+     */
+    public static boolean open(List<String> command) {
+        return run(command);
     }
 
     private static boolean run(List<String> command) {

@@ -117,7 +117,7 @@ public record AndroidState(Map<ConfigField, ConfigValue> fields, Optional<Set<St
      * visibility) name accounts again, some long gone, so the block ends at its first blank line. Null when there is
      * no such block: not an answer.
      */
-    static Set<String> googleAccounts(String dumpsys) {
+    public static Set<String> googleAccounts(String dumpsys) {
         if (dumpsys == null) return null;
         Set<String> out = new LinkedHashSet<>();
         boolean inside = false;

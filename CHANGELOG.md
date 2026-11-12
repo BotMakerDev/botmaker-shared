@@ -45,6 +45,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   the reason. Undo applies the logged old values. The configured screen is what Android reports: MuMu stores it
   turned, and its writer swaps it. A value this product cannot take is refused with why. `EmulatorOperations` queues
   them, one at a time on a shared ADB port, side by side otherwise, listeners called on their own thread.
+- **BotMaker manages LDPlayer, MuMu and MEmu instances** (`emulator.manage.InstanceManager`): create, clone, rename,
+  delete and new device IDs through each product's console, as operations for `EmulatorOperations`; BlueStacks and
+  MSI open their own manager. A name is checked first (unique in its product, no character a console listing or a
+  launch target can't carry). A new or cloned LDPlayer instance gets ADB turned on, as LDPlayer leaves it off. A clone
+  gets new device IDs, then its first start is held from every bot (`HeldInstances`) until the Google accounts it
+  copied are removed, and it is stopped again, even when its start fails. Until the sign-out lands, a clone that holds
+  an account is left stopped with words to remove it by hand; no email reaches an outcome. MuMu's `simulation` takes
+  drawn values (`DeviceIds`: a Luhn-checked IMEI, a locally administered MAC, an Android ID), which are never logged.
 - **The app in front is known on every emulator, and so are the emulator's own apps** (`emulator.AdbDevice`,
   `emulator.EmulatorOwnApps`): `focusedPackage` answers the resumed activity's package when no window has the
   focus, as BlueStacks and MEmu leave it after a cold boot; `homePackage` names Android's home app; and
