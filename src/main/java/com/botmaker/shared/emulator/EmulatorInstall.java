@@ -114,7 +114,7 @@ public final class EmulatorInstall {
     }
 
     /** The install sessions open now, and nothing else of {@code dumpsys package}'s thirty thousand lines. */
-    static final String ACTIVE_SESSIONS = "dumpsys package | sed -n '/^Active install sessions:/,"
+    public static final String ACTIVE_SESSIONS = "dumpsys package | sed -n '/^Active install sessions:/,"
             + "/^Finalized install sessions:/p'";
 
     /**
@@ -122,7 +122,7 @@ public final class EmulatorInstall {
      * progress ({@code mClientProgress=0.42 … mProgress=0.4}), or empty when no session installs it. Only compared
      * with the last answer: a change is Play still downloading.
      */
-    static Optional<String> sessionProgress(String activeSessions, String packageName) {
+    public static Optional<String> sessionProgress(String activeSessions, String packageName) {
         if (activeSessions == null) return Optional.empty();
         String needle = "appPackageName=" + packageName;
         for (String session : activeSessions.split("(?m)^\\s*Session \\d+:")) {
@@ -140,7 +140,7 @@ public final class EmulatorInstall {
     private static final Pattern PROGRESS = Pattern.compile("m(?:Client)?Progress=[0-9.]+");
 
     /** The shell command that opens an app's page in Google Play. {@code packageName} is a checked package. */
-    static String storeIntent(String packageName) {
+    public static String storeIntent(String packageName) {
         return "am start -a android.intent.action.VIEW -d 'market://details?id=" + packageName + "' -p " + PLAY_STORE;
     }
 
@@ -261,6 +261,11 @@ public final class EmulatorInstall {
     private static String reason(Exception e) {
         String message = e.getMessage() == null ? e.toString() : e.getMessage();
         return message.strip();
+    }
+
+    /** An install done elsewhere ({@code PlayAppInstall}): the instance's apps read again, as {@link #done} does. */
+    public static Result installed(EmulatorInstance live, String packageName, String message) {
+        return done(live, packageName, packageName, message);
     }
 
     /** Reads the instance's apps again, so the new one is in the cache with its name and icon, and says it's done. */

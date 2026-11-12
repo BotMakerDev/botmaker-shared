@@ -9,6 +9,7 @@ import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.shared.emulator.GoogleAccount;
 import com.botmaker.shared.emulator.PlayDownload;
+import com.botmaker.shared.emulator.google.PlayAppInstall;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -27,8 +28,9 @@ import java.util.function.Consumer;
  *   <li>Google Play's own files through goopdl ({@link PlayDownload}): no Play app, Aurora's anonymous accounts, then
  *   the Google account signed in to BotMaker ({@link GoogleAccount}) when there is one;</li>
  *   <li>APKPure through apkeep ({@link ApkDownload}), only once the user accepted APKPure's risk;</li>
- *   <li>Google Play on the instance, when it has it: the user presses Install or Update there, signed in on that
- *   instance;</li>
+ *   <li>Google Play on the instance, when it has it: signed in, BotMaker presses Install itself
+ *   ({@link PlayAppInstall}, never a price, Buy or Pre-register, which go on to the store page); else the user presses
+ *   Install or Update there;</li>
  *   <li>a store page opened in the browser, the file picked up from Downloads when it lands there.</li>
  * </ol>
  *
@@ -188,7 +190,28 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
             report(progress, fetched.message());
         }
         if (device.facts().hasPlay()) {
-            return result(EmulatorInstall.fromStore(device.live(), pkg(), name(), progress), outcome, Source.PLAY_APP);
+            PlayAppInstall.Result pressed = PlayAppInstall.run(device.live(), pkg(), progress);
+            if (Thread.currentThread().isInterrupted()) return stopped();
+            switch (pressed.outcome()) {
+                case INSTALLED -> {
+                    return result(EmulatorInstall.installed(device.live(), pkg(), pressed.message()), outcome,
+                            Source.PLAY_APP);
+                }
+                case FAILED -> {
+                    return new Result(Outcome.FAILED, pressed.message());
+                }
+                // never pressed: a store page lets the user decide
+                case PRICED, PRE_REGISTER -> {
+                    report(progress, pressed.message());
+                    return fromPage(device, progress, outcome);
+                }
+                // not signed in, or a screen BotMaker can't read: the user presses Install there
+                default -> {
+                    report(progress, pressed.message());
+                    return result(EmulatorInstall.fromStore(device.live(), pkg(), name(), progress), outcome,
+                            Source.PLAY_APP);
+                }
+            }
         }
         if (!apkPureAcknowledged) {
             report(progress, device.live().name() + " has no Google Play, and downloading from APKPure isn't allowed.");

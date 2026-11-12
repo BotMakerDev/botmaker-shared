@@ -29,6 +29,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **The Play app installs a game by BotMaker's own press** (`emulator.google.PlayAppInstall`, `PlayScreen`,
+  2026-11-12): on an instance signed in to Google, `AndroidInstall`'s Play-app source opens the game's page, presses
+  the button that says exactly *Install* (or *Installer*), read from the tree, and waits for Android to list the
+  package. A page showing a price, *Buy* or *Pre-register* anywhere is left untouched and the install goes on to the
+  store page; no account, or a screen it can't read, hands Install to the user as before.
 - **BotMaker signs an instance in to Google and out again** (`emulator.google`, 2026-11-12): `InstanceSignIn` drives
   Android's own *Add account* screens (`SignInScreen`, read from the UI tree by Google's ids: email, password, terms,
   services, phone prompt), `InstanceSignOut` Settings' *Remove account* (`SignOutScreen`); both end when
