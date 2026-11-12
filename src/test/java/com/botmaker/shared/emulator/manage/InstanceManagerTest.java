@@ -36,6 +36,9 @@ class InstanceManagerTest {
     private static final String LD = "C:\\LDPlayer\\LDPlayer14\\ldconsole.exe";
     private static final String MUMU = "C:\\Program Files\\Netease\\MuMuPlayer\\nx_main\\MuMuManager.exe";
     private static final String MEMUC = "C:\\Program Files\\Microvirt\\MEmu\\memuc.exe";
+    /** A removal that removes nothing and says so, counting the accounts. */
+    private static final InstanceManager.AccountRemoval REFUSES = (clone, emails, context) -> clone.name() + " holds "
+            + emails.size() + " Google account" + (emails.size() == 1 ? "" : "s") + " BotMaker didn't remove.";
 
     private static EmulatorInstance ld(int index, String name) {
         String i = String.valueOf(index);
@@ -205,7 +208,7 @@ class InstanceManagerTest {
         };
         host.accounts.add("someone@example.com");
         String failed = console(PlatformId.MUMU, MUMU, host).clone(source, "Farm",
-                InstanceManager.AccountRemoval.NOT_YET, (c, x) -> {
+                REFUSES, (c, x) -> {
                     throw new AssertionError("nothing is applied over a copied account");
                 }, c -> {}).run(new Ctx());
         assertTrue(failed.contains("1 Google account") && failed.contains("stopped"), failed);
@@ -227,7 +230,7 @@ class InstanceManagerTest {
             throw new IllegalStateException("can't be driven");
         };
         String failed = console(PlatformId.LDPLAYER, LD, host).clone(source, "Farm",
-                InstanceManager.AccountRemoval.NOT_YET, InstanceManager.Prepare.NOTHING, c -> {}).run(new Ctx());
+                REFUSES, InstanceManager.Prepare.NOTHING, c -> {}).run(new Ctx());
         assertEquals("can't be driven It is stopped.", failed);
         assertEquals("stop Farm", host.log.getLast());
     }
@@ -243,7 +246,7 @@ class InstanceManagerTest {
         };
         host.stopFails = "Farm did not stop within 30 seconds.";
         String failed = console(PlatformId.LDPLAYER, LD, host).clone(source, "Farm",
-                InstanceManager.AccountRemoval.NOT_YET, InstanceManager.Prepare.NOTHING, c -> {}).run(new Ctx());
+                REFUSES, InstanceManager.Prepare.NOTHING, c -> {}).run(new Ctx());
         assertTrue(failed.startsWith("Farm did not stop") && failed.contains("still runs"), failed);
     }
 
@@ -293,7 +296,7 @@ class InstanceManagerTest {
         Fake host = new Fake(source);
         host.running.add(source.identity());
         String failed = console(PlatformId.LDPLAYER, LD, host).clone(source, "Farm",
-                InstanceManager.AccountRemoval.NOT_YET, InstanceManager.Prepare.NOTHING, c -> {}).run(new Ctx());
+                REFUSES, InstanceManager.Prepare.NOTHING, c -> {}).run(new Ctx());
         assertTrue(failed.startsWith("Stop LDPlayer first"), failed);
         assertTrue(host.commands.isEmpty());
     }

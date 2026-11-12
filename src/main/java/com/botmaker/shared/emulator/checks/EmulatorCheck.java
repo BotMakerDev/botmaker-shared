@@ -17,6 +17,7 @@ public enum EmulatorCheck {
     ADB_BOOTED("adb_booted", "Android started, adb connected"),
     INTERNET("internet", "Internet inside Android"),
     GOOGLE_PLAY("google_play", "Google Play"),
+    GOOGLE_ACCOUNT("google_account", "Google account"),
     ARM_TRANSLATOR("arm_translator", "ARM translator"),
     RESOLUTION("resolution", "Screen size"),
     DO_NOT_DISTURB("do_not_disturb", "Do Not Disturb during runs"),

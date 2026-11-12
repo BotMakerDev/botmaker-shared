@@ -23,6 +23,17 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **BotMaker signs an instance in to Google and out again** (`emulator.google`, 2026-11-12): `InstanceSignIn` drives
+  Android's own *Add account* screens (`SignInScreen`, read from the UI tree by Google's ids: email, password, terms,
+  services, phone prompt), `InstanceSignOut` Settings' *Remove account* (`SignOutScreen`); both end when
+  `dumpsys account` says so. A 2-step check, a captcha or a screen it doesn't know is handed to the user (`needsYou`),
+  never answered by BotMaker. The password is typed once: a password screen that stays, or Google's *Wrong password*,
+  ends that account at once, with no retry, and `Passwords` drops it for the rest of the batch; a password `input text`
+  can't type (non-ASCII) is refused before anything starts; every `char[]` is cleared when the batch closes. No step,
+  outcome or check names an email. `InstanceChanges` is Apply's second half per instance: removals first, then
+  sign-ins, then the missing games through `AndroidInstall`, starting a stopped instance and stopping it again.
+  A clone's copied accounts are now removed (`InstanceManager.AccountRemoval.SIGN_OUT`). New check
+  `EmulatorCheck.GOOGLE_ACCOUNT`, after Google Play, counts the accounts signed in.
 - **Emulator configurations, kept on this PC** (`emulator.config`, spec `2026-11-12-emulators-window-design.md`): an
   emulator's layer and each instance's own over it, field by field (`Layer`, `EmulatorConfig.wanted` gives each value
   with its source), with accounts (Google, Facebook, mail; records only, no password field), games and tags. Instances

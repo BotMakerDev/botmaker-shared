@@ -4,6 +4,7 @@ import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.InstalledProduct;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.WaydroidResolution;
+import com.botmaker.shared.emulator.config.AndroidState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -14,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,6 +77,26 @@ class WindowsEmulatorChecksTest {
         assertEquals(CheckState.OK, WindowsEmulatorChecks.googlePlay(true).state());
         assertEquals(CheckState.INFO, WindowsEmulatorChecks.googlePlay(false).state(), "files install anyway");
         assertEquals(CheckState.INFO, WindowsEmulatorChecks.googlePlay(null).state());
+    }
+
+    /** MuMu 12, Android 15, 2026-11-12: no account, and the authenticators' ServiceInfo lines name com.google too. */
+    private static final String MUMU_NO_ACCOUNT = """
+            Accounts: 0
+             \s
+            AccountManagerService.ServiceInfo:
+              ServiceInfo: AuthenticatorDescription {type=com.google}, ComponentInfo{com.google.android.gms/x}, uid 10120
+            """;
+
+    @Test
+    void googleAccountsAreCountedNeverNamed() {
+        Set<String> none = AndroidState.googleAccounts(MUMU_NO_ACCOUNT);
+        assertEquals(Set.of(), none);
+        assertEquals(CheckState.INFO, WindowsEmulatorChecks.googleAccount(true, none).state());
+        CheckResult two = WindowsEmulatorChecks.googleAccount(true, Set.of("a@example.com", "b@example.com"));
+        assertEquals(CheckState.OK, two.state());
+        assertFalse(two.toString().contains("@"), two.toString());
+        assertEquals(CheckState.INFO, WindowsEmulatorChecks.googleAccount(false, Set.of()).state());
+        assertEquals(CheckState.INFO, WindowsEmulatorChecks.googleAccount(true, null).state());
     }
 
     @Test

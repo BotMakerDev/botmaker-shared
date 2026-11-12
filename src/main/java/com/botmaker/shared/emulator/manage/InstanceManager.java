@@ -9,6 +9,8 @@ import com.botmaker.shared.emulator.NewInstance;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.emulator.config.Operation;
+import com.botmaker.shared.emulator.google.AccountDevice;
+import com.botmaker.shared.emulator.google.InstanceSignOut;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -73,19 +75,18 @@ public sealed interface InstanceManager {
         }
     }
 
-    /**
-     * Removes the Google accounts a clone copied, on the running clone. Null when it worked, else why not. Until
-     * phase 5's sign-out lands, {@link #NOT_YET} answers that BotMaker can't yet, and the window offers a clone only
-     * of an instance with none.
-     */
+    /** Removes the Google accounts a clone copied, on the running clone. Null when it worked, else why not. */
     @FunctionalInterface
     interface AccountRemoval {
         String remove(EmulatorInstance clone, Set<String> emails, Operation.Context context) throws Exception;
 
-        AccountRemoval NOT_YET = (clone, emails, context) -> clone.name() + " holds " + emails.size()
-                + " Google account" + (emails.size() == 1 ? "" : "s") + " copied from its source, which BotMaker "
-                + "can't remove yet. Remove " + (emails.size() == 1 ? "it" : "them") + " in its Settings › Accounts "
-                + "before a bot uses it.";
+        /** Through Android Settings, one account after another ({@link InstanceSignOut}). */
+        AccountRemoval SIGN_OUT = (clone, emails, context) -> {
+            try (AccountDevice device = AccountDevice.of(clone)) {
+                String failed = InstanceSignOut.all(device, List.copyOf(emails), context);
+                return failed == null ? null : "The accounts copied from its source: " + failed;
+            }
+        };
     }
 
     /** What a clone gets once its accounts are gone: its configuration's Apply. Null when it worked. */

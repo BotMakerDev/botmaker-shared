@@ -40,7 +40,7 @@ class InstanceManagerLiveTest {
             timed("rename", console.rename(made.get(), RENAMED, renamed::set));
             assertEquals(RENAMED, renamed.get().name());
             AtomicReference<EmulatorInstance> clone = new AtomicReference<>();
-            timed("clone", console.clone(renamed.get(), CLONE, InstanceManager.AccountRemoval.NOT_YET,
+            timed("clone", console.clone(renamed.get(), CLONE, InstanceManager.AccountRemoval.SIGN_OUT,
                     InstanceManager.Prepare.NOTHING, clone::set));
             assertEquals(CLONE, clone.get().name());
         } else {

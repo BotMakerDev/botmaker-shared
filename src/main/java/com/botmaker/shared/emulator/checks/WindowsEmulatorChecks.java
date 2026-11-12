@@ -11,6 +11,7 @@ import com.botmaker.shared.emulator.InstalledProduct;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.emulator.WaydroidResolution;
+import com.botmaker.shared.emulator.config.AndroidState;
 import com.botmaker.shared.platform.Os;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.WinBase;
@@ -75,11 +76,13 @@ public final class WindowsEmulatorChecks {
         rows.add(WaydroidChecks.booted(EmulatorReadiness.isReady(instance)));
         if (rows.getLast().failed()) {
             rows.add(CheckResult.afterAbove(EmulatorCheck.GOOGLE_PLAY));
+            rows.add(CheckResult.afterAbove(EmulatorCheck.GOOGLE_ACCOUNT));
             rows.add(CheckResult.afterAbove(EmulatorCheck.ARM_TRANSLATOR));
             return List.copyOf(rows);
         }
         Android android = Android.read(instance);
         rows.add(googlePlay(android.play()));
+        rows.add(googleAccount(android.play(), android.accounts()));
         rows.add(arm(android.abis()));
         int[] size = settings.hasSize() ? new int[]{settings.width(), settings.height()} : wmSize(android.wmSize());
         CheckResult screen = size == null ? null : resolution(instance.platformId(), size[0], size[1], expected);
@@ -286,6 +289,25 @@ public final class WindowsEmulatorChecks {
                 + "program, or lower the instance's memory in its settings.", List.of(), null);
     }
 
+    /**
+     * Whether a Google account is signed in: the Play app and a game's own Google sign-in need one. Counted, never named:
+     * a row reaches the assistant.
+     */
+    static CheckResult googleAccount(Boolean play, Set<String> accounts) {
+        if (Boolean.FALSE.equals(play)) {
+            return CheckResult.info(EmulatorCheck.GOOGLE_ACCOUNT, "No Google Play, so no Google account to sign in.");
+        }
+        if (accounts == null) {
+            return CheckResult.info(EmulatorCheck.GOOGLE_ACCOUNT, "Android did not list its accounts.");
+        }
+        if (accounts.isEmpty()) {
+            return CheckResult.info(EmulatorCheck.GOOGLE_ACCOUNT, "No Google account: the Play app and a game's Google "
+                    + "sign-in need one. The Emulators window signs one in.");
+        }
+        return CheckResult.ok(EmulatorCheck.GOOGLE_ACCOUNT, accounts.size() == 1 ? "1 Google account is signed in."
+                : accounts.size() + " Google accounts are signed in.");
+    }
+
     /** @param play whether the Play Store is installed, or {@code null} when Android did not answer */
     static CheckResult googlePlay(Boolean play) {
         if (play == null) return CheckResult.info(EmulatorCheck.GOOGLE_PLAY, "Android did not say whether Google "
@@ -364,16 +386,25 @@ public final class WindowsEmulatorChecks {
     }
 
     /** What the checks read from a running Android, over one adb connection. */
-    private record Android(String abis, Boolean play, String wmSize) {
+    private record Android(String abis, Boolean play, String wmSize, Set<String> accounts) {
 
         static Android read(EmulatorInstance instance) {
             try (AdbDevice device = AdbDevice.connect(instance.adb())) {
                 String vending = device.shell("pm path com.android.vending");
                 return new Android(device.getProp("ro.product.cpu.abilist"),
-                        vending != null && vending.contains("package:"), device.shell("wm size"));
+                        vending != null && vending.contains("package:"), device.shell("wm size"), accounts(device));
             } catch (Throwable t) {
                 // dadb surfaces some failures as Errors; a probe never propagates either kind.
-                return new Android(null, null, null);
+                return new Android(null, null, null, null);
+            }
+        }
+
+        /** Read on its own, so a slow account service loses only this row. */
+        private static Set<String> accounts(AdbDevice device) {
+            try {
+                return AndroidState.googleAccounts(device.shell(AndroidState.ACCOUNTS));
+            } catch (Throwable t) {
+                return null;
             }
         }
     }

@@ -79,6 +79,18 @@ again by address and judges the console by what discovery lists after it. A clon
 stopped, then a first start held from every bot (`HeldInstances`: `EmulatorLauncher.launch` and
 `EmulatorReadiness.bringUp` refuse it to other threads), the Google accounts it copied removed, its configuration
 applied, and is stopped again.
+`emulator.google` signs an instance in to Google and out again by driving Android's own screens over ADB
+(2026-11-12): `InstanceSignIn` opens `ADD_ACCOUNT_SETTINGS` for `com.google` and loops read, classify (`SignInScreen`,
+by Google's page ids `identifierId`, `passwordNext`, `signinconsentNext` first, words second, since the WebView's ids
+reach the uiautomator dump), act; `InstanceSignOut` goes through `SYNC_SETTINGS` (`SignOutScreen`). Both judge the end
+by `dumpsys account` (`AccountDevice.accounts`), never by a screen. What only the user may answer (a 2-step check, a
+captcha, a screen it doesn't know) goes to `Operation.Context.needsYou`, and the loop waits up to 15 minutes for the
+screen to move. A password is typed once: a password screen still there after its Next is a wrong password, in any
+language. `Passwords` holds one batch's passwords, asked through the caller's `Prompt` and cleared on close.
+`InstanceChanges` runs, per instance, the accounts and games of a `ConfigDiff` that `Apply` (settings only) doesn't:
+removals, sign-ins, then `AndroidInstall` for each missing game. Only the sign-in screens up to the email are captured
+(MuMu, Android 15); the later ones and Settings' account page are built in tests from Google's ids and AOSP's
+layouts, as no instance here holds an account.
 A phone on Wi-Fi is found through the adb server's mDNS list (`AdbTools.mdnsServices`, `host:mdns:services` over
 the server socket; never a reason to start a server). Android 11+ announces `_adb-tls-pairing._tcp` while its
 pairing screen is open and `_adb-tls-connect._tcp` while Wireless debugging is on; a connected phone's serial is
