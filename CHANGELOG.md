@@ -14,6 +14,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- `WindowsEmulatorChecks.availableMb()` is public: the Emulators window's Running tab weighs a start against it.
+
 ### Removed
 
 - **GameLoop is no longer supported** (the user's call, 2026-11-12): it runs elevated, has one instance, no settings

@@ -374,8 +374,11 @@ public final class WindowsEmulatorChecks {
         return text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
-    /** What Windows can still commit, in MB: the page file included, which is what starting a VM needs. */
-    static long availableMb() {
+    /**
+     * What Windows can still commit, in MB: the page file included, which is what starting a VM needs. -1 when unknown,
+     * as on any other OS. The Emulators window's Running tab weighs a start against it.
+     */
+    public static long availableMb() {
         try {
             WinBase.MEMORYSTATUSEX status = new WinBase.MEMORYSTATUSEX();
             if (!Kernel32.INSTANCE.GlobalMemoryStatusEx(status)) return -1;
