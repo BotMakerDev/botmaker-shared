@@ -37,9 +37,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - **Emulator configurations, kept on this PC** (`emulator.config`, spec `2026-11-12-emulators-window-design.md`): an
   emulator's layer and each instance's own over it, field by field (`Layer`, `EmulatorConfig.wanted` gives each value
   with its source), with accounts (Google, Facebook, mail; records only, no password field), games and tags. Instances
-  are keyed by product and name (`InstanceKey`), not by ADB port. `EmulatorConfigStore` keeps them in
-  `UserDirs.config()/emulators/configurations.json`, re-read and written atomically under a lock, keeping every key,
-  field, kind and product it does not know; `SavedFilters` keeps the window's saved filters beside it.
+  are keyed by product and name (`InstanceKey`), not by ADB port. The SDK plugin keeps them as its values of this PC
+  (`ConfigValue.written` and `read` give each value's text); `EmulatorConfigStore` and its `configurations.json`,
+  never released, are gone. `SavedFilters` keeps the window's saved filters in the folder it is given.
 - **What an instance has now, against its configuration** (`emulator.config.InstanceFacts`, `ConfigDiff`): each
   product's own settings, read stopped or running (`ProductSettings`: LDPlayer's and BlueStacks' files, MEmu's `.memu`,
   `MuMuManager setting --all`), and Android's screen, locale, time zone, root, Do Not Disturb, Google accounts and

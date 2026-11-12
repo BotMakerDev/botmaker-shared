@@ -14,8 +14,8 @@ import java.util.Set;
 
 /**
  * Every configuration on this PC: each emulator's layer, and each instance's own over it (spec
- * {@code 2026-11-12-emulators-window-design.md}, the user's call: layered, field by field). Kept by
- * {@link EmulatorConfigStore}; a value, so a change is a new one.
+ * {@code 2026-11-12-emulators-window-design.md}, the user's call: layered, field by field). Kept by the SDK
+ * plugin as its values of this PC, which convert to and from this model; a value, so a change is a new one.
  */
 public record EmulatorConfig(Map<PlatformId, Layer> emulators, Map<InstanceKey, Layer> instances) {
 

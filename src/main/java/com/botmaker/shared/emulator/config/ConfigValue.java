@@ -8,6 +8,39 @@ public sealed interface ConfigValue {
     /** What the window shows. */
     String said();
 
+    /** The value as the text a configuration keeps it in, which {@link #read} reads back: {@code 1080x1920@320}. */
+    default String written() {
+        return switch (this) {
+            case Screen screen -> screen.width() + "x" + screen.height() + "@" + screen.dpi();
+            case Count count -> Integer.toString(count.value());
+            case Megabytes megabytes -> Integer.toString(megabytes.value());
+            case Toggle toggle -> toggle.on() ? "on" : "off";
+            case Text text -> text.value();
+        };
+    }
+
+    /** The value {@link #written()} wrote for a field of {@code kind}, or null for text that is not one. */
+    static ConfigValue read(ConfigField.Kind kind, String text) {
+        if (text == null || text.isBlank()) return null;
+        String written = text.strip();
+        try {
+            return switch (kind) {
+                case SCREEN -> {
+                    int by = written.indexOf('x');
+                    int at = written.indexOf('@');
+                    yield by <= 0 || at <= by ? null : new Screen(Integer.parseInt(written.substring(0, by)),
+                            Integer.parseInt(written.substring(by + 1, at)), Integer.parseInt(written.substring(at + 1)));
+                }
+                case COUNT -> new Count(Integer.parseInt(written));
+                case MEGABYTES -> new Megabytes(Integer.parseInt(written));
+                case TOGGLE -> written.equals("on") ? new Toggle(true) : written.equals("off") ? new Toggle(false) : null;
+                case TEXT -> new Text(written);
+            };
+        } catch (IllegalArgumentException notOne) {
+            return null;
+        }
+    }
+
     record Screen(int width, int height, int dpi) implements ConfigValue {
         public Screen {
             if (width <= 0 || height <= 0 || dpi <= 0) {

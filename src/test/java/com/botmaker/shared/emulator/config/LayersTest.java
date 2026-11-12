@@ -162,4 +162,20 @@ class LayersTest {
         assertEquals(null, InstanceKey.parse("ldplayer/"));
         assertEquals(null, InstanceKey.parse("LDPlayer/LDPlayer-1"), "another spelling is another writer's key");
     }
+
+    @Test
+    void aValueIsWrittenAsTextAndReadBack() {
+        for (ConfigValue value : List.of(PORTRAIT, new ConfigValue.Count(4), new ConfigValue.Megabytes(4096),
+                new ConfigValue.Toggle(true), new ConfigValue.Toggle(false), new ConfigValue.Text("fr-FR"))) {
+            assertEquals(value, ConfigValue.read(value.kind(), value.written()), value.written());
+        }
+        assertEquals("1080x1920@440", PORTRAIT.written());
+        assertEquals("on", new ConfigValue.Toggle(true).written());
+        assertEquals(null, ConfigValue.read(ConfigField.Kind.SCREEN, "1080x1920"));
+        assertEquals(null, ConfigValue.read(ConfigField.Kind.SCREEN, "0x1920@440"));
+        assertEquals(null, ConfigValue.read(ConfigField.Kind.COUNT, "lots"));
+        assertEquals(null, ConfigValue.read(ConfigField.Kind.TOGGLE, "true"));
+        assertEquals(null, ConfigValue.read(ConfigField.Kind.TEXT, " "));
+        assertEquals(null, ConfigValue.read(ConfigField.Kind.MEGABYTES, null));
+    }
 }

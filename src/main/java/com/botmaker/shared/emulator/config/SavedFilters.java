@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The Emulators window's saved filters ({@code filters.json} beside {@code configurations.json}): a name, the tab it
+ * The Emulators window's saved filters ({@code filters.json} in the folder the window's owner gives): a name, the tab it
  * belongs to, and the filter's values by the window's own keys. An entry of a tab this build does not know is kept.
  */
 public final class SavedFilters {
@@ -21,10 +21,6 @@ public final class SavedFilters {
 
     public SavedFilters(Path dir) {
         this.dir = dir;
-    }
-
-    public static SavedFilters standard() {
-        return new SavedFilters(EmulatorConfigStore.folder());
     }
 
     public Path file() {
