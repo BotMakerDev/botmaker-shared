@@ -12,7 +12,7 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
-## [Unreleased]
+## [0.8.1] — 2026-11-13
 
 - `emulator.google.PasswordStore` (2026-11-13): the Google passwords the user asks BotMaker to remember on this PC,
   keyed by the email lower-cased. `KeyringStore` keeps them in the OS credential store through java-keyring 1.0.4
