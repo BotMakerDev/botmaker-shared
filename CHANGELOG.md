@@ -14,11 +14,6 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
-- `emulator.config.AccountBook` (2026-11-13): this PC's accounts, in `accounts.json` beside the emulators'
-  configuration, every bot's; never a password. `known` seeds the PC's own Google account on the first read and takes
-  in every account a configuration names; `add`, `remove`, `export` and `importFrom` (a note is kept, and filled only
-  where the book has none). `onInstances` says which instances want each account, and `sorted` puts the free ones
-  first. `held` names the accounts some configuration lists, which the book may not drop.
 - `emulator.google.PasswordStore` (2026-11-13): the Google passwords the user asks BotMaker to remember on this PC,
   keyed by the email lower-cased. `KeyringStore` keeps them in the OS credential store through java-keyring 1.0.4
   (Windows Credential Manager, the Secret Service, the Keychain) under the service `BotMaker Google`; a store that
