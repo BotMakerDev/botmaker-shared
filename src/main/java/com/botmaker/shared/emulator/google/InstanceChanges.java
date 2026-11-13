@@ -19,8 +19,9 @@ import java.util.function.Consumer;
  * drops are removed first, then those it lacks are signed in, then its missing games are installed. A stopped instance
  * is started for it and stopped again after. Facebook and mail accounts are records only and are left alone.
  * <p>
- * The passwords are the batch's ({@link Passwords}): asked before the instance starts, and an account whose sign-in
- * must not be tried again is dropped from the rest of the batch. No outcome names an email: accounts are counted.
+ * The passwords are the batch's ({@link Passwords}): read from the store or asked before the instance starts, remembered
+ * once their sign-in is done when the user asked, forgotten when Google refuses one, and an account whose sign-in must
+ * not be tried again is dropped from the rest of the batch. No outcome names an email: accounts are counted.
  */
 public final class InstanceChanges {
 
@@ -183,7 +184,12 @@ public final class InstanceChanges {
                 context.step("Signing in to " + account(adds, email) + "…");
                 InstanceSignIn.Result result = new InstanceSignIn(device, pace)
                         .signIn(email, passwords.of(email), context);
-                if (result.end().dropsAccount()) passwords.drop(email);
+                if (result.end() == InstanceSignIn.End.WRONG_PASSWORD) passwords.refused(email);
+                else if (result.end().dropsAccount()) passwords.drop(email);
+                if (result.signedIn() && !passwords.done(email, result.listedAs())) {
+                    context.step(account(adds, email) + ": signed in, but this PC's credential store refused to"
+                            + " remember its password.");
+                }
                 if (!result.signedIn()) problems.add(account(adds, email) + ": " + result.words());
                 else if (result.listedAs() != null) {
                     listedAs.listed(email, result.listedAs());

@@ -131,7 +131,7 @@ class InstanceChangesTest {
         try (Passwords passwords = new Passwords(email -> {
             asked.add(email);
             given[0] = "pw".toCharArray();
-            return given[0];
+            return Passwords.Answer.once(given[0]);
         })) {
             String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD),
@@ -213,7 +213,7 @@ class InstanceChangesTest {
         int[] asked = {0};
         try (Passwords passwords = new Passwords(email -> {
             asked[0]++;
-            return "pw".toCharArray();
+            return Passwords.Answer.once("pw".toCharArray());
         })) {
             List<ConfigDiff.AccountChange> add = List.of(change(AccountRecord.Kind.GOOGLE, NEW,
                     ConfigDiff.AccountChange.Op.ADD));
@@ -231,12 +231,55 @@ class InstanceChangesTest {
         assertEquals(1, asked[0]);
     }
 
+    /** A password the user asked to remember is kept once its sign-in is done, and asked no more. */
+    @Test
+    void aSignedInAccountsPasswordIsRememberedWhenAsked() throws Exception {
+        Host host = new Host();
+        host.running = true;
+        host.device.onTap = point -> {
+            SignInScreen screen = SignInScreen.of(host.device.screen);
+            if (screen == SignInScreen.EMAIL) return TestScreens.password();
+            if (screen != SignInScreen.PASSWORD) return null;
+            host.device.accounts.add(NEW);
+            return TestScreens.home();
+        };
+        PasswordStoreTest.FakeStore store = new PasswordStoreTest.FakeStore();
+        try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("pw".toCharArray(), true))) {
+            assertNull(new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
+                    new TestScreens.Ctx()));
+        }
+        assertTrue(store.remembered(NEW));
+    }
+
+    /** A remembered password Google calls wrong is forgotten, and the account left out of the batch. */
+    @Test
+    void aRememberedPasswordGoogleRefusesIsForgotten() throws Exception {
+        Host host = new Host();
+        host.running = true;
+        host.device.onTap = point -> SignInScreen.of(host.device.screen) == SignInScreen.EMAIL
+                ? TestScreens.password() : SignInScreen.of(host.device.screen) == SignInScreen.PASSWORD
+                ? TestScreens.wrongPassword() : null;
+        PasswordStoreTest.FakeStore store = new PasswordStoreTest.FakeStore();
+        store.remember(NEW, "old-pw".toCharArray());
+        try (Passwords passwords = new Passwords(store, email -> {
+            throw new AssertionError("a remembered password is not asked");
+        })) {
+            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
+                    new TestScreens.Ctx());
+            assertTrue(failed != null && !failed.contains("@"), String.valueOf(failed));
+            assertTrue(passwords.left(NEW));
+        }
+        assertFalse(store.remembered(NEW));
+    }
+
     @Test
     void passwordsAreAskedOnceAndRefusedOnceClosed() throws Exception {
         int[] asked = {0};
         Passwords passwords = new Passwords(email -> {
             asked[0]++;
-            return "pw".toCharArray();
+            return Passwords.Answer.once("pw".toCharArray());
         });
         char[] first = passwords.of("User@Example.com");
         assertTrue(first == passwords.of("user@example.com"));

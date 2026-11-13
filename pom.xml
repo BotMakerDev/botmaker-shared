@@ -50,6 +50,15 @@
             <artifactId>jna-platform</artifactId>
             <version>5.14.0</version>
         </dependency>
+        <!--
+          The OS credential store (Windows Credential Manager, Secret Service, Keychain) for the Google passwords the
+          user asks BotMaker to remember (emulator.google.KeyringStore). 1.0.4 pins JNA 5.13; ours above wins.
+        -->
+        <dependency>
+            <groupId>com.github.javakeyring</groupId>
+            <artifactId>java-keyring</artifactId>
+            <version>1.0.4</version>
+        </dependency>
 
         <!--
           OpenCV — template matching and colour matching (com.botmaker.shared.opencv), used by BOTH

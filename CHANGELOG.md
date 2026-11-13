@@ -14,6 +14,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- `emulator.google.PasswordStore` (2026-11-13): the Google passwords the user asks BotMaker to remember on this PC,
+  keyed by the email lower-cased. `KeyringStore` keeps them in the OS credential store through java-keyring 1.0.4
+  (Windows Credential Manager, the Secret Service, the Keychain) under the service `BotMaker Google`; a store that
+  fails to open is unavailable, and `PasswordStore.NONE` keeps nothing. `Passwords` takes a store: it reads a
+  remembered password before asking, its prompt answers `Answer(password, remember)`, `done` keeps a password only
+  once its sign-in is done, and `refused` forgets one Google called wrong. `InstanceChanges` calls both.
 - `emulator.google.SignInsRunning`: the instances BotMaker is signing in to Google or out of it now. `AccountDevice.of`
   holds its instance while it is open, and another BotMaker process sees the hold through a file naming the holder's
   process by pid and start time, under the cache directory's `signing-in/`; it clears the instance's logcat as it closes. `InstanceFacts.googleAccounts(AdbDevice)` reads a running
