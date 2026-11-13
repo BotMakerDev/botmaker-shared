@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import java.awt.Point;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 import static com.botmaker.shared.emulator.google.TestScreens.at;
 import static com.botmaker.shared.emulator.google.TestScreens.captured;
@@ -138,6 +140,24 @@ class InstanceSignInTest {
         assertEquals(1, ctx.needs.size());
         assertEquals(1, ctx.resumed);
         assertEquals(List.of(EMAIL), device.typed);
+    }
+
+    /** Typed by another of the account's addresses: Android lists the main one, which is the account that came. */
+    @Test
+    void anAccountListedUnderAnotherAddressIsTheOneSignedIn() throws Exception {
+        String alias = "alias@example.com";
+        TestScreens.Device device = flow(captured("mumu-a15-email"), TestScreens.password(), TestScreens.terms(),
+                TestScreens.services(), TestScreens.home());
+        device.accounts.add("held@example.com");
+        InstanceSignIn.Result result = new InstanceSignIn(device, new TestScreens.Clock())
+                .signIn(alias, SECRET.toCharArray(), new TestScreens.Ctx());
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(EMAIL, result.listedAs());
+        assertFalse(result.words().contains("@"));
+        assertEquals(List.of(alias, SECRET), device.typed);
+
+        assertEquals(Optional.empty(), InstanceSignIn.added(Set.of("a@x", "b@x"), alias, Set.of()),
+                "two new accounts: neither is known to be it");
     }
 
     @Test

@@ -15,7 +15,8 @@ import java.util.Set;
  * @param accountsRead whether Android listed the accounts; when not (the instance is stopped), every wanted Google
  *                     account is a sign-in, which reads the instance first and passes one it holds, and no removal is
  *                     said
- * @param gamesRead    whether Android listed the packages; when not, no game is said missing
+ * @param gamesRead    whether Android listed the packages; when not (the instance is stopped), every wanted game is an
+ *                     install, which passes one the instance has ({@code UP_TO_DATE}), and none is said to differ
  */
 public record ConfigDiff(List<FieldState> fields, List<AccountChange> accounts, List<GameRecord> missingGames,
                          boolean accountsRead, boolean gamesRead) {
@@ -80,7 +81,7 @@ public record ConfigDiff(List<FieldState> fields, List<AccountChange> accounts, 
     public boolean differs() {
         return fields.stream().anyMatch(f -> f.status() == Status.CHANGE
                         || f.status() == Status.BY_HAND && f.now().isPresent())
-                || accountsRead && !accounts.isEmpty() || !missingGames.isEmpty();
+                || accountsRead && !accounts.isEmpty() || gamesRead && !missingGames.isEmpty();
     }
 
     /** Whether Apply has something to do here. */
@@ -117,8 +118,9 @@ public record ConfigDiff(List<FieldState> fields, List<AccountChange> accounts, 
         });
 
         Optional<Set<String>> packages = android.flatMap(AndroidState::packages);
-        List<GameRecord> missing = packages.map(installed -> wanted.games().stream().map(Sourced::value)
-                .filter(game -> !installed.contains(game.packageName())).toList()).orElse(List.of());
+        List<GameRecord> missing = wanted.games().stream().map(Sourced::value)
+                .filter(game -> packages.map(installed -> !installed.contains(game.packageName())).orElse(true))
+                .toList();
         return new ConfigDiff(fields, accounts, missing, held.isPresent(), packages.isPresent());
     }
 

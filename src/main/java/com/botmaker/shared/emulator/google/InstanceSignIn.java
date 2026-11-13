@@ -5,6 +5,7 @@ import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -62,11 +63,31 @@ public final class InstanceSignIn {
         }
     }
 
-    /** How it ended, and why in the user's words, naming no email. */
-    public record Result(End end, String words) {
+    /**
+     * How it ended, and why in the user's words, naming no email.
+     *
+     * @param listedAs the address Android lists the account under when it is not the one typed (a Google account's
+     *                 other address), else null
+     */
+    public record Result(End end, String words, String listedAs) {
+        public Result(End end, String words) {
+            this(end, words, null);
+        }
+
         public boolean signedIn() {
             return end == End.SIGNED_IN;
         }
+    }
+
+    /**
+     * The account the sign-in added: {@code wanted} when Android lists it, else the one Google account that was not
+     * there {@code before} (typed by another of its addresses); empty while neither.
+     */
+    static Optional<String> added(Set<String> accounts, String wanted, Set<String> before) {
+        if (accounts == null) return Optional.empty();
+        if (accounts.contains(wanted)) return Optional.of(wanted);
+        List<String> fresh = accounts.stream().filter(a -> !before.contains(a)).toList();
+        return fresh.size() == 1 ? Optional.of(fresh.getFirst()) : Optional.empty();
     }
 
     static final String ADD_ACCOUNT = "am start -a android.settings.ADD_ACCOUNT_SETTINGS --esa account_types com.google";
@@ -118,6 +139,7 @@ public final class InstanceSignIn {
         }
         Set<String> held = device.accounts();
         if (held != null && held.contains(wanted)) return new Result(End.SIGNED_IN, "Already signed in.");
+        Set<String> before = held == null ? Set.of() : held;
 
         context.step("Opening Android's sign-in for Google…");
         device.shell(ADD_ACCOUNT);
@@ -146,11 +168,13 @@ public final class InstanceSignIn {
             // once the password is typed, or while the user answers a screen (who may sign in by hand, a passkey)
             if ((passwordTyped || waitingForYou) && !screen.equals(SignInScreen.TERMS)
                     && !screen.equals(SignInScreen.SERVICES) && !screen.equals(SignInScreen.PHONE_PROMPT)) {
-                Set<String> accounts = device.accounts();
-                if (accounts != null && accounts.contains(wanted)) {
+                Optional<String> added = added(device.accounts(), wanted, before);
+                if (added.isPresent()) {
                     if (waitingForYou) context.resumed();
                     device.key(KEY_HOME);
-                    return new Result(End.SIGNED_IN, "Signed in.");
+                    return added.get().equals(wanted) ? new Result(End.SIGNED_IN, "Signed in.")
+                            : new Result(End.SIGNED_IN, "Signed in. Android lists the account under another of its "
+                                    + "addresses, which the configuration now names.", added.get());
                 }
             }
             if (screen != last) {

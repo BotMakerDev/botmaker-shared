@@ -112,7 +112,7 @@ class ConfigDiffTest {
         assertEquals(List.of(new ConfigDiff.AccountChange(
                 new AccountRecord(AccountRecord.Kind.GOOGLE, "main@example.com"), ConfigDiff.AccountChange.Op.ADD)),
                 unread.accounts());
-        assertEquals(List.of(), unread.missingGames());
+        assertEquals(List.of(GAME), unread.missingGames(), "a stopped instance's game is installed unless it is there");
         assertFalse(unread.differs());
         assertTrue(unread.applicable());
     }

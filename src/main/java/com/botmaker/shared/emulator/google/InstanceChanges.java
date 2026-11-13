@@ -83,12 +83,26 @@ public final class InstanceChanges {
         this.pace = pace;
     }
 
+    /** An account signed in under the address typed and listed by Android under another of its addresses. */
+    public interface ListedAs {
+        ListedAs NONE = (typed, listed) -> {};
+
+        void listed(String typed, String listed);
+    }
+
     /**
      * Makes {@code instance} hold the accounts and games {@code accounts} and {@code games} say. Null when all of it
      * is done, else what isn't, in the user's words.
      */
     public String run(EmulatorInstance instance, List<ConfigDiff.AccountChange> accounts, List<GameRecord> games,
                       Passwords passwords, Operation.Context context) throws Exception {
+        return run(instance, accounts, games, passwords, ListedAs.NONE, context);
+    }
+
+    /** As {@link #run(EmulatorInstance, List, List, Passwords, Operation.Context)}, telling {@code listedAs} of each
+     * account Android lists under another address, so the configuration can name that one. */
+    public String run(EmulatorInstance instance, List<ConfigDiff.AccountChange> accounts, List<GameRecord> games,
+                      Passwords passwords, ListedAs listedAs, Operation.Context context) throws Exception {
         List<String> removals = new ArrayList<>();
         List<String> adds = new ArrayList<>();
         for (ConfigDiff.AccountChange change : accounts) {
@@ -119,7 +133,7 @@ public final class InstanceChanges {
         }
         boolean finished;
         try {
-            finished = change(instance, removals, adds, games, passwords, problems, context);
+            finished = change(instance, removals, adds, games, passwords, listedAs, problems, context);
         } finally {
             if (!wasRunning) {
                 context.step("Stopping " + instance.name() + " again, as it was…");
@@ -133,10 +147,11 @@ public final class InstanceChanges {
 
     /** The removals, sign-ins and installs; false when cancelled part way. */
     private boolean change(EmulatorInstance instance, List<String> removals, List<String> adds, List<GameRecord> games,
-                           Passwords passwords, List<String> problems, Operation.Context context) throws Exception {
+                           Passwords passwords, ListedAs listedAs, List<String> problems, Operation.Context context)
+            throws Exception {
         if (!removals.isEmpty() || !adds.isEmpty()) {
             try {
-                if (!accounts(instance, removals, adds, passwords, problems, context)) return false;
+                if (!accounts(instance, removals, adds, passwords, listedAs, problems, context)) return false;
             } catch (InterruptedException e) {
                 throw e;
             } catch (Exception e) {
@@ -155,7 +170,7 @@ public final class InstanceChanges {
 
     /** The removals, then the sign-ins, over one account device; false when cancelled part way. */
     private boolean accounts(EmulatorInstance instance, List<String> removals, List<String> adds, Passwords passwords,
-                             List<String> problems, Operation.Context context) throws Exception {
+                             ListedAs listedAs, List<String> problems, Operation.Context context) throws Exception {
         try (AccountDevice device = host.device(instance)) {
             if (!removals.isEmpty()) {
                 String failed = new InstanceSignOut(device, pace).signOutAll(removals, context);
@@ -170,6 +185,10 @@ public final class InstanceChanges {
                         .signIn(email, passwords.of(email), context);
                 if (result.end().dropsAccount()) passwords.drop(email);
                 if (!result.signedIn()) problems.add(account(adds, email) + ": " + result.words());
+                else if (result.listedAs() != null) {
+                    listedAs.listed(email, result.listedAs());
+                    context.step(account(adds, email) + ": " + result.words());
+                }
             }
         }
         return true;
