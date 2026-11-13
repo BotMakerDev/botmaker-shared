@@ -93,6 +93,14 @@ class AccountBookTest {
     }
 
     @Test
+    void heldIsWhatAnyLayerListsAnEmulatorsOrAnInstancesAndNotARemoval() {
+        EmulatorConfig config = config().withInstance(LD1, Layer.EMPTY.removingAccount(FARM.key()));
+        assertEquals(Set.of(FARM.key(), ALT.key(), FB.key()), AccountBook.held(config));
+        assertEquals(Set.of(), AccountBook.held(EmulatorConfig.EMPTY.withInstance(LD1,
+                Layer.EMPTY.removingAccount(FARM.key()))));
+    }
+
+    @Test
     void anImportAddsWhatIsMissingAndKeepsANoteTheBookHas(@TempDir Path dir) throws IOException {
         AccountBook other = new AccountBook(dir.resolve("other"));
         other.add(new AccountRecord(AccountRecord.Kind.GOOGLE, "farm@example.com", "from the other PC"));

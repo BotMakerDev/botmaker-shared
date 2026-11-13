@@ -11,10 +11,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Every account this PC knows, for every emulator and every bot: {@code accounts.json} in the folder its owner gives
@@ -146,6 +148,13 @@ public final class AccountBook {
                 .sorted(Comparator.<AccountRecord, Boolean>comparing(a -> onInstances.containsKey(a.key()))
                         .thenComparing(AccountRecord::name, String.CASE_INSENSITIVE_ORDER))
                 .toList();
+    }
+
+    /** The accounts some configuration lists, an emulator's or an instance's: the ones the book may not drop. */
+    public static Set<AccountRecord.Key> held(EmulatorConfig config) {
+        Set<AccountRecord.Key> held = new HashSet<>();
+        for (AccountRecord account : layered(config)) held.add(account.key());
+        return held;
     }
 
     /** Every account a layer lists, emulators' first, in their order. */
