@@ -109,6 +109,62 @@ class PasswordStoreTest {
         assertArrayEquals("pw".toCharArray(), stored.read(listed).orElseThrow());
     }
 
+    /** The live screen's *Fill password…*: what the user typed there is the one remembered, once the sign-in is done. */
+    @Test
+    void aPasswordTypedByTheUserReplacesTheBatchsAndIsRememberedOnceDone() throws Exception {
+        FakeStore store = new FakeStore();
+        store.remember(EMAIL, "old".toCharArray());
+        char[] fromStore;
+        char[] typed = "new".toCharArray();
+        try (Passwords passwords = new Passwords(store, email -> null)) {
+            fromStore = passwords.of(EMAIL);
+            assertTrue(passwords.typedByUser(EMAIL, new Passwords.Answer(typed, true)));
+            assertArrayEquals("old".toCharArray(), fromStore, "a sign-in may still hold the one it replaced");
+            assertArrayEquals("new".toCharArray(), passwords.of(EMAIL));
+            assertArrayEquals("old".toCharArray(), store.read(EMAIL).orElseThrow(), "not before the sign-in is done");
+            assertTrue(passwords.done(EMAIL));
+            assertArrayEquals("new".toCharArray(), store.read(EMAIL).orElseThrow());
+        }
+        assertArrayEquals(new char[3], typed, "the batch clears it");
+        assertArrayEquals(new char[3], fromStore, "and the one it replaced");
+    }
+
+    /** Unticked, what the user typed still replaces a password the prompt was asked to remember: it is not kept. */
+    @Test
+    void aPasswordTypedByTheUserUntickedIsNotRemembered() throws Exception {
+        FakeStore store = new FakeStore();
+        try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("wrong".toCharArray(), true))) {
+            passwords.of(EMAIL);
+            assertTrue(passwords.typedByUser(EMAIL, Passwords.Answer.once("right".toCharArray())));
+            assertTrue(passwords.done(EMAIL));
+        }
+        assertTrue(store.kept.isEmpty());
+    }
+
+    @Test
+    void aPasswordTypedByTheUserAfterTheSignInIsDoneIsRefused() throws Exception {
+        try (Passwords passwords = new Passwords(new FakeStore(), email -> Passwords.Answer.once("pw".toCharArray()))) {
+            passwords.of(EMAIL);
+            passwords.done(EMAIL);
+            char[] late = "pw".toCharArray();
+            assertFalse(passwords.typedByUser(EMAIL, new Passwords.Answer(late, true)));
+            assertArrayEquals(new char[2], late);
+        }
+    }
+
+    @Test
+    void aPasswordTypedByTheUserForADroppedAccountOrAClosedBatchIsClearedAndRefused() throws Exception {
+        Passwords passwords = new Passwords(new FakeStore(), email -> null);
+        passwords.drop(EMAIL);
+        char[] typed = "pw".toCharArray();
+        assertFalse(passwords.typedByUser(EMAIL, new Passwords.Answer(typed, true)));
+        assertArrayEquals(new char[2], typed);
+        passwords.close();
+        char[] late = "pw".toCharArray();
+        assertFalse(passwords.typedByUser("other@example.com", new Passwords.Answer(late, true)));
+        assertArrayEquals(new char[2], late);
+    }
+
     @Test
     void aStoreThatRefusesSaysSo() throws Exception {
         FakeStore store = new FakeStore();

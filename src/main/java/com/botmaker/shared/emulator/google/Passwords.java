@@ -1,8 +1,10 @@
 package com.botmaker.shared.emulator.google;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -40,6 +42,10 @@ public final class Passwords implements AutoCloseable {
     private final Set<String> skipped = new HashSet<>();
     private final Set<String> stored = new HashSet<>();
     private final Set<String> toRemember = new HashSet<>();
+    /** The accounts whose sign-in is done: a password typed for one afterwards has nothing left to be remembered by. */
+    private final Set<String> finished = new HashSet<>();
+    /** Passwords {@link #typedByUser} replaced, which a sign-in may still hold: cleared when the batch closes. */
+    private final List<char[]> replaced = new ArrayList<>();
     private boolean closed;
 
     /** A batch whose passwords are all asked, none remembered. */
@@ -90,6 +96,7 @@ public final class Passwords implements AutoCloseable {
      */
     public synchronized boolean done(String email, String listedAs) {
         String key = PasswordStore.key(email);
+        finished.add(key);
         char[] password = held.get(key);
         if (password == null) return true;
         boolean moves = listedAs != null && !PasswordStore.key(listedAs).equals(key);
@@ -98,6 +105,28 @@ public final class Passwords implements AutoCloseable {
         if (!store.remember(keptAs, password)) return false;
         if (moves) store.forget(email);
         stored.add(PasswordStore.key(keptAs));
+        return true;
+    }
+
+    /**
+     * The user typed {@code email}'s password on the instance themselves (the live screen's *Fill password…*): the
+     * batch holds it in place of any it had, and remembers it once the sign-in is {@link #done} if they asked. The
+     * batch clears it; false, and the password cleared, when the batch is over, left the account out, or already
+     * signed it in. Takes the batch's lock, which a prompt being answered holds: never call it on the prompt's thread.
+     */
+    public synchronized boolean typedByUser(String email, Answer answer) {
+        String key = PasswordStore.key(email);
+        if (closed || skipped.contains(key) || finished.contains(key)
+                || answer.password() == null || answer.password().length == 0) {
+            if (answer.password() != null) Arrays.fill(answer.password(), '\0');
+            return false;
+        }
+        char[] was = held.put(key, answer.password());
+        // a sign-in may still be using the one it replaces: cleared when the batch closes, not now
+        if (was != null && was != answer.password()) replaced.add(was);
+        stored.remove(key);
+        if (answer.remember()) toRemember.add(key);
+        else toRemember.remove(key);
         return true;
     }
 
@@ -126,6 +155,8 @@ public final class Passwords implements AutoCloseable {
     public synchronized void close() {
         held.values().forEach(password -> Arrays.fill(password, '\0'));
         held.clear();
+        replaced.forEach(password -> Arrays.fill(password, '\0'));
+        replaced.clear();
         toRemember.clear();
         closed = true;
     }

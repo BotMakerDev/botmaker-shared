@@ -20,6 +20,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   fails to open is unavailable, and `PasswordStore.NONE` keeps nothing. `Passwords` takes a store: it reads a
   remembered password before asking, its prompt answers `Answer(password, remember)`, `done` keeps a password only
   once its sign-in is done, and `refused` forgets one Google called wrong. `InstanceChanges` calls both.
+  `Passwords.typedByUser` takes a password the user typed on the instance themselves, in place of the batch's, and
+  remembers it at `done` only if they asked; the one it replaces is cleared when the batch closes, as a sign-in may
+  still hold it.
 - `emulator.google.SignInsRunning`: the instances BotMaker is signing in to Google or out of it now. `AccountDevice.of`
   holds its instance while it is open, and another BotMaker process sees the hold through a file naming the holder's
   process by pid and start time, under the cache directory's `signing-in/`; it clears the instance's logcat as it closes. `InstanceFacts.googleAccounts(AdbDevice)` reads a running
