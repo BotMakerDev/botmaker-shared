@@ -124,6 +124,22 @@ class InstanceSignInTest {
         assertEquals(1, ctx.resumed);
     }
 
+    /** A screen BotMaker doesn't know (Google's passkey) that the user signs in past by hand, no password typed. */
+    @Test
+    void anAccountTheUserSignedInByHandEndsTheSignIn() throws Exception {
+        TestScreens.Device device = flow(captured("mumu-a15-email"), TestScreens.home());
+        device.onPoll = poll -> {
+            if (poll == 40) device.accounts.add(EMAIL); // the user finished on the live screen
+            return null;
+        };
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        InstanceSignIn.Result result = run(device, SECRET, ctx);
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(1, ctx.needs.size());
+        assertEquals(1, ctx.resumed);
+        assertEquals(List.of(EMAIL), device.typed);
+    }
+
     @Test
     void aPasswordInputTextCannotTypeIsRefusedBeforeAnythingStarts() throws Exception {
         TestScreens.Device device = flow(captured("mumu-a15-email"));

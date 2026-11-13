@@ -143,8 +143,9 @@ public final class InstanceSignIn {
             }
             UiTree tree = device.screen().orElse(null);
             SignInScreen screen = SignInScreen.of(tree);
-            if (passwordTyped && !screen.equals(SignInScreen.TERMS) && !screen.equals(SignInScreen.SERVICES)
-                    && !screen.equals(SignInScreen.PHONE_PROMPT)) {
+            // once the password is typed, or while the user answers a screen (who may sign in by hand, a passkey)
+            if ((passwordTyped || waitingForYou) && !screen.equals(SignInScreen.TERMS)
+                    && !screen.equals(SignInScreen.SERVICES) && !screen.equals(SignInScreen.PHONE_PROMPT)) {
                 Set<String> accounts = device.accounts();
                 if (accounts != null && accounts.contains(wanted)) {
                     if (waitingForYou) context.resumed();

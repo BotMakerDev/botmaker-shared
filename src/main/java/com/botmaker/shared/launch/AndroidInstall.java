@@ -21,7 +21,8 @@ import java.util.function.Consumer;
 
 /**
  * An Android game on an emulator instance or a phone ({@code emu-app:<package>@<instance>}). Where its file comes
- * from, first that answers (2026-11-01, the user's order; the Play app moved last on 2026-11-10):
+ * from, first that answers (2026-11-01, the user's order; the Play app moved last on 2026-11-10, and first for an install
+ * on 2026-11-13: BotMaker presses Install on a signed-in instance, {@link PlayAppInstall}; an update keeps this order):
  *
  * <ol>
  *   <li>the {@link ApkLibrary}, when it holds a version newer than the one installed;</li>
@@ -168,11 +169,23 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
     }
 
     /**
-     * The first way in that answers, past the library: goopdl, apkeep, the Play app, then a store page. The Play app
-     * comes after the downloads because it needs the instance signed in to Google, which each instance of each
-     * emulator would do on its own (2026-11-10, the user's call).
+     * The first way in that answers: the Play app when the instance has one (BotMaker presses Install only on a
+     * signed-in, unpriced page), then the library, goopdl and apkeep; then the Play app again for the user to press, or
+     * a store page.
      */
     private Result obtainAndInstall(Device device, Consumer<String> progress, Outcome outcome) {
+        // A signed-in instance installs through its own Play app first (2026-11-13, the user's call): Play's own
+        // build for the instance, kept up to date by Play. Anything short of installed goes on down the list.
+        PlayAppInstall.Result pressed = null;
+        if (device.facts().hasPlay()) {
+            pressed = PlayAppInstall.run(device.live(), pkg(), progress);
+            if (Thread.currentThread().isInterrupted()) return stopped();
+            if (pressed.outcome() == PlayAppInstall.Outcome.INSTALLED) {
+                return result(EmulatorInstall.installed(device.live(), pkg(), pressed.message()), outcome,
+                        Source.PLAY_APP);
+            }
+            report(progress, pressed.message());
+        }
         Optional<ApkLibrary.Entry> kept = library.newest(pkg());
         if (kept.isPresent()) return install(device, kept.get().file(), progress, outcome, Source.LIBRARY);
         ApkDownload.Result fromPlay = PlayDownload.fetch(pkg(), device.facts().abis(), library, progress);
@@ -189,27 +202,16 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
             }
             report(progress, fetched.message());
         }
-        if (device.facts().hasPlay()) {
-            PlayAppInstall.Result pressed = PlayAppInstall.run(device.live(), pkg(), progress);
-            if (Thread.currentThread().isInterrupted()) return stopped();
+        if (pressed != null) {
             switch (pressed.outcome()) {
-                case INSTALLED -> {
-                    return result(EmulatorInstall.installed(device.live(), pkg(), pressed.message()), outcome,
-                            Source.PLAY_APP);
-                }
-                case FAILED -> {
-                    return new Result(Outcome.FAILED, pressed.message());
-                }
-                // never pressed: a store page lets the user decide
-                case PRICED, PRE_REGISTER -> {
-                    report(progress, pressed.message());
-                    return fromPage(device, progress, outcome);
-                }
                 // not signed in, or a screen BotMaker can't read: the user presses Install there
-                default -> {
-                    report(progress, pressed.message());
+                case NOT_SIGNED_IN, YOURS -> {
                     return result(EmulatorInstall.fromStore(device.live(), pkg(), name(), progress), outcome,
                             Source.PLAY_APP);
+                }
+                // never pressed, or Play wouldn't open: a store page lets the user decide
+                default -> {
+                    return fromPage(device, progress, outcome);
                 }
             }
         }
