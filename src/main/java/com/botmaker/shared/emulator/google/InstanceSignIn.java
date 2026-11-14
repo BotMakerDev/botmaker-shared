@@ -118,6 +118,8 @@ public final class InstanceSignIn {
 
     private final AccountDevice device;
     private final Pace pace;
+    /** Whether the last sign-in got past the password: Google showed a screen that follows it. */
+    private boolean passwordAccepted;
 
     InstanceSignIn(AccountDevice device, Pace pace) {
         this.device = device;
@@ -174,8 +176,17 @@ public final class InstanceSignIn {
         return signIn(email, password, SecondStep.ASK, context);
     }
 
+    /**
+     * Whether the last {@link #signIn} got past the password, signed in or not: a second step, Google's terms or
+     * services. A password Google took is worth keeping even when the step after it failed.
+     */
+    boolean passwordAccepted() {
+        return passwordAccepted;
+    }
+
     Result signIn(String email, char[] password, SecondStep second, Operation.Context context)
             throws InterruptedException {
+        passwordAccepted = false;
         String wanted = email == null ? "" : email.strip().toLowerCase(Locale.ROOT);
         if (!typeable(wanted.toCharArray()) || !typeable(password)) {
             return new Result(End.CANNOT_TYPE, "BotMaker can type only plain letters, digits and signs (ASCII), and "
@@ -196,6 +207,9 @@ public final class InstanceSignIn {
         long since = 0;
         long lastTap = 0;
         int taps = 0;
+        long emailTypedAt = 0;
+        long emailTapAt = 0;
+        int emailTaps = 0;
         while (true) {
             if (context.cancelled()) {
                 device.key(KEY_HOME);
@@ -210,6 +224,10 @@ public final class InstanceSignIn {
             }
             UiTree tree = device.screen().orElse(null);
             SignInScreen screen = SignInScreen.of(tree);
+            if (passwordTyped && (screen.secondStep() || screen == SignInScreen.TERMS
+                    || screen == SignInScreen.SERVICES || screen == SignInScreen.PHONE_PROMPT)) {
+                passwordAccepted = true;
+            }
             // once the password is typed, or while the user answers a screen (who may sign in by hand, a passkey)
             if ((passwordTyped || waitingForYou) && !screen.equals(SignInScreen.TERMS)
                     && !screen.equals(SignInScreen.SERVICES) && !screen.equals(SignInScreen.PHONE_PROMPT)) {
@@ -246,7 +264,18 @@ public final class InstanceSignIn {
                         enter(tree, SignInScreen.emailField(tree).orElse(null), wanted.toCharArray(),
                                 SignInScreen.EMAIL);
                         emailTyped = true;
-                    } else if (on > SETTLE.toMillis()) {
+                        emailTypedAt = now;
+                        emailTapAt = now;
+                    } else if (now - emailTypedAt <= SETTLE.toMillis()) {
+                        // a tap that missed Next, or one the page wasn't ready for: Next again, then Enter; counted
+                        // from the typing, not per visit, as the page may flicker through loading between
+                        if (emailTaps < TAPS && now - emailTapAt > RETAP.toMillis()) {
+                            if (emailTaps < TAPS - 1) tapNext(tree, SignInScreen.EMAIL);
+                            else device.key(KEY_ENTER);
+                            emailTaps++;
+                            emailTapAt = now;
+                        }
+                    } else {
                         return new Result(End.FAILED, "Google stayed on the email screen after the email was typed.");
                     }
                 }
@@ -286,7 +315,7 @@ public final class InstanceSignIn {
                         waitingForYou = true;
                     }
                 }
-                case CHALLENGES, PHONE_TAP, CODE, BACKUP_CODE, TWO_STEP -> {
+                case CHALLENGES, PHONE_TAP, CODE, BACKUP_CODE, PASSKEY, TWO_STEP -> {
                     if (!waitingForYou) {
                         Act act = follow.answer(screen, tree, now, on);
                         if (act == Act.HANDED) waitingForYou = true;
@@ -322,7 +351,8 @@ public final class InstanceSignIn {
     }
 
     /**
-     * One sign-in's second step, by the account's method: "Try another way" once and the method's row once, then the
+     * One sign-in's second step, by the account's method: "Try another way" (the passkey's answer too) and the method's
+     * row, each tapped again while its screen stays, {@link #TAPS} at most, then the
      * method's screen answered (the phone prompt waited for, a code asked and typed, {@link #CODE_TRIES} at most).
      * Anything else is handed to the user, saying why.
      */
@@ -331,8 +361,13 @@ public final class InstanceSignIn {
         private final Verification method;
         private final Codes codes;
         private final Operation.Context context;
-        private boolean anotherWayTapped;
-        private boolean rowTapped;
+        /** The screen the taps below were made on: a new screen starts them again. */
+        private SignInScreen tapsOn;
+        /** Taps on this screen ("Try another way" or the method's row), retried while it stays. */
+        private int taps;
+        private long lastTap;
+        /** Every tap of the second step, so screens taking turns don't loop for ever. */
+        private int allTaps;
         private boolean handedOver;
         /** The codes typed, an untypeable one not counted. */
         private int tries;
@@ -356,8 +391,12 @@ public final class InstanceSignIn {
                         + "instance's screen.");
             }
             String named = method.displayName().toLowerCase(Locale.ROOT);
+            if (screen != tapsOn) {
+                tapsOn = screen;
+                taps = 0;
+            }
             if (screen == SignInScreen.CHALLENGES) {
-                if (rowTapped) {
+                if (!mayTap(now)) {
                     return on > SETTLE.toMillis() ? handOver("Ways to sign in: BotMaker's tap on the " + named
                             + " didn't move it on. Answer it on the instance's screen.") : Act.WAITS;
                 }
@@ -368,7 +407,7 @@ public final class InstanceSignIn {
                 }
                 context.step("Choosing the " + named + "…");
                 device.tap(row.get().bounds());
-                rowTapped = true;
+                tapped(now);
                 return Act.WAITS;
             }
             if (screen.answers(method)) {
@@ -376,7 +415,7 @@ public final class InstanceSignIn {
                         ? handOver("Approve the sign-in on your phone: Google sent it a prompt.")
                         : code(screen, tree, now);
             }
-            if (!anotherWayTapped) {
+            if (mayTap(now)) {
                 Optional<UiNode> another = SignInScreen.anotherWay(tree);
                 if (another.isEmpty()) {
                     return handOver("Google asks for another second step than the " + named + ", with no other way "
@@ -384,11 +423,27 @@ public final class InstanceSignIn {
                 }
                 context.step("Trying another way, for the " + named + "…");
                 device.tap(another.get().bounds());
-                anotherWayTapped = true;
+                tapped(now);
                 return Act.WAITS;
             }
             return on > SETTLE.toMillis() ? handOver("Google didn't show the " + named + "'s screen: answer it on the "
                     + "instance's screen.") : Act.WAITS;
+        }
+
+        /**
+         * Whether a tap may go again: the first at once, then {@link #RETAP} after the last while its screen stays (a
+         * tap during a page's loading is lost, and Google may show the passkey again), {@link #TAPS} at most on one
+         * screen and three times that over the second step.
+         */
+        private boolean mayTap(long now) {
+            if (allTaps >= 3 * TAPS) return false;
+            return taps == 0 || taps < TAPS && now - lastTap > RETAP.toMillis();
+        }
+
+        private void tapped(long now) {
+            taps++;
+            allTaps++;
+            lastTap = now;
         }
 
         /** The code's screen: a code typed waits for Google's answer, a refused one is asked again. */
@@ -460,6 +515,14 @@ public final class InstanceSignIn {
     private void enter(UiTree tree, UiNode field, char[] text, SignInScreen screen) {
         if (field != null) device.tap(field.bounds());
         device.type(text);
+        // the keyboard the field brought up moves the page: Next is found where it is now, else where it was
+        Optional<UiNode> next = device.screen().flatMap(screen::next).or(() -> screen.next(tree));
+        if (next.isPresent()) device.tap(next.get().bounds());
+        else device.key(KEY_ENTER);
+    }
+
+    /** Taps what moves {@code screen} on in {@code tree}, else presses Enter. */
+    private void tapNext(UiTree tree, SignInScreen screen) {
         Optional<UiNode> next = screen.next(tree);
         if (next.isPresent()) device.tap(next.get().bounds());
         else device.key(KEY_ENTER);

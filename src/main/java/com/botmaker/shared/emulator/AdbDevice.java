@@ -425,6 +425,15 @@ public final class AdbDevice implements AutoCloseable {
         }
     }
 
+    /** Every package on the device, system ones too ({@code pm list packages}). Never throws; empty on any failure. */
+    public List<String> allPackages() {
+        try {
+            return parsePackageList(shell("pm list packages"));
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
     /**
      * {@code packageName}'s launcher icon, or {@code null} when it has none we can read.
      *

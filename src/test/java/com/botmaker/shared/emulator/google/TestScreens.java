@@ -83,6 +83,31 @@ final class TestScreens {
                 node("", "Try another way", 6));
     }
 
+    /** Google's passkey prompt, in the words it showed live (2026-11-14). */
+    static UiTree passkey() {
+        return tree(GMS, node("", "Use your passkey to confirm it’s really you", 1),
+                node("", "To help keep your account safe, Google wants to make sure it’s really you trying to sign in",
+                        2), node("", "user@example.com", 3), node("", "2-Step Verification", 4),
+                node("", "Your device will ask for your fingerprint, face, or screen lock", 5),
+                node("", "Try another way", 6), node("", "Continue", 7));
+    }
+
+    /**
+     * The list under a heading BotMaker doesn't read, each row a clickable box around its words, as a WebView gives
+     * it.
+     */
+    static UiTree waysInBoxes() {
+        return tree(GMS, node("", "Verify it’s you another way", 1),
+                box("Use your passkey", 2), box("Tap Yes on your phone or tablet", 3),
+                box("Enter one of your 8-digit backup codes", 4));
+    }
+
+    private static String box(String text, int row) {
+        return "<node resource-id=\"\" text=\"\" package=\"PKG\" clickable=\"true\" bounds=\"[50," + row * 100 + "][900,"
+                + (row * 100 + 90) + "]\">" + "<node resource-id=\"\" text=\"" + text
+                + "\" package=\"PKG\" bounds=\"[120," + (row * 100 + 20) + "][700," + (row * 100 + 60) + "]\"/></node>";
+    }
+
     /** The list Try another way opens, a row per method of {@code rows}: phone, code, backup or key. */
     static UiTree challenges(String... rows) {
         List<String> nodes = new ArrayList<>(List.of(node("", "2-Step Verification", 1),

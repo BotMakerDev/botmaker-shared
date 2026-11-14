@@ -31,6 +31,11 @@ public enum SignInScreen {
     CODE("code", "Verification code", true),
     /** The field for one of the account's backup codes. */
     BACKUP_CODE("backup_code", "Backup code", true),
+    /**
+     * "Use your passkey to confirm it's really you" (seen live 2026-11-14): no emulator has the user's passkey, so
+     * BotMaker answers it with "Try another way".
+     */
+    PASSKEY("passkey", "Passkey", true),
     /** Any other second step: a security key, "Verify it's you" with the password again. */
     TWO_STEP("two_step", "2-Step Verification", true),
     CAPTCHA("captcha", "Captcha", true),
@@ -74,7 +79,8 @@ public enum SignInScreen {
 
     /** Whether it is a second step, past the password. */
     public boolean secondStep() {
-        return this == CHALLENGES || this == PHONE_TAP || this == CODE || this == BACKUP_CODE || this == TWO_STEP;
+        return this == CHALLENGES || this == PHONE_TAP || this == CODE || this == BACKUP_CODE || this == PASSKEY
+                || this == TWO_STEP;
     }
 
     /** Whether it is the screen of {@code method}: Check your phone for the phone prompt, a code's field for a code. */
@@ -113,7 +119,7 @@ public enum SignInScreen {
         }
         if (Screens.byId(tree, CODE_IDS).isPresent() || Screens.byId(tree, BACKUP_ID).isPresent()
                 || Screens.shows(tree, "2-step verification", "verify it's you", "verify that it's you",
-                "choose how you want to sign in", "check your phone")) {
+                "choose how you want to sign in", "check your phone") || passkey(tree) || ways(tree) >= 2) {
             return secondStep(tree);
         }
         if (Screens.byId(tree, "signinconsentNext").isPresent() || Screens.saying(tree, "I agree").isPresent()) {
@@ -136,11 +142,38 @@ public enum SignInScreen {
     private static SignInScreen secondStep(UiTree tree) {
         if (Screens.byId(tree, BACKUP_ID).isPresent()) return BACKUP_CODE;
         if (Screens.byId(tree, CODE_IDS).isPresent()) return CODE;
-        if (Screens.shows(tree, "choose how you want to sign in")) return CHALLENGES;
+        // the phone's prompt by its heading first: its page may also offer two ways, and is not the list
+        if (Screens.shows(tree, "check your phone", "google sent a notification")) return PHONE_TAP;
+        // the list, by its heading or by two ways or more on it, whatever Google heads it with
+        if (Screens.shows(tree, "choose how you want to sign in") || ways(tree) >= 2) return CHALLENGES;
         if (Screens.shows(tree, "backup code") && anyField(tree).isPresent()) return BACKUP_CODE;
         if (Screens.shows(tree, "enter the code", "verification code") && anyField(tree).isPresent()) return CODE;
-        if (Screens.shows(tree, "check your phone", "google sent a notification", "tap yes")) return PHONE_TAP;
+        if (passkey(tree)) return PASSKEY;
+        if (Screens.shows(tree, "tap yes")) return PHONE_TAP;
         return TWO_STEP;
+    }
+
+    /** Google's passkey prompt, by its heading or by what it says the device will ask. */
+    private static boolean passkey(UiTree tree) {
+        return Screens.shows(tree, "use your passkey to", "will ask for your fingerprint, face, or screen lock");
+    }
+
+    /** The words of each way the list offers, one group a way. */
+    private static final String[][] WAYS = {
+            {"tap yes on your phone", "get a notification"},
+            {"google authenticator", "get a verification code", "get a code"},
+            {"backup code"},
+            {"use your passkey"},
+            {"security key"},
+            {"enter your password"},
+            {"use another phone or computer"},
+    };
+
+    /** How many of the list's ways {@code tree} shows. */
+    private static int ways(UiTree tree) {
+        int ways = 0;
+        for (String[] words : WAYS) if (Screens.shows(tree, words)) ways++;
+        return ways;
     }
 
     /** Where the email is typed. */
@@ -171,12 +204,28 @@ public enum SignInScreen {
 
     /** The {@link #CHALLENGES} row of {@code method}, empty when Google doesn't offer it for this account. */
     static Optional<UiNode> row(UiTree tree, Verification method) {
-        return switch (method) {
+        Optional<UiNode> words = switch (method) {
             case PHONE -> Screens.holding(tree, "tap yes on your phone", "get a notification", "tap yes");
             case CODE -> Screens.holding(tree, "google authenticator", "verification code", "get a code");
             case BACKUP_CODE -> Screens.holding(tree, "backup code");
             default -> Optional.empty();
         };
+        return words.map(node -> clickable(tree, node));
+    }
+
+    /**
+     * What a tap on {@code node} should hit: the clickable row around its words, a few levels up at most and no taller
+     * than a row, else the words themselves. A tap on a row's words alone didn't move Google's list on (2026-11-14).
+     */
+    private static UiNode clickable(UiTree tree, UiNode node) {
+        UiNode at = node;
+        for (int up = 0; up < 4 && at != null; up++) {
+            if (at.has(Trait.CLICKABLE)) {
+                return at.bounds().height <= node.bounds().height * 4 ? at : node;
+            }
+            at = tree.parentOf(at);
+        }
+        return node;
     }
 
     /** Whether Google says the code typed was wrong. */

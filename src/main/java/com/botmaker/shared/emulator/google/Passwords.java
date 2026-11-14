@@ -130,6 +130,20 @@ public final class Passwords implements AutoCloseable {
         return true;
     }
 
+    /**
+     * Google took {@code email}'s password, though the sign-in may still fail past it (a second step): it is
+     * remembered now if the user asked, so a retry doesn't ask for it again. False only when the store refused it.
+     */
+    public synchronized boolean accepted(String email) {
+        String key = PasswordStore.key(email);
+        char[] password = held.get(key);
+        if (password == null || !toRemember.contains(key)) return true;
+        if (!store.remember(email, password)) return false;
+        toRemember.remove(key);
+        stored.add(key);
+        return true;
+    }
+
     /** Clears {@code email}'s password and never asks for it again in this batch. */
     public synchronized void drop(String email) {
         String key = PasswordStore.key(email);

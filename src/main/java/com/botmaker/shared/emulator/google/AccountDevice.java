@@ -2,6 +2,7 @@ package com.botmaker.shared.emulator.google;
 
 import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.EmulatorOwnApps;
 import com.botmaker.shared.emulator.config.AndroidState;
 import com.botmaker.shared.emulator.tree.TreeReader;
 import com.botmaker.shared.emulator.tree.TreeReaders;
@@ -72,6 +73,12 @@ public interface AccountDevice extends AutoCloseable {
         try {
             device = AdbDevice.connect(instance.adb());
             try {
+                // another emulator on the same address must never be typed into; what only looks isn't checked,
+                // as listing the packages on every watch would cost a second each time
+                if (clearLog) {
+                    Optional<String> other = EmulatorOwnApps.notThis(instance, device.allPackages());
+                    if (other.isPresent()) throw new IllegalStateException(other.get());
+                }
                 reader = TreeReaders.open(device);
             } catch (RuntimeException | Error e) {
                 device.close();

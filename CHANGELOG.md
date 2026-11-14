@@ -14,6 +14,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **Another emulator on an instance's address is refused** (2026-11-14, live: MSI App Player held 127.0.0.1:5555 and
+  an LDPlayer apply signed it in): `EmulatorOwnApps.notThis` tells a product's Android by its own packages
+  (`AdbDevice.allPackages`); Apply checks it before changing anything, and `AccountDevice.of` before typing. Two
+  instances of one product are not told apart yet.
+- **The sign-in after live runs** (2026-11-14): Google's passkey prompt is `PASSKEY`, answered by *Try another way*;
+  the list of ways is known by two ways on it whatever its heading, and its row tapped as the box around its words;
+  an email's Next that did nothing is tapped again, then Enter. A password Google took is remembered even when the
+  second step then fails (`Passwords.accepted`), so a retry doesn't ask it again.
 - **`AccountRecord` gains aliases and a verification** (2026-11-14): `aliases` (other addresses Google answers to for
   the account), `verify` (`Verification`: default, phone prompt, code, backup code, ask), `addresses()` (its own
   first) and `answersTo`. The 3-argument constructor stays.

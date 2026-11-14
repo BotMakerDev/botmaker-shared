@@ -252,6 +252,72 @@ class InstanceChangesTest {
         assertTrue(store.remembered(NEW));
     }
 
+    /**
+     * A password Google took is remembered though the step after it failed (seen live 2026-11-14: asked again on
+     * every retry), and one it never got past isn't.
+     */
+    @Test
+    void aPasswordGoogleTookIsRememberedThoughTheSecondStepFailed() throws Exception {
+        Host host = new Host();
+        host.running = true;
+        UiTree refused = TestScreens.tree(TestScreens.GMS, TestScreens.node("", "Couldn’t sign you in", 1));
+        // only a tap on Next moves on: the password is typed on its own screen
+        host.device.onTap = point -> {
+            UiTree now = host.device.screen;
+            SignInScreen screen = SignInScreen.of(now);
+            boolean next = screen.next(now).map(n -> n.bounds().contains(point)).orElse(false);
+            if (!next) return null;
+            if (screen == SignInScreen.EMAIL) return TestScreens.password();
+            return screen == SignInScreen.PASSWORD ? TestScreens.passkey() : null;
+        };
+        host.device.onPoll = n -> SignInScreen.of(host.device.screen) == SignInScreen.PASSKEY && n > 40 ? refused
+                : null;
+        PasswordStoreTest.FakeStore store = new PasswordStoreTest.FakeStore();
+        try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("pw".toCharArray(), true))) {
+            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
+                    new TestScreens.Ctx());
+            assertTrue(failed != null && failed.contains("refused"), String.valueOf(failed));
+            assertTrue(store.remembered(NEW), failed + " " + host.device.log);
+        }
+
+        Host other = new Host();
+        other.running = true;
+        other.device.onTap = point -> {
+            UiTree now = other.device.screen;
+            SignInScreen screen = SignInScreen.of(now);
+            if (!screen.next(now).map(n -> n.bounds().contains(point)).orElse(false)) return null;
+            return screen == SignInScreen.EMAIL ? TestScreens.password() : screen == SignInScreen.PASSWORD ? refused
+                    : null;
+        };
+        PasswordStoreTest.FakeStore none = new PasswordStoreTest.FakeStore();
+        try (Passwords passwords = new Passwords(none, email -> new Passwords.Answer("pw".toCharArray(), true))) {
+            new InstanceChanges(other, new TestScreens.Clock()).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
+                    new TestScreens.Ctx());
+        }
+        assertFalse(none.remembered(NEW), "refused right after the password: not known to be right");
+    }
+
+    /** Another emulator answering the instance's address: nothing is signed in or installed, and the words say why. */
+    @Test
+    void anotherEmulatorOnTheAddressChangesNothing() throws Exception {
+        Host host = new Host() {
+            @Override
+            public Optional<String> notThis(EmulatorInstance instance) {
+                return Optional.of("127.0.0.1:5555 answers as BlueStacks, not MuMu Player");
+            }
+        };
+        host.running = true;
+        try (Passwords passwords = new Passwords(email -> Passwords.Answer.once("pw".toCharArray()))) {
+            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
+                    new TestScreens.Ctx());
+            assertTrue(failed != null && failed.contains("answers as BlueStacks"), String.valueOf(failed));
+        }
+        assertFalse(host.log.contains("device"), String.valueOf(host.log));
+    }
+
     /** A remembered password Google calls wrong is forgotten, and the account left out of the batch. */
     @Test
     void aRememberedPasswordGoogleRefusesIsForgotten() throws Exception {

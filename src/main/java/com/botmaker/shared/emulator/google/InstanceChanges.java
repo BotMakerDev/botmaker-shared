@@ -1,6 +1,8 @@
 package com.botmaker.shared.emulator.google;
 
+import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.EmulatorOwnApps;
 import com.botmaker.shared.emulator.config.ApplyHost;
 import com.botmaker.shared.emulator.config.ConfigDiff;
 import com.botmaker.shared.emulator.config.GameRecord;
@@ -12,6 +14,7 @@ import com.botmaker.shared.launch.LaunchSpec;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
@@ -38,6 +41,14 @@ public final class InstanceChanges {
         AccountDevice device(EmulatorInstance instance) throws Exception;
 
         GameInstall.Result install(EmulatorInstance instance, GameRecord game, Consumer<String> progress);
+
+        /**
+         * Why the device at {@code instance}'s address is another emulator ({@link EmulatorOwnApps#notThis}), else
+         * empty: nothing is changed then, games included.
+         */
+        default Optional<String> notThis(EmulatorInstance instance) {
+            return Optional.empty();
+        }
 
         static Host live() {
             return new Host() {
@@ -67,6 +78,15 @@ public final class InstanceChanges {
                                                   Consumer<String> progress) {
                     LaunchSpec spec = LaunchSpec.parse("emu-app:" + game.packageName() + "@" + instance.reference());
                     return new AndroidInstall(spec, false, ApkLibrary.shared()).install(progress);
+                }
+
+                @Override
+                public Optional<String> notThis(EmulatorInstance instance) {
+                    try (AdbDevice device = AdbDevice.connect(instance.adb())) {
+                        return EmulatorOwnApps.notThis(instance, device.allPackages());
+                    } catch (RuntimeException e) {
+                        return Optional.empty(); // unreachable: the device opened next says so itself
+                    }
                 }
             };
         }
@@ -142,6 +162,11 @@ public final class InstanceChanges {
         }
         boolean finished;
         try {
+            Optional<String> other = host.notThis(instance);
+            if (other.isPresent()) {
+                problems.addFirst(other.get());
+                return String.join(" ", problems);
+            }
             finished = change(instance, removals, adds, games, passwords, second, listedAs, problems, context);
         } finally {
             if (!wasRunning) {
@@ -191,8 +216,13 @@ public final class InstanceChanges {
                 if (passwords.left(email)) continue;
                 if (context.cancelled()) return false;
                 context.step("Signing in to " + account(adds, email) + "…");
-                InstanceSignIn.Result result = new InstanceSignIn(device, pace)
-                        .signIn(email, passwords.of(email), second, context);
+                InstanceSignIn signIn = new InstanceSignIn(device, pace);
+                InstanceSignIn.Result result = signIn.signIn(email, passwords.of(email), second, context);
+                // kept before a failed end drops it: Google took it, a retry shouldn't ask again
+                if (!result.signedIn() && signIn.passwordAccepted() && !passwords.accepted(email)) {
+                    problems.add(account(adds, email) + ": this PC's credential store refused to remember its"
+                            + " password.");
+                }
                 if (result.end() == InstanceSignIn.End.WRONG_PASSWORD) passwords.refused(email);
                 else if (result.end().dropsAccount()) passwords.drop(email);
                 if (result.signedIn() && !passwords.done(email, result.listedAs())) {

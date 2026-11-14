@@ -1,6 +1,7 @@
 package com.botmaker.shared.emulator.google;
 
 import com.botmaker.shared.emulator.config.AccountRecord.Verification;
+import com.botmaker.shared.emulator.tree.Trait;
 import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,18 @@ class SignInScreenTest {
         assertTrue(SignInScreen.row(list, Verification.BACKUP_CODE).orElseThrow().text().contains("backup"));
         assertTrue(SignInScreen.row(TestScreens.challenges("phone", "key"), Verification.BACKUP_CODE).isEmpty());
         assertTrue(SignInScreen.row(list, Verification.ASK).isEmpty());
+
+        assertEquals(SignInScreen.PASSKEY, SignInScreen.of(TestScreens.passkey()));
+        assertEquals("Try another way", SignInScreen.anotherWay(TestScreens.passkey()).orElseThrow().text());
+        UiTree boxes = TestScreens.waysInBoxes();
+        assertEquals(SignInScreen.CHALLENGES, SignInScreen.of(boxes), "the list by its rows, under any heading");
+        UiNode phone = SignInScreen.row(boxes, Verification.PHONE).orElseThrow();
+        assertTrue(phone.has(Trait.CLICKABLE), "the tap goes to the row around the words");
+        assertEquals(new Rectangle(50, 300, 850, 90), phone.bounds());
+        assertEquals(SignInScreen.PASSWORD, SignInScreen.of(tree(GMS, node("", "Welcome", 1),
+                node("", "Select “Try another way” to use your passkey for an easier, more secure sign-in", 2),
+                node("", "", 4, true), node("passwordNext", "Next", 5), node("", "Try another way", 6))),
+                "the password page's passkey hint is not the passkey's screen");
 
         assertEquals(SignInScreen.CODE, SignInScreen.of(TestScreens.code(false)));
         assertEquals(SignInScreen.CODE, SignInScreen.of(TestScreens.code(true)));

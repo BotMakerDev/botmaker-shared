@@ -118,6 +118,52 @@ class InstanceSignInTest {
         assertFalse(ctx.needs.getFirst().contains("123456"));
     }
 
+    /**
+     * The email's Next tapped once without effect (seen live 2026-11-14: "Google stayed on the email screen") is
+     * tapped again, and the email typed once only.
+     */
+    @Test
+    void theEmailsNextIsTappedAgainWhenTheFirstDidNothing() throws Exception {
+        TestScreens.Device device = flow(captured("mumu-a15-email"), TestScreens.password(), TestScreens.services(),
+                TestScreens.home());
+        Function<Point, UiTree> moves = device.onTap;
+        int[] nexts = {0};
+        device.onTap = point -> SignInScreen.of(device.screen) == SignInScreen.EMAIL
+                && on(SignInScreen.EMAIL.next(device.screen), point) && ++nexts[0] == 1 ? null : moves.apply(point);
+        InstanceSignIn.Result result = run(device, SECRET, new TestScreens.Ctx());
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(2, nexts[0]);
+        assertEquals(List.of(EMAIL, SECRET), device.typed);
+    }
+
+    /**
+     * As seen live (2026-11-14): Google's passkey first, whose first "Try another way" a loading page loses; tapped
+     * again, the list comes under a heading BotMaker doesn't read, and the phone's row, tapped as the box around its
+     * words, brings the phone prompt, which waits.
+     */
+    @Test
+    void thePasskeyIsAnsweredWithAnotherWayTriedAgainThenThePhonesRow() throws Exception {
+        int[] anotherWay = {0};
+        TestScreens.Device device = toSecondStep(TestScreens.passkey(), (d, point) -> switch (SignInScreen.of(d.screen)) {
+            case PASSKEY -> on(SignInScreen.anotherWay(d.screen), point) && ++anotherWay[0] == 2
+                    ? TestScreens.waysInBoxes() : null;
+            case CHALLENGES -> on(SignInScreen.row(d.screen, Verification.PHONE), point) ? TestScreens.twoStep()
+                    : null;
+            default -> null;
+        });
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        device.onPoll = poll -> SignInScreen.of(device.screen) == SignInScreen.PHONE_TAP && !ctx.needs.isEmpty()
+                ? signedIn(device) : null;
+        FakeCodes codes = new FakeCodes("123456");
+        InstanceSignIn.Result result = run(device, Verification.PHONE, codes, ctx);
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(2, anotherWay[0], "the lost tap is tried again");
+        assertEquals(1, ctx.needs.size());
+        assertTrue(ctx.needs.getFirst().contains("phone"), ctx.needs.getFirst());
+        assertTrue(codes.attempts.isEmpty());
+        assertEquals(List.of(EMAIL, SECRET), device.typed);
+    }
+
     /** The phone prompt is the account's method: BotMaker taps nothing and waits for the user's phone. */
     @Test
     void thePhonePromptWaits() throws Exception {
