@@ -35,6 +35,11 @@ public interface AccountDevice extends AutoCloseable {
     /** The Google emails signed in, lower case, or null when Android did not say. */
     Set<String> accounts();
 
+    /** The package of the window on top, empty when Android did not say. */
+    default Optional<String> focused() {
+        return Optional.empty();
+    }
+
     @Override
     void close();
 
@@ -50,7 +55,18 @@ public interface AccountDevice extends AutoCloseable {
      */
     static AccountDevice of(EmulatorInstance instance) {
         // held from before the first screen to after the last: a password may be on any of them
-        SignInsRunning.Hold hold = SignInsRunning.hold(instance);
+        return open(instance, SignInsRunning.hold(instance), true);
+    }
+
+    /**
+     * The running {@code instance}, not held and its log kept: for what types nothing, as {@link AccountChooser}
+     * watching for a game's picker, so the core's {@code device} tool goes on looking at the game meanwhile.
+     */
+    static AccountDevice looking(EmulatorInstance instance) {
+        return open(instance, () -> {}, false);
+    }
+
+    private static AccountDevice open(EmulatorInstance instance, SignInsRunning.Hold hold, boolean clearLog) {
         AdbDevice device;
         TreeReader reader;
         try {
@@ -103,16 +119,23 @@ public interface AccountDevice extends AutoCloseable {
             }
 
             @Override
+            public Optional<String> focused() {
+                return device.focusedPackage();
+            }
+
+            @Override
             public void close() {
                 try {
                     reader.close();
                 } finally {
                     try {
                         // what was logged while a password was typed is not left for the next reader of the log
-                        try {
-                            device.shell("logcat -c");
-                        } catch (RuntimeException | Error uncleared) {
-                            // the instance is gone, and its log with it
+                        if (clearLog) {
+                            try {
+                                device.shell("logcat -c");
+                            } catch (RuntimeException | Error uncleared) {
+                                // the instance is gone, and its log with it
+                            }
                         }
                         device.close();
                     } finally {

@@ -1,6 +1,7 @@
 package com.botmaker.shared.emulator.google;
 
 import com.botmaker.shared.emulator.config.Operation;
+import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 
 import java.awt.Point;
@@ -161,6 +162,8 @@ final class TestScreens {
         Function<Point, UiTree> onTap = p -> null;
         Function<Integer, UiTree> onPoll = n -> null;
         int polls;
+        /** How many times the screen was read, beside the focus. */
+        int reads;
         boolean closed;
 
         Device(UiTree screen) {
@@ -169,6 +172,7 @@ final class TestScreens {
 
         @Override
         public Optional<UiTree> screen() {
+            reads++;
             UiTree next = onPoll.apply(++polls);
             if (next != null) screen = next;
             return Optional.ofNullable(screen);
@@ -200,6 +204,14 @@ final class TestScreens {
         @Override
         public Set<String> accounts() {
             return Set.copyOf(accounts);
+        }
+
+        /** The app of the screen's first window, read as {@link #screen()} is: each read is a poll. */
+        @Override
+        public Optional<String> focused() {
+            UiTree next = onPoll.apply(++polls);
+            if (next != null) screen = next;
+            return screen == null ? Optional.empty() : screen.all().stream().findFirst().map(UiNode::packageName);
         }
 
         @Override
