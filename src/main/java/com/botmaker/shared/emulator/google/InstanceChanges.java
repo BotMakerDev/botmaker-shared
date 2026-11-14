@@ -82,8 +82,10 @@ public final class InstanceChanges {
 
                 @Override
                 public Optional<String> notThis(EmulatorInstance instance) {
-                    try (AdbDevice device = AdbDevice.connect(instance.adb())) {
-                        return EmulatorOwnApps.notThis(instance, device.allPackages());
+                    try (AdbDevice ignored = AdbDevice.connect(instance)) {
+                        return Optional.empty();
+                    } catch (IllegalStateException another) {
+                        return Optional.of(another.getMessage());
                     } catch (RuntimeException e) {
                         return Optional.empty(); // unreachable: the device opened next says so itself
                     }

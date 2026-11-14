@@ -205,7 +205,7 @@ public final class PlayAppInstall {
 
     /** The running {@code live}, over one adb connection and one tree reader, both closed with it. */
     static Phone of(EmulatorInstance live) {
-        AdbDevice device = AdbDevice.connect(live.adb());
+        AdbDevice device = AdbDevice.connect(live);
         TreeReader reader;
         try {
             reader = TreeReaders.open(device);

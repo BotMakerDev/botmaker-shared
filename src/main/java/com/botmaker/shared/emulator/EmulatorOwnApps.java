@@ -46,6 +46,11 @@ public final class EmulatorOwnApps {
         return found.size() == 1 ? Optional.of(found.iterator().next()) : Optional.empty();
     }
 
+    /** Whether BotMaker tells {@code product}'s Android by its own apps. */
+    static boolean tells(PlatformId product) {
+        return OWNERS.containsValue(product);
+    }
+
     /**
      * Why the device {@code instance}'s address answers is not {@code instance}, in the user's words, else empty: its
      * packages ({@code pm list packages}) are another product's. Two products may share an address (BlueStacks and
@@ -54,7 +59,7 @@ public final class EmulatorOwnApps {
      */
     public static Optional<String> notThis(EmulatorInstance instance, Collection<String> packages) {
         PlatformId wanted = instance.platformId();
-        if (!OWNERS.containsValue(wanted)) return Optional.empty();
+        if (!tells(wanted)) return Optional.empty();
         return productOf(packages).filter(found -> found != wanted).map(found -> instance.adb().label() + " answers as "
                 + found.displayName() + ", not " + wanted.displayName() + ": another emulator holds the address "
                 + instance.name() + " uses. Stop it, or give " + instance.name() + " another ADB port, then try again.");

@@ -490,7 +490,7 @@ public final class EmulatorAppLauncher {
     }
 
     private static AdbDevice connect(EmulatorInstance instance) {
-        return AdbDevice.connect(instance.adb());
+        return AdbDevice.connect(instance);
     }
 
     /** {@link QuietRun#calm} when ADB answers; a Waydroid whose trust prompt blocks it is left as it is. */

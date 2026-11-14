@@ -103,7 +103,7 @@ public interface ApplyHost {
         @Override
         public String shell(EmulatorInstance instance, String command, boolean root) {
             String line = (root ? "su -c '" + command.replace("'", "'\\''") + "'" : command) + "; echo __rc=$?";
-            try (AdbDevice device = AdbDevice.connect(instance.adb())) {
+            try (AdbDevice device = AdbDevice.connect(instance)) {
                 String out = device.shell(line);
                 Matcher m = EXIT.matcher(out == null ? "" : out.strip());
                 if (m.find() && m.group(1).equals("0")) return null;
@@ -115,7 +115,7 @@ public interface ApplyHost {
         @Override
         public InstanceFacts read(EmulatorInstance instance, InstanceFacts last) {
             if (!running(instance)) return InstanceFacts.read(instance, null, last, Clock.systemUTC());
-            try (AdbDevice device = AdbDevice.connect(instance.adb())) {
+            try (AdbDevice device = AdbDevice.connect(instance)) {
                 return InstanceFacts.read(instance, device, last, Clock.systemUTC());
             }
         }

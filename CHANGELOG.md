@@ -14,6 +14,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **Who answers, on every connect** (2026-11-14, spec `2026-11-14-end-to-end-instances-design.md` § Who answers):
+  `AdbDevice.connect(EmulatorInstance)` checks the device by `EmulatorIdentity` and refuses another instance in words
+  naming both ("answers as BlueStacks' Pie64_1, not BlueStacks' Pie64"). Each instance gets an ID file,
+  `/data/local/tmp/botmaker/instance` (a random ID, its product and its name, never a device ID), written the first
+  time BotMaker sees it; the ID this PC expects comes from an `InstanceIds` the SDK registers. A file that matches
+  passes with nothing more read; else the product is told by its apps, then the file. A run keeps no IDs and checks the
+  name the file says. Apply, the sign-in, the account chooser and the launch connect this way.
 - **Another emulator on an instance's address is refused** (2026-11-14, live: MSI App Player held 127.0.0.1:5555 and
   an LDPlayer apply signed it in): `EmulatorOwnApps.notThis` tells a product's Android by its own packages
   (`AdbDevice.allPackages`); Apply checks it before changing anything, and `AccountDevice.of` before typing. Two

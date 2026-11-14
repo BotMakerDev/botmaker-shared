@@ -137,6 +137,17 @@ public final class AdbDevice implements AutoCloseable {
     }
 
     /**
+     * Opens a connection to {@code instance}, refusing one where another instance answers ({@link EmulatorIdentity}):
+     * what drives an instance (an apply, a sign-in, a launch, a run) connects this way.
+     *
+     * @throws IllegalStateException with the user's words when another instance answers on its address
+     * @throws RuntimeException      if the connection can't be established
+     */
+    public static AdbDevice connect(EmulatorInstance instance) {
+        return EmulatorIdentity.connect(instance);
+    }
+
+    /**
      * Opens a connection to wherever {@code endpoint} says {@code adbd} is.
      *
      * <p>The two variants take genuinely different routes, which is the whole reason
