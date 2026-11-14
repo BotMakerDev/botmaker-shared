@@ -12,6 +12,23 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+- **`AccountRecord` gains aliases and a verification** (2026-11-14): `aliases` (other addresses Google answers to for
+  the account), `verify` (`Verification`: default, phone prompt, code, backup code, ask), `addresses()` (its own
+  first) and `answersTo`. The 3-argument constructor stays.
+- **A Google sign-in follows the account's second step** (2026-11-14): `SignInScreen` splits it into `CHALLENGES`
+  (*Try another way*), `PHONE_TAP`, `CODE` and `BACKUP_CODE`, read by Google's field ids first, then by words;
+  `TWO_STEP` is any other. `InstanceSignIn` takes a `SecondStep`: it picks the method once, waits on a phone prompt,
+  and asks a code through `Codes`, typed by ADB and never stored (a step gives its length only), with three tries.
+  A missing method, a code not given or any other screen is handed to the user.
+- **`AccountChooser`** (2026-11-14): after a game's start, Google's account picker is known by the window on top
+  (`AccountDevice.looking`, `focused()`); the row of the account's main address or an alias is tapped, and the
+  sheet checked closed. No row of the account hands it over and nothing is tapped; it never adds an account.
+- **An operation's findings** (2026-11-14): `Operation.Finding.Alias`, reported by a sign-in whose address Android
+  lists differs from the one typed, and kept after the operation ends. `PasswordStore.rememberedAny` says an account
+  is remembered under any of its addresses.
+
 ## [0.8.1] — 2026-11-13
 
 - `emulator.google.PasswordStore` (2026-11-13): the Google passwords the user asks BotMaker to remember on this PC,
