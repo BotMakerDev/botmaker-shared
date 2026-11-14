@@ -6,6 +6,7 @@ import com.botmaker.shared.emulator.tree.UiTree;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiPredicate;
 
 /** Finding a sign-in or sign-out screen's nodes: by id first, the words Google and Settings show after. */
 final class Screens {
@@ -25,13 +26,7 @@ final class Screens {
 
     /** The first node whose text or label is {@code words}, case and apostrophes aside. */
     static Optional<UiNode> saying(UiTree tree, String... words) {
-        for (String w : words) {
-            String wanted = plain(w);
-            Optional<UiNode> found = tree.all().stream()
-                    .filter(n -> plain(n.text()).equals(wanted) || plain(n.label()).equals(wanted)).findFirst();
-            if (found.isPresent()) return found;
-        }
-        return Optional.empty();
+        return first(tree, String::equals, words);
     }
 
     /** Whether a node's text or label holds any of {@code words}, case and apostrophes aside. */
@@ -45,6 +40,23 @@ final class Screens {
             }
         }
         return false;
+    }
+
+    /** The first node whose text or label holds one of {@code words}, case and apostrophes aside, tried in order. */
+    static Optional<UiNode> holding(UiTree tree, String... words) {
+        return first(tree, String::contains, words);
+    }
+
+    /** The first node whose plain text or label {@code matches} one of {@code words}, the words tried in order. */
+    private static Optional<UiNode> first(UiTree tree, BiPredicate<String, String> matches, String... words) {
+        for (String w : words) {
+            String wanted = plain(w);
+            Optional<UiNode> found = tree.all().stream()
+                    .filter(n -> matches.test(plain(n.text()), wanted) || matches.test(plain(n.label()), wanted))
+                    .findFirst();
+            if (found.isPresent()) return found;
+        }
+        return Optional.empty();
     }
 
     /** Whether no node has words yet: a page still loading. */

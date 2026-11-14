@@ -1,5 +1,7 @@
 package com.botmaker.shared.emulator.google;
 
+import com.botmaker.shared.emulator.config.AccountRecord.Verification;
+import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 import org.junit.jupiter.api.Test;
 
@@ -8,6 +10,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import static com.botmaker.shared.emulator.google.TestScreens.at;
 import static com.botmaker.shared.emulator.google.TestScreens.captured;
@@ -40,6 +44,189 @@ class InstanceSignInTest {
     private static InstanceSignIn.Result run(TestScreens.Device device, String password, TestScreens.Ctx ctx)
             throws InterruptedException {
         return new InstanceSignIn(device, new TestScreens.Clock()).signIn(EMAIL, password.toCharArray(), ctx);
+    }
+
+    private static InstanceSignIn.Result run(TestScreens.Device device, Verification method, Codes codes,
+                                             TestScreens.Ctx ctx) throws InterruptedException {
+        return new InstanceSignIn(device, new TestScreens.Clock()).signIn(EMAIL, SECRET.toCharArray(),
+                new InstanceSignIn.SecondStep(email -> method, codes), ctx);
+    }
+
+    /** Past the password to {@code first}; from there a tap leads where {@code then} says, given the screen. */
+    private static TestScreens.Device toSecondStep(UiTree first, BiFunction<TestScreens.Device, Point, UiTree> then) {
+        TestScreens.Device device = flow(captured("mumu-a15-email"), TestScreens.password(), first);
+        Function<Point, UiTree> before = device.onTap;
+        device.onTap = point -> SignInScreen.of(device.screen).secondStep() ? then.apply(device, point)
+                : before.apply(point);
+        return device;
+    }
+
+    private static boolean on(Optional<UiNode> node, Point point) {
+        return node.map(n -> n.bounds().contains(point)).orElse(false);
+    }
+
+    /** The account signed in, as Google's last answer to a tap. */
+    private static UiTree signedIn(TestScreens.Device device) {
+        device.accounts.add(EMAIL);
+        return TestScreens.home();
+    }
+
+    /** Answers each ask with the next of {@code answers}, keeping which try each was. */
+    private static final class FakeCodes implements Codes {
+        final List<Integer> attempts = new ArrayList<>();
+        final List<Verification> methods = new ArrayList<>();
+        private final List<String> answers;
+
+        FakeCodes(String... answers) {
+            this.answers = new ArrayList<>(List.of(answers));
+        }
+
+        @Override
+        public char[] ask(String email, Verification method, int attempt) {
+            assertEquals(EMAIL, email);
+            attempts.add(attempt);
+            methods.add(method);
+            return answers.isEmpty() ? null : (answers.size() == 1 ? answers.getFirst() : answers.removeFirst())
+                    .toCharArray();
+        }
+    }
+
+    /** The phone prompt isn't the account's method: Try another way, the code's row, then the code asked and typed. */
+    @Test
+    void anotherWayToTheMethodsRowThenTheCodeTyped() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.twoStep(), (d, point) -> switch (SignInScreen.of(d.screen)) {
+            case PHONE_TAP -> on(SignInScreen.anotherWay(d.screen), point)
+                    ? TestScreens.challenges("phone", "code", "backup") : null;
+            case CHALLENGES -> on(SignInScreen.row(d.screen, Verification.CODE), point) ? TestScreens.code(false)
+                    : null;
+            case CODE -> on(SignInScreen.CODE.next(d.screen), point) ? signedIn(d) : null;
+            default -> null;
+        });
+        FakeCodes codes = new FakeCodes("123456");
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        InstanceSignIn.Result result = run(device, Verification.CODE, codes, ctx);
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(List.of(EMAIL, SECRET, "123456"), device.typed);
+        assertEquals(List.of(1), codes.attempts);
+        assertEquals(List.of(Verification.CODE), codes.methods);
+        assertEquals(1, ctx.needs.size());
+        assertTrue(ctx.needs.getFirst().contains("dialog"), ctx.needs.getFirst());
+        assertEquals(1, ctx.resumed);
+        assertTrue(device.log.contains("type 6"));
+        for (String said : ctx.steps) assertFalse(said.contains("123456") || said.contains("@"), said);
+        assertFalse(ctx.needs.getFirst().contains("123456"));
+    }
+
+    /** The phone prompt is the account's method: BotMaker taps nothing and waits for the user's phone. */
+    @Test
+    void thePhonePromptWaits() throws Exception {
+        UiTree phone = TestScreens.twoStep();
+        TestScreens.Device device = toSecondStep(phone, (d, point) -> null);
+        device.onPoll = poll -> poll == 40 ? signedIn(device) : null;
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        FakeCodes codes = new FakeCodes("123456");
+        assertEquals(InstanceSignIn.End.SIGNED_IN, run(device, Verification.PHONE, codes, ctx).end());
+        assertEquals(1, ctx.needs.size());
+        assertTrue(ctx.needs.getFirst().contains("phone"), ctx.needs.getFirst());
+        assertEquals(1, ctx.resumed);
+        Point another = TestScreens.at(phone, "Try another way");
+        assertFalse(device.log.contains("tap " + another.x + "," + another.y));
+        assertTrue(codes.attempts.isEmpty());
+    }
+
+    /** A refused code is asked again, three tries in all, then the screen is the user's. */
+    @Test
+    void aRefusedCodeIsAskedAgainThreeTimes() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.code(false),
+                (d, point) -> on(SignInScreen.CODE.next(d.screen), point) ? TestScreens.code(true) : null);
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        device.onPoll = poll -> !ctx.needs.isEmpty() && ctx.needs.getLast().contains("refused") ? signedIn(device)
+                : null;
+        FakeCodes codes = new FakeCodes("111111", "222222", "333333");
+        assertEquals(InstanceSignIn.End.SIGNED_IN, run(device, Verification.CODE, codes, ctx).end());
+        assertEquals(List.of(1, 2, 3), codes.attempts);
+        assertEquals(List.of(EMAIL, SECRET, "111111", "222222", "333333"), device.typed);
+        assertEquals(4, ctx.needs.size());
+        assertTrue(ctx.needs.getLast().contains("refused " + InstanceSignIn.CODE_TRIES), ctx.needs.getLast());
+        // the refused code Google keeps in the field is deleted before each next one
+        int first = device.log.indexOf("type 6");
+        int second = first + 1 + device.log.subList(first + 1, device.log.size()).indexOf("type 6");
+        assertEquals("key " + InstanceSignIn.KEY_DEL, device.log.get(second - 1));
+        assertEquals(2, device.log.stream().filter(("key " + InstanceSignIn.KEY_MOVE_END)::equals).count());
+    }
+
+    /** Cancelled while the code's dialog was open: nothing typed, and the instance sent home. */
+    @Test
+    void aCancelWhileTheCodeIsAskedTypesNothing() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.code(false), (d, point) -> null);
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        Codes cancelling = (email, method, attempt) -> {
+            ctx.cancel = true;
+            return "123456".toCharArray();
+        };
+        assertEquals(InstanceSignIn.End.CANCELLED, run(device, Verification.CODE, cancelling, ctx).end());
+        assertEquals(List.of(EMAIL, SECRET), device.typed);
+        assertEquals(1, ctx.resumed);
+        assertEquals("key " + InstanceSignIn.KEY_HOME, device.log.getLast());
+    }
+
+    /** Handed over, the user picks another way: a page loading between doesn't let BotMaker tap against it. */
+    @Test
+    void aSecondStepHandedOverStaysTheUsers() throws Exception {
+        UiTree list = TestScreens.challenges("code");
+        TestScreens.Device device = toSecondStep(list, (d, point) -> null);
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        int[] handedAt = {-1};
+        device.onPoll = poll -> {
+            if (ctx.needs.isEmpty()) return null;
+            if (handedAt[0] < 0) handedAt[0] = poll;
+            int after = poll - handedAt[0];
+            if (after == 3) return TestScreens.tree(TestScreens.GMS, TestScreens.node("", "", 1)); // loading
+            if (after == 5) return TestScreens.code(false); // the user tapped the code's row
+            return after == 40 ? signedIn(device) : null;
+        };
+        FakeCodes codes = new FakeCodes("123456");
+        assertEquals(InstanceSignIn.End.SIGNED_IN, run(device, Verification.PHONE, codes, ctx).end());
+        assertTrue(ctx.needs.getFirst().contains("phone prompt"), ctx.needs.getFirst());
+        assertEquals(1, ctx.needs.size());
+        assertEquals(1, ctx.resumed, "resumed once, as the account came, not by the page loading");
+        Point another = TestScreens.at(TestScreens.code(false), "Try another way");
+        assertFalse(device.log.contains("tap " + another.x + "," + another.y));
+        assertTrue(codes.attempts.isEmpty());
+    }
+
+    /** The account's method isn't in Google's list: the list is handed to the user, naming the method. */
+    @Test
+    void aMissingMethodHandsTheScreenOver() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.twoStep(), (d, point) ->
+                SignInScreen.of(d.screen) == SignInScreen.PHONE_TAP && on(SignInScreen.anotherWay(d.screen), point)
+                        ? TestScreens.challenges("phone", "code") : null);
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        device.onPoll = poll -> ctx.needs.isEmpty() ? null : signedIn(device);
+        FakeCodes codes = new FakeCodes("12345678");
+        assertEquals(InstanceSignIn.End.SIGNED_IN, run(device, Verification.BACKUP_CODE, codes, ctx).end());
+        assertEquals(1, ctx.needs.size());
+        assertTrue(ctx.needs.getFirst().contains("backup code"), ctx.needs.getFirst());
+        assertTrue(codes.attempts.isEmpty());
+        assertEquals(List.of(EMAIL, SECRET), device.typed);
+    }
+
+    /** No code given (the dialog's Show the screen): the screen is the user's, nothing typed. */
+    @Test
+    void aCodeNotGivenLeavesTheScreenToTheUser() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.backupCode(), (d, point) -> null);
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        device.onPoll = poll -> poll == 40 ? signedIn(device) : null;
+        assertEquals(InstanceSignIn.End.SIGNED_IN, run(device, Verification.BACKUP_CODE, Codes.NONE, ctx).end());
+        assertEquals(1, ctx.needs.size());
+        assertTrue(ctx.needs.getFirst().contains("backup codes"), ctx.needs.getFirst());
+        assertEquals(List.of(EMAIL, SECRET), device.typed);
+
+        InstanceSignIn.SecondStep second = new InstanceSignIn.SecondStep(email -> Verification.DEFAULT, null);
+        assertEquals(Verification.ASK, second.method(EMAIL), "a default not followed yet is the user's");
+        assertEquals(Verification.ASK, new InstanceSignIn.SecondStep(email -> null, null).method(EMAIL));
+        assertEquals(Verification.ASK, new InstanceSignIn.SecondStep(email -> Verification.UNKNOWN, null)
+                .method(EMAIL));
     }
 
     @Test

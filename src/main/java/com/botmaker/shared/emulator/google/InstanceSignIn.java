@@ -1,20 +1,25 @@
 package com.botmaker.shared.emulator.google;
 
+import com.botmaker.shared.emulator.config.AccountRecord.Verification;
 import com.botmaker.shared.emulator.config.Operation;
 import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Signs a running instance in to one Google account through Android's own sign-in (the user's call, 2026-11-12: no
  * token is copied in). It opens Android's add-account screen for Google, then reads each screen and answers it: the
- * email, the password, Google's terms, its services page, a phone prompt skipped. A second step, a captcha or a screen
- * it doesn't know is the user's ({@link Operation.Context#needsYou}); it waits until the screen moves on.
+ * email, the password, Google's terms, its services page, a phone prompt skipped. A second step follows the account's
+ * method ({@link SecondStep}, 2026-11-14): "Try another way" to the method's row, the phone prompt waited for, a code
+ * asked by {@link Codes} and typed. A second step it can't follow, a captcha or a screen it doesn't know is the user's
+ * ({@link Operation.Context#needsYou}); it waits until the screen moves on. A code is never stored, and no step names it.
  * <p>
  * The email and the password are each typed once: a password screen that comes back, or says it is wrong, ends the
  * sign-in, never a second try (retries lock accounts). Neither is in a step, an outcome or a log: a typed text's step
@@ -102,7 +107,13 @@ public final class InstanceSignIn {
     /** Between two taps on one of Google's buttons, and how many before the user is asked. */
     static final Duration RETAP = Duration.ofSeconds(5);
     static final int TAPS = 3;
+    /** How many codes are typed before a second step that refuses them is handed to the user. */
+    public static final int CODE_TRIES = 3;
     static final int KEY_ENTER = 66;
+    static final int KEY_DEL = 67;
+    static final int KEY_MOVE_END = 123;
+    /** How many characters a refused code's field is cleared of: a backup code with its spaces, and some. */
+    static final int CLEARED = 16;
     static final int KEY_HOME = 3;
 
     private final AccountDevice device;
@@ -113,10 +124,38 @@ public final class InstanceSignIn {
         this.pace = pace;
     }
 
+    /**
+     * The second step each account's sign-in follows, and the prompt its codes are asked by.
+     *
+     * @param methodOf the method of the email typed, given stripped and lower case (match it with
+     *                 {@code AccountRecord.answersTo}), the book's default already followed; null, {@code DEFAULT} or
+     *                 {@code UNKNOWN} is {@link Verification#ASK}
+     */
+    public record SecondStep(Function<String, Verification> methodOf, Codes codes) {
+        /** Every second step handed to the user, as before 2026-11-14. */
+        public static final SecondStep ASK = new SecondStep(email -> Verification.ASK, Codes.NONE);
+
+        public SecondStep {
+            methodOf = methodOf == null ? email -> Verification.ASK : methodOf;
+            codes = codes == null ? Codes.NONE : codes;
+        }
+
+        Verification method(String email) {
+            Verification method = methodOf.apply(email);
+            return method == null ? Verification.ASK : method.followed(Verification.ASK);
+        }
+    }
+
     /** Signs {@code device} in to {@code email}. Blocking, up to five minutes plus what the user takes. */
     public static Result run(AccountDevice device, String email, char[] password, Operation.Context context)
             throws InterruptedException {
-        return new InstanceSignIn(device, Pace.REAL).signIn(email, password, context);
+        return run(device, email, password, SecondStep.ASK, context);
+    }
+
+    /** As {@link #run(AccountDevice, String, char[], Operation.Context)}, following {@code second}'s method. */
+    public static Result run(AccountDevice device, String email, char[] password, SecondStep second,
+                             Operation.Context context) throws InterruptedException {
+        return new InstanceSignIn(device, Pace.REAL).signIn(email, password, second, context);
     }
 
     /** Whether {@code input text} types every character of {@code text}: printable ASCII only. */
@@ -132,6 +171,11 @@ public final class InstanceSignIn {
     }
 
     Result signIn(String email, char[] password, Operation.Context context) throws InterruptedException {
+        return signIn(email, password, SecondStep.ASK, context);
+    }
+
+    Result signIn(String email, char[] password, SecondStep second, Operation.Context context)
+            throws InterruptedException {
         String wanted = email == null ? "" : email.strip().toLowerCase(Locale.ROOT);
         if (!typeable(wanted.toCharArray()) || !typeable(password)) {
             return new Result(End.CANNOT_TYPE, "BotMaker can type only plain letters, digits and signs (ASCII), and "
@@ -147,6 +191,7 @@ public final class InstanceSignIn {
         boolean emailTyped = false;
         boolean passwordTyped = false;
         boolean waitingForYou = false;
+        Follow follow = new Follow(wanted, second.method(wanted), second.codes(), context);
         SignInScreen last = null;
         long since = 0;
         long lastTap = 0;
@@ -178,7 +223,8 @@ public final class InstanceSignIn {
                 }
             }
             if (screen != last) {
-                if (waitingForYou && !screen.needsYou()) {
+                // a page loading between two of the user's screens doesn't give the screen back to BotMaker
+                if (waitingForYou && !screen.needsYou() && screen != SignInScreen.LOADING) {
                     context.resumed();
                     waitingForYou = false;
                     // the user's time doesn't count against the limit
@@ -238,12 +284,17 @@ public final class InstanceSignIn {
                         waitingForYou = true;
                     }
                 }
-                case TWO_STEP, CAPTCHA -> {
+                case CHALLENGES, PHONE_TAP, CODE, BACKUP_CODE, TWO_STEP -> {
                     if (!waitingForYou) {
-                        context.needsYou(screen == SignInScreen.CAPTCHA
-                                ? "Google shows a captcha: answer it on the instance's screen."
-                                : "Google asks for a second step: approve it on your phone, or type its code on the "
-                                        + "instance's screen.");
+                        Act act = follow.answer(screen, tree, now, on);
+                        if (act == Act.HANDED) waitingForYou = true;
+                        // the user's time typing a code doesn't count against the limit
+                        if (act == Act.ASKED) deadline = Math.max(deadline, pace.nowMillis() + LIMIT.toMillis());
+                    }
+                }
+                case CAPTCHA -> {
+                    if (!waitingForYou) {
+                        context.needsYou("Google shows a captcha: answer it on the instance's screen.");
                         waitingForYou = true;
                     }
                 }
@@ -255,6 +306,151 @@ public final class InstanceSignIn {
                 }
             }
             pace.sleep(POLL);
+        }
+    }
+
+    /** What answering a second-step screen did. */
+    private enum Act {
+        /** BotMaker tapped or typed, or waits for the screen to react. */
+        WAITS,
+        /** The user asked a code and typed one: their time doesn't count. */
+        ASKED,
+        /** The screen is the user's now, and the context was told why. */
+        HANDED
+    }
+
+    /**
+     * One sign-in's second step, by the account's method: "Try another way" once and the method's row once, then the
+     * method's screen answered (the phone prompt waited for, a code asked and typed, {@link #CODE_TRIES} at most).
+     * Anything else is handed to the user, saying why.
+     */
+    private final class Follow {
+        private final String email;
+        private final Verification method;
+        private final Codes codes;
+        private final Operation.Context context;
+        private boolean anotherWayTapped;
+        private boolean rowTapped;
+        private boolean handedOver;
+        /** The codes typed, an untypeable one not counted. */
+        private int tries;
+        /** When the last code was typed, while its screen hasn't moved on; -1 when none waits. */
+        private long typedAt = -1;
+
+        Follow(String email, Verification method, Codes codes, Operation.Context context) {
+            this.email = email;
+            this.method = method;
+            this.codes = codes;
+            this.context = context;
+        }
+
+        Act answer(SignInScreen screen, UiTree tree, long now, long on) throws InterruptedException {
+            // once handed over, the second step stays the user's: BotMaker never taps against their choice
+            if (handedOver) return handOver("Answer the second step on the instance's screen.");
+            // a code waits for Google's answer on its own screen only (a page loading between is not answered here)
+            if (!screen.answers(method)) typedAt = -1;
+            if (method == Verification.ASK) {
+                return handOver("Google asks for a second step: approve it on your phone, or type its code on the "
+                        + "instance's screen.");
+            }
+            String named = method.displayName().toLowerCase(Locale.ROOT);
+            if (screen == SignInScreen.CHALLENGES) {
+                if (rowTapped) {
+                    return on > SETTLE.toMillis() ? handOver("Ways to sign in: BotMaker's tap on the " + named
+                            + " didn't move it on. Answer it on the instance's screen.") : Act.WAITS;
+                }
+                Optional<UiNode> row = SignInScreen.row(tree, method);
+                if (row.isEmpty()) {
+                    return handOver("Google doesn't offer the " + named + " for this account: pick another way on "
+                            + "the instance's screen.");
+                }
+                context.step("Choosing the " + named + "…");
+                device.tap(row.get().bounds());
+                rowTapped = true;
+                return Act.WAITS;
+            }
+            if (screen.answers(method)) {
+                return screen == SignInScreen.PHONE_TAP
+                        ? handOver("Approve the sign-in on your phone: Google sent it a prompt.")
+                        : code(screen, tree, now);
+            }
+            if (!anotherWayTapped) {
+                Optional<UiNode> another = SignInScreen.anotherWay(tree);
+                if (another.isEmpty()) {
+                    return handOver("Google asks for another second step than the " + named + ", with no other way "
+                            + "offered: answer it on the instance's screen.");
+                }
+                context.step("Trying another way, for the " + named + "…");
+                device.tap(another.get().bounds());
+                anotherWayTapped = true;
+                return Act.WAITS;
+            }
+            return on > SETTLE.toMillis() ? handOver("Google didn't show the " + named + "'s screen: answer it on the "
+                    + "instance's screen.") : Act.WAITS;
+        }
+
+        /** The code's screen: a code typed waits for Google's answer, a refused one is asked again. */
+        private Act code(SignInScreen screen, UiTree tree, long now) throws InterruptedException {
+            if (typedAt >= 0) {
+                // asked again only when Google says it was wrong: a code it is still checking isn't typed over
+                if (now - typedAt >= RETAP.toMillis() && SignInScreen.wrongCode(tree)) {
+                    typedAt = -1;
+                } else if (now - typedAt > SETTLE.toMillis()) {
+                    return handOver("Google didn't answer the code: answer it on the instance's screen.");
+                } else {
+                    return Act.WAITS;
+                }
+            }
+            while (tries < CODE_TRIES) {
+                int attempt = tries + 1;
+                context.needsYou((method == Verification.BACKUP_CODE ? "Type one of the account's backup codes"
+                        : "Type the code Google texted, or the one your authenticator app shows,")
+                        + " in BotMaker's dialog (try " + attempt + " of " + CODE_TRIES + ").");
+                char[] code;
+                try {
+                    code = codes.ask(email, method, attempt);
+                } catch (InterruptedException | RuntimeException e) {
+                    context.resumed();
+                    throw e;
+                }
+                if (code == null || code.length == 0) {
+                    // the user answers on the instance's screen: the needs-you stays
+                    return Act.HANDED;
+                }
+                try {
+                    context.resumed();
+                    // cancelled while the dialog was open: the next poll goes home, nothing typed
+                    if (context.cancelled()) return Act.WAITS;
+                    if (!typeable(code)) {
+                        // not one Google refused: the try isn't counted
+                        context.step("That code has signs BotMaker can't type (ASCII only).");
+                        continue;
+                    }
+                    tries = attempt;
+                    context.step("Typing the code (" + code.length + " characters)…");
+                    SignInScreen.codeField(tree).ifPresent(field -> device.tap(field.bounds()));
+                    // Google keeps a refused code in the field: the next one would be typed after it
+                    if (tries > 1) clearField();
+                    enter(tree, null, code, screen);
+                    typedAt = pace.nowMillis();
+                    return Act.ASKED;
+                } finally {
+                    Arrays.fill(code, '\0');
+                }
+            }
+            return handOver("Google refused " + CODE_TRIES + " codes: answer it on the instance's screen.");
+        }
+
+        /** Moves to the field's end and deletes what a refused code left there. */
+        private void clearField() {
+            device.key(KEY_MOVE_END);
+            for (int i = 0; i < CLEARED; i++) device.key(KEY_DEL);
+        }
+
+        private Act handOver(String why) {
+            handedOver = true;
+            context.needsYou(why);
+            return Act.HANDED;
         }
     }
 

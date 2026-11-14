@@ -1,5 +1,6 @@
 package com.botmaker.shared.emulator.google;
 
+import com.botmaker.shared.emulator.config.AccountRecord.Verification;
 import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 import org.junit.jupiter.api.Test;
@@ -39,7 +40,9 @@ class SignInScreenTest {
         assertEquals(SignInScreen.PASSWORD, SignInScreen.of(TestScreens.password()));
         assertEquals("passwordNext", SignInScreen.PASSWORD.next(TestScreens.password()).orElseThrow().shortId());
         assertEquals(SignInScreen.WRONG_PASSWORD, SignInScreen.of(TestScreens.wrongPassword()));
-        assertEquals(SignInScreen.TWO_STEP, SignInScreen.of(TestScreens.twoStep()));
+        assertEquals(SignInScreen.PHONE_TAP, SignInScreen.of(TestScreens.twoStep()));
+        assertEquals(SignInScreen.TWO_STEP, SignInScreen.of(tree(GMS, node("", "2-Step Verification", 1),
+                node("", "Insert your security key", 2))));
         assertEquals(SignInScreen.TWO_STEP, SignInScreen.of(tree(GMS, node("", "Verify it’s you", 1),
                 node("", "", 4, true), node("passwordNext", "Next", 5))), "a password asked again is the user's");
         assertEquals(SignInScreen.CAPTCHA, SignInScreen.of(TestScreens.captcha()));
@@ -52,6 +55,36 @@ class SignInScreenTest {
         assertEquals(SignInScreen.UNKNOWN, SignInScreen.of(tree(GMS, node("", "Choose an account", 1))));
     }
 
+    /** The second steps, split by what each shows; the list first, as its rows name every method. */
+    @Test
+    void readsEachSecondStep() {
+        UiTree list = TestScreens.challenges("phone", "code", "backup", "key");
+        assertEquals(SignInScreen.CHALLENGES, SignInScreen.of(list));
+        assertEquals("Tap Yes on your phone or tablet", SignInScreen.row(list, Verification.PHONE).orElseThrow().text());
+        assertTrue(SignInScreen.row(list, Verification.CODE).orElseThrow().text().contains("Authenticator"));
+        assertTrue(SignInScreen.row(list, Verification.BACKUP_CODE).orElseThrow().text().contains("backup"));
+        assertTrue(SignInScreen.row(TestScreens.challenges("phone", "key"), Verification.BACKUP_CODE).isEmpty());
+        assertTrue(SignInScreen.row(list, Verification.ASK).isEmpty());
+
+        assertEquals(SignInScreen.CODE, SignInScreen.of(TestScreens.code(false)));
+        assertEquals(SignInScreen.CODE, SignInScreen.of(TestScreens.code(true)));
+        assertEquals(SignInScreen.CODE, SignInScreen.of(tree(GMS, node("", "2-Step Verification", 1),
+                node("idvPin", "", 3), node("", "Lost your phone? Use a backup code", 4))), "Google's id wins");
+        assertTrue(SignInScreen.wrongCode(TestScreens.code(true)));
+        assertFalse(SignInScreen.wrongCode(TestScreens.code(false)));
+        assertEquals("totpPin", SignInScreen.codeField(TestScreens.code(false)).orElseThrow().shortId());
+        assertEquals("totpNext", SignInScreen.CODE.next(TestScreens.code(false)).orElseThrow().shortId());
+        assertEquals(SignInScreen.BACKUP_CODE, SignInScreen.of(TestScreens.backupCode()));
+        assertEquals("backupCodePin", SignInScreen.codeField(TestScreens.backupCode()).orElseThrow().shortId());
+        assertEquals("Try another way", SignInScreen.anotherWay(TestScreens.twoStep()).orElseThrow().text());
+
+        assertTrue(SignInScreen.PHONE_TAP.answers(Verification.PHONE));
+        assertTrue(SignInScreen.CODE.answers(Verification.CODE));
+        assertTrue(SignInScreen.BACKUP_CODE.answers(Verification.BACKUP_CODE));
+        assertFalse(SignInScreen.CODE.answers(Verification.BACKUP_CODE));
+        assertFalse(SignInScreen.TWO_STEP.answers(Verification.ASK));
+    }
+
     @Test
     void servicesPressMoreUntilAcceptShows() {
         UiTree more = tree(GMS, node("", "Google services", 1), node("", "More", 5));
@@ -60,10 +93,9 @@ class SignInScreenTest {
     }
 
     @Test
-    void onlyTheSecondStepTheCaptchaAndUnknownNeedTheUser() {
+    void onlyTheSecondStepsTheCaptchaAndUnknownNeedTheUser() {
         for (SignInScreen screen : SignInScreen.values()) {
-            boolean user = screen == SignInScreen.TWO_STEP || screen == SignInScreen.CAPTCHA
-                    || screen == SignInScreen.UNKNOWN;
+            boolean user = screen.secondStep() || screen == SignInScreen.CAPTCHA || screen == SignInScreen.UNKNOWN;
             assertEquals(user, screen.needsYou(), screen.id());
             assertEquals(screen, SignInScreen.fromId(screen.id()));
         }

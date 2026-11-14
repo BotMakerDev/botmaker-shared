@@ -76,8 +76,37 @@ final class TestScreens {
         return tree(GMS, node("captchaimg", "", 2), node("ca", "", 3), node("", "Type the text you hear or see", 4));
     }
 
+    /** "Check your phone", with Try another way. */
     static UiTree twoStep() {
-        return tree(GMS, node("", "2-Step Verification", 1), node("", "Check your phone", 2));
+        return tree(GMS, node("", "2-Step Verification", 1), node("", "Check your phone", 2),
+                node("", "Try another way", 6));
+    }
+
+    /** The list Try another way opens, a row per method of {@code rows}: phone, code, backup or key. */
+    static UiTree challenges(String... rows) {
+        List<String> nodes = new ArrayList<>(List.of(node("", "2-Step Verification", 1),
+                node("", "Choose how you want to sign in:", 2)));
+        int row = 3;
+        for (String r : rows) {
+            nodes.add(node("", switch (r) {
+                case "phone" -> "Tap Yes on your phone or tablet";
+                case "code" -> "Get a verification code from the Google Authenticator app";
+                case "backup" -> "Enter one of your 8-digit backup codes";
+                default -> "Use your security key";
+            }, row++));
+        }
+        return tree(GMS, nodes.toArray(String[]::new));
+    }
+
+    static UiTree code(boolean wrong) {
+        return tree(GMS, node("", "2-Step Verification", 1), node("totpPin", "", 3),
+                wrong ? node("", "Wrong code. Try again.", 4) : node("", "Enter the code", 4),
+                node("totpNext", "Next", 5), node("", "Try another way", 6));
+    }
+
+    static UiTree backupCode() {
+        return tree(GMS, node("", "2-Step Verification", 1), node("backupCodePin", "", 3),
+                node("", "Enter one of your 8-digit backup codes", 4), node("backupCodeNext", "Next", 5));
     }
 
     static UiTree home() {

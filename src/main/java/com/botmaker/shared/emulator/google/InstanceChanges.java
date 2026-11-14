@@ -104,6 +104,14 @@ public final class InstanceChanges {
      * account Android lists under another address, so the configuration can name that one. */
     public String run(EmulatorInstance instance, List<ConfigDiff.AccountChange> accounts, List<GameRecord> games,
                       Passwords passwords, ListedAs listedAs, Operation.Context context) throws Exception {
+        return run(instance, accounts, games, passwords, InstanceSignIn.SecondStep.ASK, listedAs, context);
+    }
+
+    /** As {@link #run(EmulatorInstance, List, List, Passwords, ListedAs, Operation.Context)}, each sign-in's second
+     * step following {@code second}. */
+    public String run(EmulatorInstance instance, List<ConfigDiff.AccountChange> accounts, List<GameRecord> games,
+                      Passwords passwords, InstanceSignIn.SecondStep second, ListedAs listedAs,
+                      Operation.Context context) throws Exception {
         List<String> removals = new ArrayList<>();
         List<String> adds = new ArrayList<>();
         for (ConfigDiff.AccountChange change : accounts) {
@@ -134,7 +142,7 @@ public final class InstanceChanges {
         }
         boolean finished;
         try {
-            finished = change(instance, removals, adds, games, passwords, listedAs, problems, context);
+            finished = change(instance, removals, adds, games, passwords, second, listedAs, problems, context);
         } finally {
             if (!wasRunning) {
                 context.step("Stopping " + instance.name() + " again, as it was…");
@@ -148,11 +156,11 @@ public final class InstanceChanges {
 
     /** The removals, sign-ins and installs; false when cancelled part way. */
     private boolean change(EmulatorInstance instance, List<String> removals, List<String> adds, List<GameRecord> games,
-                           Passwords passwords, ListedAs listedAs, List<String> problems, Operation.Context context)
-            throws Exception {
+                           Passwords passwords, InstanceSignIn.SecondStep second, ListedAs listedAs,
+                           List<String> problems, Operation.Context context) throws Exception {
         if (!removals.isEmpty() || !adds.isEmpty()) {
             try {
-                if (!accounts(instance, removals, adds, passwords, listedAs, problems, context)) return false;
+                if (!accounts(instance, removals, adds, passwords, second, listedAs, problems, context)) return false;
             } catch (InterruptedException e) {
                 throw e;
             } catch (Exception e) {
@@ -171,7 +179,8 @@ public final class InstanceChanges {
 
     /** The removals, then the sign-ins, over one account device; false when cancelled part way. */
     private boolean accounts(EmulatorInstance instance, List<String> removals, List<String> adds, Passwords passwords,
-                             ListedAs listedAs, List<String> problems, Operation.Context context) throws Exception {
+                             InstanceSignIn.SecondStep second, ListedAs listedAs, List<String> problems,
+                             Operation.Context context) throws Exception {
         try (AccountDevice device = host.device(instance)) {
             if (!removals.isEmpty()) {
                 String failed = new InstanceSignOut(device, pace).signOutAll(removals, context);
@@ -183,7 +192,7 @@ public final class InstanceChanges {
                 if (context.cancelled()) return false;
                 context.step("Signing in to " + account(adds, email) + "…");
                 InstanceSignIn.Result result = new InstanceSignIn(device, pace)
-                        .signIn(email, passwords.of(email), context);
+                        .signIn(email, passwords.of(email), second, context);
                 if (result.end() == InstanceSignIn.End.WRONG_PASSWORD) passwords.refused(email);
                 else if (result.end().dropsAccount()) passwords.drop(email);
                 if (result.signedIn() && !passwords.done(email, result.listedAs())) {
