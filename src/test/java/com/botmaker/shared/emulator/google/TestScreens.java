@@ -130,6 +130,13 @@ final class TestScreens {
                 node("totpNext", "Next", 5), node("", "Try another way", 6));
     }
 
+    /** The screen of a code Google texted: a code's field, but not the authenticator's. */
+    static UiTree texted() {
+        return tree(GMS, node("", "2-Step Verification", 1), node("idvPreregisteredPhonePin", "", 3),
+                node("", "A text message with a 6-digit verification code was just sent", 4),
+                node("idvPreregisteredPhoneNext", "Next", 5), node("", "Try another way", 6));
+    }
+
     static UiTree backupCode() {
         return tree(GMS, node("", "2-Step Verification", 1), node("backupCodePin", "", 3),
                 node("", "Enter one of your 8-digit backup codes", 4), node("backupCodeNext", "Next", 5));

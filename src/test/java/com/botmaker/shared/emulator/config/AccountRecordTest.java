@@ -64,7 +64,9 @@ class AccountRecordTest {
         assertEquals(Verification.FIRST_DEFAULT, Verification.DEFAULT.followed(Verification.DEFAULT));
         assertEquals(Verification.BACKUP_CODE, Verification.BACKUP_CODE.followed(Verification.PHONE));
         assertEquals(Verification.ASK, Verification.UNKNOWN.followed(Verification.PHONE));
+        assertEquals(List.of(Verification.PHONE, Verification.CODE, Verification.AUTHENTICATOR,
+                Verification.BACKUP_CODE, Verification.ASK), Verification.methods());
         assertEquals(List.of(Verification.PHONE, Verification.CODE, Verification.BACKUP_CODE, Verification.ASK),
-                Verification.methods());
+                Verification.defaults());
     }
 }

@@ -202,6 +202,123 @@ class InstanceSignInTest {
         assertEquals(2, device.log.stream().filter(("key " + InstanceSignIn.KEY_MOVE_END)::equals).count());
     }
 
+    private static InstanceSignIn.Result run(TestScreens.Device device, AuthenticatorKeys keys, Codes codes,
+                                             TestScreens.Ctx ctx) throws InterruptedException {
+        return new InstanceSignIn(device, new TestScreens.Clock()).signIn(EMAIL, SECRET.toCharArray(),
+                new InstanceSignIn.SecondStep(email -> Verification.AUTHENTICATOR, codes, keys), ctx);
+    }
+
+    private static AuthenticatorKeys keyed() {
+        AuthenticatorKeys keys = new AuthenticatorKeys(new PasswordStoreTest.FakeStore());
+        assertEquals(AuthenticatorKeys.Put.KEPT, keys.put(EMAIL, AuthenticatorKeysTest.KEY.toCharArray()));
+        return keys;
+    }
+
+    /** The code {@link AuthenticatorKeysTest#KEY} gives in the 30-second window {@code window}. */
+    private static String keyCode(long window) {
+        return new String(Totp.code(Totp.decode(AuthenticatorKeysTest.KEY.toCharArray()).orElseThrow(),
+                window * Totp.STEP.toMillis()));
+    }
+
+    /** The account's key held: the authenticator's row chosen, its code made and typed, nothing asked of the user. */
+    @Test
+    void theAuthenticatorsCodeIsTypedFromItsKeyWithNoDialog() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.challenges("phone", "code", "backup"),
+                (d, point) -> switch (SignInScreen.of(d.screen)) {
+                    case CHALLENGES -> on(SignInScreen.row(d.screen, Verification.AUTHENTICATOR), point)
+                            ? TestScreens.code(false) : null;
+                    case CODE -> on(SignInScreen.CODE.next(d.screen), point) ? signedIn(d) : null;
+                    default -> null;
+                });
+        FakeCodes codes = new FakeCodes("123456");
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        InstanceSignIn.Result result = run(device, keyed(), codes, ctx);
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(List.of(EMAIL, SECRET, keyCode(0)), device.typed);
+        assertTrue(codes.attempts.isEmpty(), "no dialog");
+        assertTrue(ctx.needs.isEmpty(), ctx.needs.toString());
+        for (String said : ctx.steps) assertFalse(said.contains(keyCode(0)), said);
+        assertTrue(ctx.steps.stream().anyMatch(s -> s.contains("6 characters")), ctx.steps.toString());
+    }
+
+    /** Google showing a texted code's screen: the key's code isn't typed there, another way is tried. */
+    @Test
+    void theKeysCodeIsNeverTypedIntoATextedCodesScreen() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.texted(),
+                (d, point) -> switch (SignInScreen.of(d.screen)) {
+                    case CODE -> SignInScreen.authenticatorCode(d.screen)
+                            ? on(SignInScreen.CODE.next(d.screen), point) ? signedIn(d) : null
+                            : on(SignInScreen.anotherWay(d.screen), point)
+                            ? TestScreens.challenges("phone", "code") : null;
+                    case CHALLENGES -> on(SignInScreen.row(d.screen, Verification.AUTHENTICATOR), point)
+                            ? TestScreens.code(false) : null;
+                    default -> null;
+                });
+        FakeCodes codes = new FakeCodes("123456");
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        InstanceSignIn.Result result = run(device, keyed(), codes, ctx);
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(3, device.typed.size(), "one code typed, on the authenticator's screen");
+        assertTrue(codes.attempts.isEmpty(), "no dialog");
+    }
+
+    /** An alias's key is its account's: looked up under the address the book keeps it under. */
+    @Test
+    void theKeyIsLookedUpUnderTheAccountsMainAddress() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.code(false),
+                (d, point) -> on(SignInScreen.CODE.next(d.screen), point) ? signedIn(d) : null);
+        AuthenticatorKeys keys = new AuthenticatorKeys(new PasswordStoreTest.FakeStore());
+        keys.put("main@example.com", AuthenticatorKeysTest.KEY.toCharArray());
+        FakeCodes codes = new FakeCodes("123456");
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        InstanceSignIn.Result result = new InstanceSignIn(device, new TestScreens.Clock()).signIn(EMAIL,
+                SECRET.toCharArray(), new InstanceSignIn.SecondStep(email -> Verification.AUTHENTICATOR, codes, keys,
+                        email -> "main@example.com"), ctx);
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(List.of(EMAIL, SECRET, keyCode(0)), device.typed);
+        assertTrue(codes.attempts.isEmpty(), "no dialog");
+    }
+
+    /**
+     * A code Google refused is tried with the window before (this PC's clock ahead), then the next one's once it comes
+     * (behind), then the code is asked as a typed one's.
+     */
+    @Test
+    void aRefusedKeysCodeIsTriedInTheWindowsAroundThenAsked() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.code(false),
+                (d, point) -> on(SignInScreen.CODE.next(d.screen), point) ? TestScreens.code(true) : null);
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        FakeCodes codes = new FakeCodes("333333");
+        device.onPoll = poll -> !codes.attempts.isEmpty() ? signedIn(device) : null;
+        InstanceSignIn.Result result = run(device, keyed(), codes, ctx);
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(List.of(EMAIL, SECRET, keyCode(0), keyCode(-1), keyCode(1), "333333"), device.typed);
+        assertEquals(List.of(Verification.CODE), codes.methods, "asked as a typed code");
+        assertTrue(ctx.steps.stream().anyMatch(s -> s.contains("refused the codes")), ctx.steps.toString());
+    }
+
+    /** No key held for the account: its code is asked, as a typed code's. */
+    @Test
+    void anAuthenticatorAccountWithNoKeyIsAsked() throws Exception {
+        TestScreens.Device device = toSecondStep(TestScreens.code(false),
+                (d, point) -> on(SignInScreen.CODE.next(d.screen), point) ? signedIn(d) : null);
+        FakeCodes codes = new FakeCodes("123456");
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        InstanceSignIn.Result result = run(device, AuthenticatorKeys.NONE, codes, ctx);
+        assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
+        assertEquals(List.of(EMAIL, SECRET, "123456"), device.typed);
+        assertEquals(List.of(Verification.CODE), codes.methods);
+        assertTrue(ctx.steps.stream().anyMatch(s -> s.contains("holds no authenticator key")), ctx.steps.toString());
+    }
+
+    @Test
+    void theAuthenticatorIsAnAccountsOwnNeverTheBooksDefault() {
+        assertTrue(Verification.AUTHENTICATOR.isMethod());
+        assertFalse(Verification.defaults().contains(Verification.AUTHENTICATOR));
+        assertEquals(Verification.FIRST_DEFAULT, Verification.DEFAULT.followed(Verification.AUTHENTICATOR));
+        assertEquals(Verification.AUTHENTICATOR, Verification.fromId("authenticator"));
+    }
+
     /** Cancelled while the code's dialog was open: nothing typed, and the instance sent home. */
     @Test
     void aCancelWhileTheCodeIsAskedTypesNothing() throws Exception {

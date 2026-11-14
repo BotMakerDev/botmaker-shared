@@ -14,6 +14,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **The authenticator key** (2026-11-14, spec `2026-11-14-end-to-end-instances-design.md` § The authenticator key): a
+  Google account may follow `Verification.AUTHENTICATOR` (id `authenticator`), an account's own and never the book's
+  default (`Verification.defaults()`). `Totp` makes RFC 6238's code (SHA-1, 30 s, 6 digits) from a Base32 setup key;
+  `AuthenticatorKeys` keeps one key per account in the OS credential store under the service `BotMaker Google
+  authenticator`, keyed by the account's main address (`SecondStep`'s `keyedAs`; `move` on a merge), never returning
+  it. `InstanceSignIn.SecondStep` takes the keys: on the authenticator's code screen (`SignInScreen.authenticatorCode`,
+  never a texted code's) the key's code is typed with no dialog; a refused one is tried with the window before, then
+  the next one's, then the code is asked as a typed one's; an account with no key is asked as before. A step names a
+  code by its length only.
 - **A port per instance, and who answers shown** (2026-11-14, spec § Addresses): a new instance setting, `adb.port`
   (`ConfigField.ADB_PORT`, an instance's own, never an emulator's and never copied: `EmulatorConfig.copyable`), which
   Apply writes into `bluestacks.conf` (`bst.instance.<name>.adb_port`, an odd port from 1025) and then follows: the

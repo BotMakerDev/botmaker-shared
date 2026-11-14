@@ -147,6 +147,11 @@ public record AccountRecord(Kind kind, String name, String note, List<String> al
         PHONE("phone", "Phone prompt"),
         /** A texted or authenticator code. */
         CODE("code", "Code (texted or app)"),
+        /**
+         * Google's Authenticator app method, its code made by BotMaker from the setup key the user gave it, kept in the
+         * OS credential store ({@code AuthenticatorKeys}); without a key, the code is asked as {@link #CODE}'s is.
+         */
+        AUTHENTICATOR("authenticator", "Authenticator (BotMaker holds the key)"),
         /** One of the account's backup codes. */
         BACKUP_CODE("backup-code", "Backup code"),
         /** No preference: the screen is handed to the user. */
@@ -175,6 +180,14 @@ public record AccountRecord(Kind kind, String name, String note, List<String> al
 
         /** The methods a person picks from: the account's own choice adds {@link #DEFAULT} before them. */
         public static List<Verification> methods() {
+            return List.of(PHONE, CODE, AUTHENTICATOR, BACKUP_CODE, ASK);
+        }
+
+        /**
+         * The methods the book's default may be: not {@link #AUTHENTICATOR}, which needs each account's own key and so
+         * is the user's per account.
+         */
+        public static List<Verification> defaults() {
             return List.of(PHONE, CODE, BACKUP_CODE, ASK);
         }
 
@@ -185,7 +198,9 @@ public record AccountRecord(Kind kind, String name, String note, List<String> al
 
         /** The method followed: this one, or {@code byDefault} for {@link #DEFAULT}, and {@link #ASK} for an unknown. */
         public Verification followed(Verification byDefault) {
-            if (this == DEFAULT) return byDefault != null && byDefault.isMethod() ? byDefault : FIRST_DEFAULT;
+            if (this == DEFAULT) {
+                return byDefault != null && defaults().contains(byDefault) ? byDefault : FIRST_DEFAULT;
+            }
             return isMethod() ? this : ASK;
         }
 

@@ -109,6 +109,11 @@ public final class InstanceSignIn {
     static final int TAPS = 3;
     /** How many codes are typed before a second step that refuses them is handed to the user. */
     public static final int CODE_TRIES = 3;
+    /**
+     * How many codes an authenticator key gives before the code is asked: this window's, the one before, the next
+     * one.
+     */
+    static final int KEY_TRIES = 3;
     static final int KEY_ENTER = 66;
     static final int KEY_DEL = 67;
     static final int KEY_MOVE_END = 123;
@@ -133,13 +138,35 @@ public final class InstanceSignIn {
      *                 {@code AccountRecord.answersTo}), the book's default already followed; null, {@code DEFAULT} or
      *                 {@code UNKNOWN} is {@link Verification#ASK}
      */
-    public record SecondStep(Function<String, Verification> methodOf, Codes codes) {
+    public record SecondStep(Function<String, Verification> methodOf, Codes codes, AuthenticatorKeys keys,
+                             Function<String, String> keyedAs) {
         /** Every second step handed to the user, as before 2026-11-14. */
         public static final SecondStep ASK = new SecondStep(email -> Verification.ASK, Codes.NONE);
 
+        /**
+         * @param keyedAs the address an email's authenticator key is kept under: the main address of the account it
+         *                answers to, as an alias's key is its account's; null keeps each under itself
+         */
         public SecondStep {
             methodOf = methodOf == null ? email -> Verification.ASK : methodOf;
             codes = codes == null ? Codes.NONE : codes;
+            keys = keys == null ? AuthenticatorKeys.NONE : keys;
+            keyedAs = keyedAs == null ? Function.identity() : keyedAs;
+        }
+
+        /** Each authenticator key kept under the address typed. */
+        public SecondStep(Function<String, Verification> methodOf, Codes codes, AuthenticatorKeys keys) {
+            this(methodOf, codes, keys, null);
+        }
+
+        /** No authenticator key: an account of that method has its code asked. */
+        public SecondStep(Function<String, Verification> methodOf, Codes codes) {
+            this(methodOf, codes, AuthenticatorKeys.NONE);
+        }
+
+        String keyOf(String email) {
+            String kept = keyedAs.apply(email);
+            return kept == null || kept.isBlank() ? email : kept;
         }
 
         Verification method(String email) {
@@ -202,7 +229,8 @@ public final class InstanceSignIn {
         boolean emailTyped = false;
         boolean passwordTyped = false;
         boolean waitingForYou = false;
-        Follow follow = new Follow(wanted, second.method(wanted), second.codes(), context);
+        Follow follow = new Follow(wanted, second.method(wanted), second.codes(), second.keys(),
+                second.keyOf(wanted), context);
         SignInScreen last = null;
         long since = 0;
         long lastTap = 0;
@@ -360,7 +388,18 @@ public final class InstanceSignIn {
         private final String email;
         private final Verification method;
         private final Codes codes;
+        private final AuthenticatorKeys keys;
+        /** The address the account's authenticator key is kept under: its main one. */
+        private final String keyedAs;
         private final Operation.Context context;
+        /** The codes made from the account's authenticator key and typed, {@link #KEY_TRIES} at most. */
+        private int keyTries;
+        /** The 30-second window the first key's code was made for. */
+        private long keyWindow;
+        /** Whether the key gave all it may: from then on the code is asked. */
+        private boolean keysDone;
+        /** Whether any code was typed in the field, which a refused one leaves there. */
+        private boolean typedAny;
         /** The screen the taps below were made on: a new screen starts them again. */
         private SignInScreen tapsOn;
         /** Taps on this screen ("Try another way" or the method's row), retried while it stays. */
@@ -374,10 +413,13 @@ public final class InstanceSignIn {
         /** When the last code was typed, while its screen hasn't moved on; -1 when none waits. */
         private long typedAt = -1;
 
-        Follow(String email, Verification method, Codes codes, Operation.Context context) {
+        Follow(String email, Verification method, Codes codes, AuthenticatorKeys keys, String keyedAs,
+               Operation.Context context) {
             this.email = email;
             this.method = method;
             this.codes = codes;
+            this.keys = keys;
+            this.keyedAs = keyedAs;
             this.context = context;
         }
 
@@ -410,7 +452,9 @@ public final class InstanceSignIn {
                 tapped(now);
                 return Act.WAITS;
             }
-            if (screen.answers(method)) {
+            // a texted code's screen is not the authenticator's: a key's code typed there would only spend Google's tries
+            if (screen.answers(method) && (method != Verification.AUTHENTICATOR
+                    || SignInScreen.authenticatorCode(tree))) {
                 return screen == SignInScreen.PHONE_TAP
                         ? handOver("Approve the sign-in on your phone: Google sent it a prompt.")
                         : code(screen, tree, now);
@@ -458,14 +502,39 @@ public final class InstanceSignIn {
                     return Act.WAITS;
                 }
             }
+            if (method == Verification.AUTHENTICATOR && !keysDone) {
+                long clock = pace.nowMillis();
+                // Google's clock and this PC's may differ either way: this window's code, then the one before (this
+                // PC ahead), then, once it comes, the next one (this PC behind)
+                long time = keyTries == 1 ? (keyWindow - 1) * Totp.STEP.toMillis() : clock;
+                if (keyTries == 2 && Totp.window(clock) <= keyWindow) return Act.WAITS;
+                Optional<char[]> code = keyTries < KEY_TRIES ? keys.code(keyedAs, time) : Optional.empty();
+                if (code.isPresent()) {
+                    try {
+                        if (keyTries == 0) keyWindow = Totp.window(time);
+                        keyTries++;
+                        context.step("Typing the code from BotMaker's authenticator key (" + code.get().length
+                                + " characters)…");
+                        type(screen, tree, code.get());
+                        return Act.WAITS;
+                    } finally {
+                        Arrays.fill(code.get(), '\0');
+                    }
+                }
+                context.step(keyTries == 0 ? "BotMaker holds no authenticator key for this account: its code is asked."
+                        : "Google refused the codes of BotMaker's authenticator key: the code is asked.");
+                keysDone = true;
+            }
+            // an authenticator account whose key gave none Google took: its code is asked as a typed one's
+            Verification asked = method == Verification.AUTHENTICATOR ? Verification.CODE : method;
             while (tries < CODE_TRIES) {
                 int attempt = tries + 1;
-                context.needsYou((method == Verification.BACKUP_CODE ? "Type one of the account's backup codes"
+                context.needsYou((asked == Verification.BACKUP_CODE ? "Type one of the account's backup codes"
                         : "Type the code Google texted, or the one your authenticator app shows,")
                         + " in BotMaker's dialog (try " + attempt + " of " + CODE_TRIES + ").");
                 char[] code;
                 try {
-                    code = codes.ask(email, method, attempt);
+                    code = codes.ask(email, asked, attempt);
                 } catch (InterruptedException | RuntimeException e) {
                     context.resumed();
                     throw e;
@@ -485,17 +554,23 @@ public final class InstanceSignIn {
                     }
                     tries = attempt;
                     context.step("Typing the code (" + code.length + " characters)…");
-                    SignInScreen.codeField(tree).ifPresent(field -> device.tap(field.bounds()));
-                    // Google keeps a refused code in the field: the next one would be typed after it
-                    if (tries > 1) clearField();
-                    enter(tree, null, code, screen);
-                    typedAt = pace.nowMillis();
+                    type(screen, tree, code);
                     return Act.ASKED;
                 } finally {
                     Arrays.fill(code, '\0');
                 }
             }
             return handOver("Google refused " + CODE_TRIES + " codes: answer it on the instance's screen.");
+        }
+
+        /** Types {@code code} in the code's field, cleared of a refused one first, and waits for Google's answer. */
+        private void type(SignInScreen screen, UiTree tree, char[] code) {
+            SignInScreen.codeField(tree).ifPresent(field -> device.tap(field.bounds()));
+            // Google keeps a refused code in the field: the next one would be typed after it
+            if (typedAny) clearField();
+            enter(tree, null, code, screen);
+            typedAny = true;
+            typedAt = pace.nowMillis();
         }
 
         /** Moves to the field's end and deletes what a refused code left there. */

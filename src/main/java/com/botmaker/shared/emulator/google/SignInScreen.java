@@ -87,7 +87,7 @@ public enum SignInScreen {
     public boolean answers(Verification method) {
         return switch (this) {
             case PHONE_TAP -> method == Verification.PHONE;
-            case CODE -> method == Verification.CODE;
+            case CODE -> method == Verification.CODE || method == Verification.AUTHENTICATOR;
             case BACKUP_CODE -> method == Verification.BACKUP_CODE;
             default -> false;
         };
@@ -187,6 +187,15 @@ public enum SignInScreen {
         return marked.isPresent() ? marked : Screens.byId(tree, "Passwd");
     }
 
+    /**
+     * Whether a {@link #CODE} screen asks the authenticator app's code (its field {@code totpPin}, or its words), not a
+     * texted one: only there does a code made from the account's key answer.
+     */
+    static boolean authenticatorCode(UiTree tree) {
+        return Screens.byId(tree, "totpPin").isPresent() || Screens.shows(tree, "authenticator app",
+                "google authenticator");
+    }
+
     /** Where a code or a backup code is typed: Google's id for it, else the screen's one text field. */
     static Optional<UiNode> codeField(UiTree tree) {
         return Screens.byId(tree, CODE_IDS).or(() -> Screens.byId(tree, BACKUP_ID)).or(() -> anyField(tree));
@@ -207,6 +216,8 @@ public enum SignInScreen {
         Optional<UiNode> words = switch (method) {
             case PHONE -> Screens.holding(tree, "tap yes on your phone", "get a notification", "tap yes");
             case CODE -> Screens.holding(tree, "google authenticator", "verification code", "get a code");
+            // "Get a verification code from the Google Authenticator app": not a texted code
+            case AUTHENTICATOR -> Screens.holding(tree, "google authenticator", "authenticator app");
             case BACKUP_CODE -> Screens.holding(tree, "backup code");
             default -> Optional.empty();
         };
