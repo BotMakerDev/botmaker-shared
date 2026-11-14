@@ -1,5 +1,6 @@
 package com.botmaker.shared.emulator.config;
 
+import com.botmaker.shared.emulator.AdbEndpoint;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.WaydroidCli;
@@ -21,6 +22,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.botmaker.shared.emulator.config.ConfigField.ADB;
+import static com.botmaker.shared.emulator.config.ConfigField.ADB_PORT;
 import static com.botmaker.shared.emulator.config.ConfigField.CPU_CORES;
 import static com.botmaker.shared.emulator.config.ConfigField.DO_NOT_DISTURB;
 import static com.botmaker.shared.emulator.config.ConfigField.FPS;
@@ -48,8 +50,11 @@ public enum ProductSettings {
     MUMU(PlatformId.MUMU, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT)),
     /** Written by {@code memuc setconfigex}, keys as its {@code getconfigex} reads them (2026-11-12). */
     MEMU(PlatformId.MEMU, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT)),
-    /** BlueStacks and MSI App Player: one product, one {@code bluestacks.conf} per edition. */
-    BLUESTACKS(PlatformId.BLUESTACKS, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT, ADB)),
+    /**
+     * BlueStacks and MSI App Player: one product, one {@code bluestacks.conf} per edition. Their instances all ask for
+     * 5555 unless told otherwise, so each takes its own ADB port here.
+     */
+    BLUESTACKS(PlatformId.BLUESTACKS, EnumSet.of(SCREEN, CPU_CORES, MEMORY, FPS, ROOT, ADB, ADB_PORT)),
     /** Waydroid's screen is its {@code persist.waydroid.width/height}, the checks' existing Fix. */
     WAYDROID(PlatformId.WAYDROID, EnumSet.of(SCREEN)),
     AVD(PlatformId.AVD, EnumSet.noneOf(ConfigField.class)),
@@ -130,11 +135,23 @@ public enum ProductSettings {
             case MUMU -> muMuConsole(instance).map(ProductSettings::muMu).orElseGet(Map::of);
             default -> Map.of();
         };
-        if (!adbAlwaysOn()) return out;
-        Map<ConfigField, ConfigValue> withAdb = new EnumMap<>(ConfigField.class);
-        withAdb.putAll(out);
-        withAdb.put(ADB, new ConfigValue.Toggle(true));
-        return Collections.unmodifiableMap(withAdb);
+        Optional<Integer> port = port(instance);
+        if (!adbAlwaysOn() && port.isEmpty()) return out;
+        Map<ConfigField, ConfigValue> with = new EnumMap<>(ConfigField.class);
+        with.putAll(out);
+        if (adbAlwaysOn()) with.put(ADB, new ConfigValue.Toggle(true));
+        port.ifPresent(p -> with.put(ADB_PORT, new ConfigValue.Count(p)));
+        return Collections.unmodifiableMap(with);
+    }
+
+    /**
+     * The ADB port the product's own file gave the instance, as discovery read it: on the Windows products only, where
+     * it is a {@code 127.0.0.1} port of the product's numbering.
+     */
+    private Optional<Integer> port(EmulatorInstance instance) {
+        boolean numbered = this == LDPLAYER || this == BLUESTACKS || this == MEMU || this == MUMU;
+        return numbered && instance.adb() instanceof AdbEndpoint.Tcp tcp && tcp.port() > 0
+                ? Optional.of(tcp.port()) : Optional.empty();
     }
 
     /** The product's file text, parsed: LDPlayer's, BlueStacks' (for the instance's token) or MEmu's. */

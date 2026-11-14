@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 import static com.botmaker.shared.emulator.config.ConfigField.ADB;
+import static com.botmaker.shared.emulator.config.ConfigField.ADB_PORT;
 import static com.botmaker.shared.emulator.config.ConfigField.CPU_CORES;
 import static com.botmaker.shared.emulator.config.ConfigField.FPS;
 import static com.botmaker.shared.emulator.config.ConfigField.LOCALE;
@@ -24,6 +25,7 @@ import static com.botmaker.shared.emulator.config.ConfigField.ROOT;
 import static com.botmaker.shared.emulator.config.ConfigField.SCREEN;
 import static com.botmaker.shared.emulator.config.ConfigField.TIME_ZONE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Each product's writes, as the commands and edits they say; nothing runs. */
@@ -143,6 +145,27 @@ class ProductWritersTest {
                 Map.of(FPS, new ConfigValue.Count(30)), Map.of(), file());
         assertTrue(noToken.isEmpty());
         assertTrue(noToken.refused().containsKey(FPS));
+    }
+
+    @Test
+    void blueStacksWritesThePortItsInstanceAsksForAndOthersKeepTheirOwn() throws IOException {
+        EmulatorInstance bs = instance(PlatformId.BLUESTACKS, "HD-Player.exe", "--instance", "Pie64");
+        ProductWriters.Plan plan = ProductWriters.of(bs, Map.of(ADB_PORT, new ConfigValue.Count(5565)), Map.of(),
+                file());
+        String edited = ((SettingWrite.FileEdit) plan.stopped().getFirst()).edit()
+                .apply(InstanceFactsTest.resource("bluestacks/bluestacks.conf"));
+        assertTrue(edited.contains("bst.instance.Pie64.adb_port=\"5565\""), edited);
+        assertFalse(edited.contains("bst.instance.Pie64.adb_port=\"5555\""));
+
+        ProductWriters.Plan even = ProductWriters.of(bs, Map.of(ADB_PORT, new ConfigValue.Count(5566)), Map.of(),
+                file());
+        assertTrue(even.stopped().isEmpty(), "nothing to edit once the port is refused");
+        assertTrue(even.refused().containsKey(ADB_PORT));
+
+        EmulatorInstance ld = instance(PlatformId.LDPLAYER, "C:/LDPlayer/ldconsole.exe", "launch", "--index", "0");
+        ProductWriters.Plan own = ProductWriters.of(ld, Map.of(ADB_PORT, new ConfigValue.Count(5565)), Map.of(),
+                file());
+        assertTrue(own.refused().get(ADB_PORT).contains("numbers its instances' ADB ports itself"));
     }
 
     @Test

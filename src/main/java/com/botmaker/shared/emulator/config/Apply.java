@@ -1,5 +1,6 @@
 package com.botmaker.shared.emulator.config;
 
+import com.botmaker.shared.emulator.AdbEndpoint;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.checks.WindowsBackups;
 
@@ -42,7 +43,10 @@ public final class Apply {
     }
 
     private final ApplyHost host;
-    private final EmulatorInstance instance;
+    /** The instance as it was found. */
+    private final EmulatorInstance found;
+    /** The instance at the address it has now: {@link #found}'s, until its ADB port is written. */
+    private EmulatorInstance instance;
     private final InstanceFacts facts;
     private final Applies log;
 
@@ -52,6 +56,7 @@ public final class Apply {
      */
     public Apply(ApplyHost host, EmulatorInstance instance, InstanceFacts facts, Applies log) {
         this.host = host;
+        this.found = instance;
         this.instance = instance;
         this.facts = facts;
         this.log = log;
@@ -130,6 +135,7 @@ public final class Apply {
             if (failed != null) return undo.back(failed, wasRunning, plan.refused(), context);
             tick.run();
         }
+        instance = at(found, written);
         boolean startedHere = false;
         if ((wasRunning || !plan.running().isEmpty()) && !host.running(instance)) {
             if (context.cancelled()) return undo.back("Cancelled.", wasRunning, plan.refused(), context);
@@ -194,6 +200,17 @@ public final class Apply {
             return new Outcome(null, outcome.written(), outcome.refused(), outcome.facts(), entry.id());
         }
         return outcome;
+    }
+
+    /** {@code found} at the ADB port {@code written} gives it, when it gives one. */
+    static EmulatorInstance at(EmulatorInstance found, List<Change> written) {
+        for (Change change : written) {
+            if (change.field() == ConfigField.ADB_PORT && change.after() instanceof ConfigValue.Count(int port)
+                    && found.adb() instanceof AdbEndpoint.Tcp tcp) {
+                return found.withAdb(new AdbEndpoint.Tcp(tcp.host(), port));
+            }
+        }
+        return found;
     }
 
     private Map<ConfigField, ConfigValue> now() {
@@ -271,6 +288,8 @@ public final class Apply {
                             }
                         }
                     }
+                    // its file put back, it asks for the port it had again
+                    instance = found;
                 }
                 String end = why + (problems.isEmpty() ? " What was changed is put back."
                         : " Putting it back also failed: " + String.join("; ", problems));

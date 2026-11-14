@@ -18,6 +18,7 @@ import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 import static com.botmaker.shared.emulator.config.ConfigField.ADB;
+import static com.botmaker.shared.emulator.config.ConfigField.ADB_PORT;
 import static com.botmaker.shared.emulator.config.ConfigField.CPU_CORES;
 import static com.botmaker.shared.emulator.config.ConfigField.FPS;
 import static com.botmaker.shared.emulator.config.ConfigField.LOCALE;
@@ -81,7 +82,10 @@ public final class ProductWriters {
         Map<ConfigField, String> refused = new EnumMap<>(ConfigField.class);
         Map<ConfigField, ConfigValue> own = new EnumMap<>(ConfigField.class);
         wanted.forEach((field, value) -> {
-            if (!product.applies(field)) {
+            if (field == ADB_PORT && !product.applies(field)) {
+                refused.put(field, instance.brand() + " numbers its instances' ADB ports itself, so each already has"
+                        + " its own: BotMaker keeps it.");
+            } else if (!product.applies(field)) {
                 refused.put(field, "BotMaker can't set this on " + instance.brand() + ": set it by hand.");
             } else if (ProductSettings.overAdb(field)) {
                 overAdb(field, value, wanted, now, running, refused);
@@ -252,6 +256,17 @@ public final class ProductWriters {
                     edits.add(conf(prefix + "enable_root_access", on(value) ? 1 : 0));
                     said.add("root " + (on(value) ? "on" : "off"));
                 }
+                case ADB_PORT -> {
+                    int port = count(value);
+                    if (!PortPlan.usable(port)) {
+                        refused.put(field, "An ADB port is an odd number from " + PortPlan.LOWEST + " to "
+                                + PortPlan.LAST + ".");
+                    } else {
+                        // the port it asks for; BlueStacks writes the one it took (status.adb_port) as it starts
+                        edits.add(conf(prefix + "adb_port", port));
+                        said.add("ADB port " + port);
+                    }
+                }
                 case ADB -> {
                     // one switch for every instance of the edition
                     edits.add(conf("bst.enable_adb_access", on(value) ? 1 : 0));
@@ -261,6 +276,7 @@ public final class ProductWriters {
                 }
             }
         });
+        if (edits.isEmpty()) return;
         UnaryOperator<String> all = text -> {
             String out = text;
             for (UnaryOperator<String> edit : edits) out = edit.apply(out);

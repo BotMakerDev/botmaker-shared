@@ -191,6 +191,40 @@ class EmulatorIdentityTest {
     }
 
     @Test
+    void anotherNamesTheInstanceAFileSaysUnlessItIsThisOne() {
+        Ids ids = new Ids();
+        String pie64_1 = new EmulatorIdentity.IdFile("b", PlatformId.BLUESTACKS, "Pie64_1").text();
+        assertEquals(Optional.of("BlueStacks' Pie64_1"), EmulatorIdentity.another(PIE64, pie64_1, ids));
+        String ld = new EmulatorIdentity.IdFile("c", PlatformId.LDPLAYER, "Pie64").text();
+        assertEquals(Optional.of("LDPlayer's Pie64"), EmulatorIdentity.another(PIE64, ld, ids), "another product");
+        String own = new EmulatorIdentity.IdFile("a", PlatformId.BLUESTACKS, "Pie64").text();
+        assertEquals(Optional.empty(), EmulatorIdentity.another(PIE64, own, ids));
+        assertEquals(Optional.empty(), EmulatorIdentity.another(PIE64, "", ids), "no file says nothing");
+    }
+
+    @Test
+    void aFileHoldingThisInstancesIdUnderAnOlderNameIsARename() {
+        Ids ids = new Ids();
+        ids.kept.put(InstanceKey.of(PIE64), "a");
+        String older = new EmulatorIdentity.IdFile("a", PlatformId.BLUESTACKS, "Old name").text();
+        assertEquals(Optional.empty(), EmulatorIdentity.another(PIE64, older, ids));
+        assertEquals(Optional.empty(), EmulatorIdentity.another(PIE64, older, InstanceIds.NONE),
+                "no IDs kept: a rename can't be told from a sibling, so only a product is");
+        String ld = new EmulatorIdentity.IdFile("c", PlatformId.LDPLAYER, "LDPlayer").text();
+        assertEquals(Optional.of("LDPlayer's LDPlayer"), EmulatorIdentity.another(PIE64, ld, InstanceIds.NONE));
+    }
+
+    @Test
+    void aMarkWaitsWhileASiblingIsUpOnTheSameAddress() {
+        EmulatorInstance sibling = PIE64_1.withState(EmulatorState.RUNNING);
+        assertTrue(EmulatorIdentity.sharing(PIE64, List.of(PIE64, sibling)).isPresent());
+        assertEquals(Optional.empty(), EmulatorIdentity.sharing(PIE64,
+                List.of(PIE64, PIE64_1.withState(EmulatorState.STOPPED))));
+        assertEquals(Optional.empty(), EmulatorIdentity.sharing(PIE64, List.of(LD.withState(EmulatorState.RUNNING))),
+                "another product is told by its apps");
+    }
+
+    @Test
     void aNameIsQuotedForTheShell() {
         assertEquals("'it'\\''s'", EmulatorIdentity.quoted("it's"));
     }

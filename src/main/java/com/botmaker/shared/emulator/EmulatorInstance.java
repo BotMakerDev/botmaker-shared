@@ -116,6 +116,11 @@ public record EmulatorInstance(PlatformId platformId, String name, AdbEndpoint a
         return new EmulatorInstance(platformId, newName, adb, launchCommand, stopCommand, state);
     }
 
+    /** A copy of this instance at another ADB address: the port Apply just wrote into its product's file. */
+    public EmulatorInstance withAdb(AdbEndpoint address) {
+        return new EmulatorInstance(platformId, name, address, launchCommand, stopCommand, state);
+    }
+
     /** A copy of this instance as its product reports it now. */
     public EmulatorInstance withState(EmulatorState newState) {
         return new EmulatorInstance(platformId, name, adb, launchCommand, stopCommand, newState);

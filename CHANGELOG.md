@@ -14,6 +14,15 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **A port per instance, and who answers shown** (2026-11-14, spec § Addresses): a new instance setting, `adb.port`
+  (`ConfigField.ADB_PORT`, an instance's own, never an emulator's and never copied: `EmulatorConfig.copyable`), which
+  Apply writes into `bluestacks.conf` (`bst.instance.<name>.adb_port`, an odd port from 1025) and then follows: the
+  instance is started, read and stopped on its new port, and an undo goes back to the old one. LDPlayer, MEmu and MuMu
+  number their own and refuse it. `PortPlan` chooses a free port for each BlueStacks or MSI instance sharing an
+  address (from 5565, two apart, LDPlayer's `5555 + 2 × index` kept free). `EmulatorLiveness.check` reads the address's
+  ID file (kept 3 s): one naming another instance makes this one "port clash" when its product says it is up, else
+  stopped, with words naming who answers; a file holding this instance's ID under an older name is a rename, not a
+  clash.
 - **Who answers, on every connect** (2026-11-14, spec `2026-11-14-end-to-end-instances-design.md` § Who answers):
   `AdbDevice.connect(EmulatorInstance)` checks the device by `EmulatorIdentity` and refuses another instance in words
   naming both ("answers as BlueStacks' Pie64_1, not BlueStacks' Pie64"). Each instance gets an ID file,

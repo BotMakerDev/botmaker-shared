@@ -3,6 +3,7 @@ package com.botmaker.shared.emulator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -114,6 +115,23 @@ class EmulatorLivenessTest {
         assertSame(ld14Now, EmulatorLiveness.current(ld14, List.of(ld9Now, ld14Now)));
         assertSame(ld9Now, EmulatorLiveness.current(ld9, List.of(ld9Now, ld14Now)));
         assertSame(WAYDROID, EmulatorLiveness.current(WAYDROID, List.of(ld9Now)), "gone: the instance itself");
+    }
+
+    @Test
+    void anAddressAnsweringAsAnotherInstanceIsAClash() {
+        EmulatorLiveness up = new EmulatorLiveness(EmulatorState.RUNNING, null, false);
+        assertSame(up, EmulatorLiveness.answered(up, BLUESTACKS, Optional.empty()));
+
+        EmulatorInstance said = LDPLAYER.withState(EmulatorState.RUNNING);
+        EmulatorLiveness clash = EmulatorLiveness.answered(up, said, Optional.of("BlueStacks' Pie64"));
+        assertEquals(EmulatorState.STARTING, clash.state(), "its product says up: up, with a clash");
+        assertEquals("port 5555 answers as BlueStacks' Pie64 — stop it, or give LDPlayer its own ADB port",
+                clash.clash());
+        assertEquals("port clash", clash.label());
+
+        EmulatorLiveness silent = EmulatorLiveness.answered(up, BLUESTACKS, Optional.of("LDPlayer's LDPlayer"));
+        assertEquals(EmulatorState.STOPPED, silent.state(), "a product that says nothing is not the one there");
+        assertFalse(silent.running());
     }
 
     @Test

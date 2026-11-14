@@ -24,14 +24,15 @@ public record EmulatorConfig(Map<PlatformId, Layer> emulators, Map<InstanceKey, 
     public EmulatorConfig {
         EnumMap<PlatformId, Layer> byPlatform = new EnumMap<>(PlatformId.class);
         (emulators == null ? Map.<PlatformId, Layer>of() : emulators).forEach((platform, layer) -> {
-            if (platform != PlatformId.UNKNOWN && layer != null && !layer.isEmpty()) {
-                byPlatform.put(platform, layer);
+            Layer own = layer == null ? null : without(layer, true);
+            if (platform != PlatformId.UNKNOWN && own != null && !own.isEmpty()) {
+                byPlatform.put(platform, own);
             }
         });
         emulators = Collections.unmodifiableMap(byPlatform);
         Map<InstanceKey, Layer> byInstance = new LinkedHashMap<>();
         (instances == null ? Map.<InstanceKey, Layer>of() : instances).forEach((key, layer) -> {
-            Layer own = layer == null ? null : instanceOnly(layer);
+            Layer own = layer == null ? null : without(layer, false);
             if (key != null && own != null && !own.isEmpty()) {
                 byInstance.put(key, own);
             }
@@ -39,13 +40,25 @@ public record EmulatorConfig(Map<PlatformId, Layer> emulators, Map<InstanceKey, 
         instances = Collections.unmodifiableMap(byInstance);
     }
 
-    /** The layer without the fields only an emulator's layer holds, which an instance's never applies. */
-    private static Layer instanceOnly(Layer layer) {
+    /**
+     * The layer without the fields the other kind of layer holds: for an emulator's, those only an instance's holds
+     * (its ADB port); for an instance's, those only an emulator's holds, which an instance never applies.
+     */
+    private static Layer without(Layer layer, boolean emulator) {
         Layer out = layer;
         for (ConfigField field : layer.fields().keySet()) {
-            if (field.emulatorOnly()) {
+            if (emulator ? field.instanceOnly() : field.emulatorOnly()) {
                 out = out.without(field);
             }
+        }
+        return out;
+    }
+
+    /** {@code layer} as another instance may take it: without the fields only one instance holds (its ADB port). */
+    public static Layer copyable(Layer layer) {
+        Layer out = layer;
+        for (ConfigField field : layer.fields().keySet()) {
+            if (field.instanceOnly()) out = out.without(field);
         }
         return out;
     }
@@ -58,6 +71,10 @@ public record EmulatorConfig(Map<PlatformId, Layer> emulators, Map<InstanceKey, 
         return instances.getOrDefault(key, Layer.EMPTY);
     }
 
+    /**
+     * Sets the emulator's layer. A field only an instance's layer holds is dropped, as the constructor drops it, so a
+     * file imported or copied with one still loads.
+     */
     public EmulatorConfig withEmulator(PlatformId platform, Layer layer) {
         Map<PlatformId, Layer> next = new EnumMap<>(PlatformId.class);
         next.putAll(emulators);

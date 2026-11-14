@@ -3,6 +3,7 @@ package com.botmaker.shared.emulator;
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.emulator.config.InstanceKey;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -132,6 +133,7 @@ public final class EmulatorIdentity {
             public void write(String text) {
                 String dir = FILE.substring(0, FILE.lastIndexOf('/'));
                 device.shell("mkdir -p " + dir + " && printf '%s' " + quoted(text) + " > " + FILE);
+                ANSWERS.remove(instance.endpoint());
             }
         };
     }
@@ -228,6 +230,8 @@ public final class EmulatorIdentity {
     public static Optional<String> mark(EmulatorInstance instance) {
         InstanceIds ids = IDS.get();
         if (!ids.keeps()) return Optional.of("This process keeps no values of this PC.");
+        Optional<String> shared = sharing(instance, Platforms.recent(Duration.ofSeconds(2)));
+        if (shared.isPresent()) return shared;
         InstanceKey key = InstanceKey.of(instance);
         try (AdbDevice raw = AdbDevice.connect(instance.adb())) {
             Answering device = of(raw, instance);
@@ -243,6 +247,72 @@ public final class EmulatorIdentity {
                 return ids.remember(key, given.id());
             }
         }
+    }
+
+    /**
+     * Why {@code instance} can't be marked while another instance of its product says it is up on the same address:
+     * its apps can't tell the two apart, so the mark could land on the other. Else empty.
+     */
+    static Optional<String> sharing(EmulatorInstance instance, List<EmulatorInstance> now) {
+        return now.stream()
+                .filter(other -> other.platformId() == instance.platformId()
+                        && !other.reference().equals(instance.reference())
+                        && other.endpoint().equals(instance.endpoint())
+                        && (other.state() == EmulatorState.RUNNING || other.state() == EmulatorState.STARTING))
+                .findFirst()
+                .map(other -> other.name() + " is up on the same address as " + instance.name()
+                        + ": stop it first, so the mark lands on " + instance.name() + ".");
+    }
+
+    /** How long one read of an address's ID file answers {@link #answersAs}: a picker asks over and over. */
+    private static final long ANSWER_MILLIS = 3_000;
+    private record Answer(long at, String text) {}
+    private static final Map<String, Answer> ANSWERS = new ConcurrentHashMap<>();
+
+    /**
+     * Who answers on {@code instance}'s address when its ID file names another instance ("BlueStacks' Pie64_1"), else
+     * empty: the file names this one, there is none, or nothing could be read. Reads the file only, never the apps, and
+     * keeps the answer a few seconds; for {@link EmulatorLiveness}, so a product that says nothing (MSI) no longer
+     * passes for the one holding its address.
+     */
+    static Optional<String> answersAs(EmulatorInstance instance) {
+        if (!EmulatorOwnApps.tells(instance.platformId())) return Optional.empty();
+        String address = instance.endpoint();
+        long now = System.currentTimeMillis();
+        Answer kept = ANSWERS.get(address);
+        if (kept == null || now - kept.at() > ANSWER_MILLIS) {
+            String text = "";
+            try (AdbDevice raw = AdbDevice.connect(instance.adb())) {
+                String read = raw.shell("cat " + FILE + " 2>/dev/null");
+                text = read == null ? "" : read;
+            } catch (RuntimeException unread) {
+                // nothing said: the product's own word stands
+            }
+            kept = new Answer(now, text);
+            ANSWERS.put(address, kept);
+        }
+        return another(instance, kept.text(), IDS.get());
+    }
+
+    /**
+     * The instance {@code fileText} names when it is not {@code instance}, else empty. A file holding the ID this PC gave
+     * {@code instance} is its own under an older name: a rename, which its next checked connect writes. Where no IDs are
+     * kept, only a file naming another product is another instance.
+     */
+    static Optional<String> another(EmulatorInstance instance, String fileText, InstanceIds ids) {
+        Optional<IdFile> file = IdFile.parse(fileText);
+        if (file.isEmpty()) return Optional.empty();
+        try {
+            if (ids.expected(InstanceKey.of(instance)).filter(file.get().id()::equals).isPresent()) {
+                return Optional.empty();
+            }
+        } catch (RuntimeException unkeyed) {
+            // an instance with no name has no kept ID: its file's names decide
+        }
+        // with no IDs kept, a rename and another instance of the product look alike: only another product is told
+        return file.filter(f -> f.product() != instance.platformId()
+                        || (ids.keeps() && !f.name().equals(instance.reference())))
+                .map(IdFile::who);
     }
 
     private static String stopOrMove(EmulatorInstance instance) {

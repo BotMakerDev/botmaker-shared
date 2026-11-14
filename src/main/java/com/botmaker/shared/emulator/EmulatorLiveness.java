@@ -2,6 +2,7 @@ package com.botmaker.shared.emulator;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
@@ -69,7 +70,23 @@ public record EmulatorLiveness(EmulatorState state, String clash, boolean adbClo
     /** {@link #check(EmulatorInstance)} against a discovery the caller already has. */
     public static EmulatorLiveness check(EmulatorInstance instance, List<EmulatorInstance> now) {
         EmulatorInstance current = current(instance, now);
-        return of(current, now, EmulatorReadiness.portOpen(current));
+        boolean open = EmulatorReadiness.portOpen(current);
+        EmulatorLiveness products = of(current, now, open);
+        if (!open || products.clash() != null || products.state() == EmulatorState.STOPPED) return products;
+        return answered(products, current, EmulatorIdentity.answersAs(current));
+    }
+
+    /**
+     * The products' word, then who answers: an address whose ID file names another instance is that one's. The
+     * instance is then up with a clash when its product says so ({@code "port clash"}), else stopped with one, so a
+     * product that says nothing (MSI) no longer passes for the instance holding its address.
+     */
+    static EmulatorLiveness answered(EmulatorLiveness products, EmulatorInstance instance, Optional<String> who) {
+        if (who.isEmpty()) return products;
+        String clash = where(instance) + " answers as " + who.get() + " — stop it, or give " + instance.name()
+                + " its own ADB port";
+        boolean up = instance.state() == EmulatorState.RUNNING || instance.state() == EmulatorState.STARTING;
+        return new EmulatorLiveness(up ? EmulatorState.STARTING : EmulatorState.STOPPED, clash, false);
     }
 
     /**
