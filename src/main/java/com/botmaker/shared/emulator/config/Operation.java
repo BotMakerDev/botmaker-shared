@@ -1,5 +1,7 @@
 package com.botmaker.shared.emulator.config;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -51,9 +53,26 @@ public final class Operation {
         }
     }
 
-    /** What the window shows of an operation at one moment. */
+    /** Something an operation learnt that the user may act on once it ended, beside its outcome. */
+    public sealed interface Finding {
+
+        /**
+         * A Google account signed in by {@code of} that Android lists as {@code address}: one account with two
+         * addresses, which the book may record as one entry.
+         */
+        record Alias(String of, String address) implements Finding {}
+    }
+
+    /**
+     * What the window shows of an operation at one moment.
+     *
+     * @param findings what it learnt so far, in order ({@link Context#found})
+     */
     public record Snapshot(String id, String title, InstanceKey instance, State state, String step, double progress,
-                           String needsYou, String outcome) {
+                           String needsYou, String outcome, List<Finding> findings) {
+        public Snapshot {
+            findings = List.copyOf(findings);
+        }
     }
 
     /** What a body tells the queue as it goes. */
@@ -69,6 +88,9 @@ public final class Operation {
         void resumed();
 
         boolean cancelled();
+
+        /** Keeps {@code finding} on the operation's snapshots, for the user once it ended. */
+        default void found(Finding finding) {}
     }
 
     /** The work: null when it ended well, else why not, in the user's words. */
@@ -90,7 +112,8 @@ public final class Operation {
         this.instance = instance;
         this.lane = lane;
         this.body = body;
-        this.now = new AtomicReference<>(new Snapshot(id, title, instance, State.QUEUED, "", 0, null, null));
+        this.now = new AtomicReference<>(new Snapshot(id, title, instance, State.QUEUED, "", 0, null, null,
+                List.of()));
     }
 
     public String id() {
@@ -130,37 +153,50 @@ public final class Operation {
     void run(Consumer<Snapshot> changed) {
         if (cancelled.get()) {
             set(changed, s -> new Snapshot(id, title, instance, State.CANCELLED, s.step(), s.progress(), null,
-                    "Cancelled before it started."));
+                    "Cancelled before it started.", s.findings()));
             return;
         }
-        set(changed, s -> new Snapshot(id, title, instance, State.RUNNING, s.step(), s.progress(), null, null));
+        set(changed, s -> new Snapshot(id, title, instance, State.RUNNING, s.step(), s.progress(), null, null,
+                s.findings()));
         Context context = new Context() {
             @Override
             public void step(String words) {
                 set(changed, s -> new Snapshot(id, title, instance, s.state(), words, s.progress(), s.needsYou(),
-                        null));
+                        null, s.findings()));
             }
 
             @Override
             public void progress(double fraction) {
                 double clamped = Math.max(0, Math.min(1, fraction));
-                set(changed, s -> new Snapshot(id, title, instance, s.state(), s.step(), clamped, s.needsYou(), null));
+                set(changed, s -> new Snapshot(id, title, instance, s.state(), s.step(), clamped, s.needsYou(), null,
+                        s.findings()));
             }
 
             @Override
             public void needsYou(String why) {
                 set(changed, s -> new Snapshot(id, title, instance, State.NEEDS_YOU, s.step(), s.progress(), why,
-                        null));
+                        null, s.findings()));
             }
 
             @Override
             public void resumed() {
-                set(changed, s -> new Snapshot(id, title, instance, State.RUNNING, s.step(), s.progress(), null, null));
+                set(changed, s -> new Snapshot(id, title, instance, State.RUNNING, s.step(), s.progress(), null, null,
+                        s.findings()));
             }
 
             @Override
             public boolean cancelled() {
                 return cancelled.get();
+            }
+
+            @Override
+            public void found(Finding finding) {
+                set(changed, s -> {
+                    List<Finding> findings = new ArrayList<>(s.findings());
+                    findings.add(finding);
+                    return new Snapshot(id, title, instance, s.state(), s.step(), s.progress(), s.needsYou(),
+                            s.outcome(), findings);
+                });
             }
         };
         String failed;
@@ -175,7 +211,7 @@ public final class Operation {
         String outcome = failed;
         State end = failed == null ? State.DONE : cancelled.get() ? State.CANCELLED : State.FAILED;
         set(changed, s -> new Snapshot(id, title, instance, end, s.step(), end == State.DONE ? 1 : s.progress(), null,
-                outcome));
+                outcome, s.findings()));
     }
 
     private void set(Consumer<Snapshot> changed, UnaryOperator<Snapshot> next) {

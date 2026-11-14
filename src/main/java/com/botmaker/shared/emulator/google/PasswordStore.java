@@ -1,8 +1,10 @@
 package com.botmaker.shared.emulator.google;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Where the Google passwords the user asked BotMaker to remember on this PC are kept: the OS credential store
@@ -50,6 +52,14 @@ public interface PasswordStore {
         Optional<char[]> password = read(email);
         password.ifPresent(chars -> Arrays.fill(chars, '\0'));
         return password.isPresent();
+    }
+
+    /**
+     * Whether {@code remembered}, the keys ({@link #key}) of the passwords kept, holds one under any of an account's
+     * {@code addresses}: an account remembered under an alias is remembered.
+     */
+    static boolean rememberedAny(Collection<String> addresses, Set<String> remembered) {
+        return addresses.stream().map(PasswordStore::key).anyMatch(remembered::contains);
     }
 
     /** The key an entry is kept under: the email stripped and lower-cased. */

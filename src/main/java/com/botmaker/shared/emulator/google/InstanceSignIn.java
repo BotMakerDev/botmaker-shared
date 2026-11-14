@@ -217,9 +217,11 @@ public final class InstanceSignIn {
                 if (added.isPresent()) {
                     if (waitingForYou) context.resumed();
                     device.key(KEY_HOME);
-                    return added.get().equals(wanted) ? new Result(End.SIGNED_IN, "Signed in.")
-                            : new Result(End.SIGNED_IN, "Signed in. Android lists the account under another of its "
-                                    + "addresses, which the configuration now names.", added.get());
+                    if (added.get().equals(wanted)) return new Result(End.SIGNED_IN, "Signed in.");
+                    // one account, two addresses: the book may record the one Android lists as an alias
+                    context.found(new Operation.Finding.Alias(wanted, added.get()));
+                    return new Result(End.SIGNED_IN, "Signed in. Android lists the account under another of its "
+                            + "addresses, which the configuration now names.", added.get());
                 }
             }
             if (screen != last) {

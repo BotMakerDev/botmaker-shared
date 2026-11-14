@@ -85,8 +85,10 @@ class EmulatorOperationsTest {
                 threads.add(Thread.currentThread().getName());
                 if (snapshot.state().ended()) ended.countDown();
             });
+            Operation.Finding alias = new Operation.Finding.Alias("a@example.com", "b@example.com");
             Operation op = queue.submit("apply", MUMU, context -> {
                 context.step("Writing");
+                context.found(alias);
                 context.progress(0.5);
                 return "MuMu refused";
             });
@@ -97,6 +99,7 @@ class EmulatorOperationsTest {
             assertEquals(Operation.State.FAILED, end.state());
             assertEquals("MuMu refused", end.outcome());
             assertEquals(0.5, end.progress());
+            assertEquals(List.of(alias), end.findings(), "a finding outlives the steps after it and the end");
             queue.clearEnded();
             assertTrue(queue.all().isEmpty());
             assertFalse(heard.isEmpty());

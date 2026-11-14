@@ -1,6 +1,7 @@
 package com.botmaker.shared.emulator.google;
 
 import com.botmaker.shared.emulator.config.AccountRecord.Verification;
+import com.botmaker.shared.emulator.config.Operation;
 import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 import org.junit.jupiter.api.Test;
@@ -336,10 +337,13 @@ class InstanceSignInTest {
         TestScreens.Device device = flow(captured("mumu-a15-email"), TestScreens.password(), TestScreens.terms(),
                 TestScreens.services(), TestScreens.home());
         device.accounts.add("held@example.com");
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
         InstanceSignIn.Result result = new InstanceSignIn(device, new TestScreens.Clock())
-                .signIn(alias, SECRET.toCharArray(), new TestScreens.Ctx());
+                .signIn(alias, SECRET.toCharArray(), ctx);
         assertEquals(InstanceSignIn.End.SIGNED_IN, result.end(), result.words());
         assertEquals(EMAIL, result.listedAs());
+        assertEquals(List.of(new Operation.Finding.Alias(alias, EMAIL)), ctx.found,
+                "the address Android lists is offered as an alias of the one typed");
         assertFalse(result.words().contains("@"));
         assertEquals(List.of(alias, SECRET), device.typed);
 

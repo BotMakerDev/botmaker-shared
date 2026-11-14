@@ -224,6 +224,7 @@ final class TestScreens {
     static final class Ctx implements Operation.Context {
         final List<String> steps = new ArrayList<>();
         final List<String> needs = new ArrayList<>();
+        final List<Operation.Finding> found = new ArrayList<>();
         int resumed;
         boolean cancel;
 
@@ -249,6 +250,11 @@ final class TestScreens {
         @Override
         public boolean cancelled() {
             return cancel;
+        }
+
+        @Override
+        public void found(Operation.Finding finding) {
+            found.add(finding);
         }
     }
 }
