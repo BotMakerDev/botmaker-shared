@@ -9,11 +9,15 @@ import com.botmaker.shared.emulator.config.Operation;
 import com.botmaker.shared.emulator.tree.UiTree;
 import com.botmaker.shared.launch.GameInstall;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -40,9 +44,21 @@ class InstanceChangesTest {
         final List<String> log = new ArrayList<>();
         final TestScreens.Device device = new TestScreens.Device(TestScreens.home());
         boolean running;
+        String notReady;
 
         Host() {
             device.accounts.add(OLD);
+        }
+
+        @Override
+        public String ready(EmulatorInstance instance, Operation.Context context) {
+            log.add("ready");
+            return notReady;
+        }
+
+        @Override
+        public void signedIn(EmulatorInstance instance) {
+            log.add("kept");
         }
 
         @Override
@@ -134,7 +150,7 @@ class InstanceChangesTest {
             given[0] = "pw".toCharArray();
             return Passwords.Answer.once(given[0]);
         })) {
-            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            String failed = changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD),
                     change(AccountRecord.Kind.FACEBOOK, "fb-user", ConfigDiff.AccountChange.Op.ADD),
                     change(AccountRecord.Kind.GOOGLE, OLD, ConfigDiff.AccountChange.Op.REMOVE)),
@@ -142,8 +158,8 @@ class InstanceChangesTest {
             assertNull(failed);
         }
         assertEquals(List.of(NEW), asked, "asked once, Facebook is a record only");
-        assertEquals(List.of("start", "device", "sign out", "sign in", "type " + NEW.length(), "type 2", "close",
-                "install " + GAME.packageName(), "stop"), host.log);
+        assertEquals(List.of("start", "device", "sign out", "ready", "sign in", "type " + NEW.length(), "type 2",
+                "kept", "close", "install " + GAME.packageName(), "stop"), host.log);
         assertTrue(Arrays.equals(new char[2], given[0]), "the password is cleared when the batch closes");
         for (String said : ctx.steps) assertFalse(said.contains("@"), said);
     }
@@ -152,7 +168,7 @@ class InstanceChangesTest {
     void nothingToDoStartsNothing() throws Exception {
         Host host = new Host();
         try (Passwords passwords = new Passwords(email -> null)) {
-            assertNull(new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            assertNull(changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.MAIL, "a@example.com", ConfigDiff.AccountChange.Op.ADD)),
                     List.of(), passwords, new TestScreens.Ctx()));
         }
@@ -164,7 +180,7 @@ class InstanceChangesTest {
         Host host = new Host();
         host.running = true;
         try (Passwords passwords = new Passwords(email -> null)) {
-            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            String failed = changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)),
                     List.of(GAME), passwords, new TestScreens.Ctx());
             assertTrue(failed.contains("no password given"), failed);
@@ -179,7 +195,7 @@ class InstanceChangesTest {
     void aStoppedInstanceWithOnlySkippedAccountsIsNotStarted() throws Exception {
         Host host = new Host();
         try (Passwords passwords = new Passwords(email -> null)) {
-            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            String failed = changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)),
                     List.of(), passwords, new TestScreens.Ctx());
             assertTrue(failed.contains("no password given"), failed);
@@ -196,7 +212,7 @@ class InstanceChangesTest {
             }
         };
         try (Passwords passwords = new Passwords(email -> null)) {
-            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            String failed = changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, OLD, ConfigDiff.AccountChange.Op.REMOVE)),
                     List.of(GAME), passwords, new TestScreens.Ctx());
             assertTrue(failed.contains("not changed"), failed);
@@ -218,12 +234,12 @@ class InstanceChangesTest {
         })) {
             List<ConfigDiff.AccountChange> add = List.of(change(AccountRecord.Kind.GOOGLE, NEW,
                     ConfigDiff.AccountChange.Op.ADD));
-            String first = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, add, List.of(), passwords,
+            String first = changes(host).run(MUMU, add, List.of(), passwords,
                     new TestScreens.Ctx());
             assertTrue(first.contains(InstanceSignIn.End.WRONG_PASSWORD.displayName())
                     || first.toLowerCase().contains("password"), first);
             host.log.clear();
-            String second = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, add, List.of(), passwords,
+            String second = changes(host).run(MUMU, add, List.of(), passwords,
                     new TestScreens.Ctx());
             assertTrue(second.contains("left out"), second);
             assertFalse(host.log.contains("sign in"));
@@ -246,7 +262,7 @@ class InstanceChangesTest {
         };
         PasswordStoreTest.FakeStore store = new PasswordStoreTest.FakeStore();
         try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("pw".toCharArray(), true))) {
-            assertNull(new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            assertNull(changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
                     new TestScreens.Ctx()));
         }
@@ -275,7 +291,7 @@ class InstanceChangesTest {
                 : null;
         PasswordStoreTest.FakeStore store = new PasswordStoreTest.FakeStore();
         try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("pw".toCharArray(), true))) {
-            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            String failed = changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
                     new TestScreens.Ctx());
             assertTrue(failed != null && failed.contains("refused"), String.valueOf(failed));
@@ -293,7 +309,7 @@ class InstanceChangesTest {
         };
         PasswordStoreTest.FakeStore none = new PasswordStoreTest.FakeStore();
         try (Passwords passwords = new Passwords(none, email -> new Passwords.Answer("pw".toCharArray(), true))) {
-            new InstanceChanges(other, new TestScreens.Clock()).run(MUMU, List.of(
+            changes(other).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
                     new TestScreens.Ctx());
         }
@@ -311,7 +327,7 @@ class InstanceChangesTest {
         };
         host.running = true;
         try (Passwords passwords = new Passwords(email -> Passwords.Answer.once("pw".toCharArray()))) {
-            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            String failed = changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
                     new TestScreens.Ctx());
             assertTrue(failed != null && failed.contains("answers as BlueStacks"), String.valueOf(failed));
@@ -332,7 +348,7 @@ class InstanceChangesTest {
         try (Passwords passwords = new Passwords(store, email -> {
             throw new AssertionError("a remembered password is not asked");
         })) {
-            String failed = new InstanceChanges(host, new TestScreens.Clock()).run(MUMU, List.of(
+            String failed = changes(host).run(MUMU, List.of(
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
                     new TestScreens.Ctx());
             assertTrue(failed != null && !failed.contains("@"), String.valueOf(failed));
@@ -354,5 +370,49 @@ class InstanceChangesTest {
         passwords.close();
         assertTrue(Arrays.equals(new char[2], first));
         assertThrows(IllegalStateException.class, () -> passwords.of(NEW));
+    }
+
+    @Test
+    void anInstanceNotReadyForGoogleSignsNothingInAndStillGetsItsGames() throws Exception {
+        Host host = new Host();
+        host.notReady = "MuMu-0's Android ID changed since its last Google sign-in, so BotMaker signs no account in.";
+        try (Passwords passwords = new Passwords(email -> Passwords.Answer.once("pw".toCharArray()))) {
+            String failed = changes(host).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)),
+                    List.of(GAME), passwords, new TestScreens.Ctx());
+            assertTrue(failed.contains("Android ID changed"), failed);
+        }
+        assertEquals(List.of("start", "device", "ready", "close", "install " + GAME.packageName(), "stop"), host.log);
+    }
+
+    @Test
+    void aDayAtItsCapStartsNoInstanceForItsSignIns() throws Exception {
+        TestScreens.Clock earlier = new TestScreens.Clock();
+        SignInPace filled = new SignInPace(paceFile(), earlier, new Random(1), ZoneOffset.UTC);
+        for (int i = 0; i < SignInPace.CAP; i++) {
+            assertNull(filled.await(new TestScreens.Ctx()));
+            filled.done();
+        }
+        Host host = new Host();
+        try (Passwords passwords = new Passwords(email -> Passwords.Answer.once("pw".toCharArray()))) {
+            String failed = changes(host).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)),
+                    List.of(), passwords, new TestScreens.Ctx());
+            assertTrue(failed.contains("the next can go"), failed);
+        }
+        assertTrue(host.log.isEmpty(), host.log.toString());
+    }
+
+    @TempDir
+    Path dir;
+
+    private Path paceFile() {
+        return dir.resolve("pace.properties");
+    }
+
+    /** Changes over the test's own pace file, never this PC's. */
+    private InstanceChanges changes(InstanceChanges.Host host) {
+        TestScreens.Clock clock = new TestScreens.Clock();
+        return new InstanceChanges(host, clock, new SignInPace(paceFile(), clock, new Random(1), ZoneOffset.UTC));
     }
 }

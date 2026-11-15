@@ -25,6 +25,10 @@ import java.util.function.Consumer;
  * The passwords are the batch's ({@link Passwords}): read from the store or asked before the instance starts, remembered
  * once their sign-in is done when the user asked, forgotten when Google refuses one, and an account whose sign-in must
  * not be tried again is dropped from the rest of the batch. No outcome names an email: accounts are counted.
+ * <p>
+ * The sign-ins are readied ({@link Host#ready}) and paced ({@link SignInPace}): each waits its turn, one every 5 to 10
+ * minutes from this PC and at most 8 a day, so another instance's operation boots and readies meanwhile. A day at its
+ * cap starts no instance for sign-ins.
  */
 public final class InstanceChanges {
 
@@ -49,6 +53,17 @@ public final class InstanceChanges {
         default Optional<String> notThis(EmulatorInstance instance) {
             return Optional.empty();
         }
+
+        /**
+         * Readies the running instance for its sign-ins ({@link SignInReady}): its identity checked, its clock, time
+         * zone and region set, and three minutes since it booted. Null when ready, else why not.
+         */
+        default String ready(EmulatorInstance instance, Operation.Context context) throws Exception {
+            return null;
+        }
+
+        /** Keeps the instance's identity as it is now, once an account is signed in on it. */
+        default void signedIn(EmulatorInstance instance) {}
 
         static Host live() {
             return new Host() {
@@ -81,6 +96,16 @@ public final class InstanceChanges {
                 }
 
                 @Override
+                public String ready(EmulatorInstance instance, Operation.Context context) throws Exception {
+                    return SignInReady.ready(instance, context);
+                }
+
+                @Override
+                public void signedIn(EmulatorInstance instance) {
+                    SignInReady.signedIn(instance);
+                }
+
+                @Override
                 public Optional<String> notThis(EmulatorInstance instance) {
                     try (AdbDevice ignored = AdbDevice.connect(instance)) {
                         return Optional.empty();
@@ -96,14 +121,16 @@ public final class InstanceChanges {
 
     private final Host host;
     private final Pace pace;
+    private final SignInPace signIns;
 
     public InstanceChanges(Host host) {
-        this(host, Pace.REAL);
+        this(host, Pace.REAL, SignInPace.live());
     }
 
-    InstanceChanges(Host host, Pace pace) {
+    InstanceChanges(Host host, Pace pace, SignInPace signIns) {
         this.host = host;
         this.pace = pace;
+        this.signIns = signIns;
     }
 
     /** An account signed in under the address typed and listed by Android under another of its addresses. */
@@ -142,6 +169,16 @@ public final class InstanceChanges {
         }
         if (removals.isEmpty() && adds.isEmpty() && games.isEmpty()) return null;
         List<String> problems = new ArrayList<>();
+        // the day's cap reached: no password is asked, nor the instance started, for sign-ins that can't go today
+        if (!adds.isEmpty()) {
+            Optional<String> capped = signIns.capped();
+            if (capped.isPresent()) {
+                problems.add(adds.size() == 1 ? "Its Google sign-in waits: " + capped.get()
+                        : "Its " + adds.size() + " Google sign-ins wait: " + capped.get());
+                adds.clear();
+                if (removals.isEmpty() && games.isEmpty()) return String.join(" ", problems);
+            }
+        }
         // asked before the instance starts, so the user isn't called back mid-way
         for (String email : adds) {
             if (passwords.left(email)) {
@@ -214,12 +251,39 @@ public final class InstanceChanges {
                 if (context.cancelled()) return false;
                 if (failed != null) problems.add(failed);
             }
+            if (adds.stream().allMatch(passwords::left)) return true;
+            // another lane may have filled the day while this one started: nothing readied for nothing
+            Optional<String> capped = signIns.capped();
+            if (capped.isPresent()) {
+                problems.add("Its Google sign-ins wait: " + capped.get());
+                return true;
+            }
+            String notReady = host.ready(instance, context);
+            if (context.cancelled()) return false;
+            if (notReady != null) {
+                problems.add(notReady);
+                return true;
+            }
             for (String email : adds) {
                 if (passwords.left(email)) continue;
                 if (context.cancelled()) return false;
+                String waits = signIns.await(context);
+                if (context.cancelled()) return false;
+                if (waits != null) {
+                    long left = adds.stream().skip(adds.indexOf(email)).filter(e -> !passwords.left(e)).count();
+                    problems.add((left == 1 ? account(adds, email) + " was not signed in: "
+                            : left + " Google accounts were not signed in: ") + waits);
+                    return true;
+                }
                 context.step("Signing in to " + account(adds, email) + "…");
                 InstanceSignIn signIn = new InstanceSignIn(device, pace);
-                InstanceSignIn.Result result = signIn.signIn(email, passwords.of(email), second, context);
+                InstanceSignIn.Result result;
+                try {
+                    result = signIn.signIn(email, passwords.of(email), second, context);
+                } finally {
+                    signIns.done();
+                }
+                if (result.signedIn()) host.signedIn(instance);
                 // kept before a failed end drops it: Google took it, a retry shouldn't ask again
                 if (!result.signedIn() && signIn.passwordAccepted() && !passwords.accepted(email)) {
                     problems.add(account(adds, email) + ": this PC's credential store refused to remember its"

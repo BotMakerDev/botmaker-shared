@@ -14,6 +14,21 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **The paced batch, ready for Google** (2026-11-15, spec `2026-11-14-end-to-end-instances-design.md` § Lowering
+  Google's risk score): `SignInPace` lets one Google sign-in start from this PC at a time, a random 5 to 10 minutes
+  after the last one ended, and at most 8 in 24 hours. It keeps the count and the next start in
+  `UserDirs.config()/google-sign-in-pace.properties`, so a restart resets neither, and a day at its cap says when the
+  next can go. `SignInReady` runs before an instance's sign-ins:
+  - its model, Android ID and Google services ID are kept as salted hashes only, and one changed since its last
+    sign-in refuses (`forget` and `renamed` for an instance deleted, made, cloned or renamed);
+  - Play services must be present;
+  - its clock is set by the network and checked within 2 minutes of this PC's;
+  - its time zone becomes this PC's, and its region this PC's country, in English;
+  - it waits 3 minutes after boot.
+
+  `InstanceChanges` readies each instance, waits each sign-in's turn, and starts no instance for sign-ins when the day
+  is at its cap. Play services and the Play Store are not updated before the first sign-in: Play has no account to
+  update them with until then, and it updates them itself after.
 - **Two instances per emulator** (2026-11-15, spec `2026-11-14-end-to-end-instances-design.md` § Making instances):
   `InstanceManager.Console.make` creates a fresh instance and readies it for its one account: new device IDs, ADB on,
   the light profile written while it is stopped (`Prepare.light`, through `Apply`, logged for Undo), then a first start
