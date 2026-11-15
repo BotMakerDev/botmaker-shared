@@ -110,3 +110,64 @@ even a BotMaker that died. One failed read restarts it once; after that, or when
 screen shows. `UiTree.app(focusedPackage)` drops systemui's and the keyboard's windows.
 dadb pulls kotlin-stdlib, which now rides into every consumer (Studio included) — the accepted cost of
 shipping no adb binary.
+
+## Addresses: one per instance, and who answers (2026-11-14)
+
+Spec `2026-11-14-end-to-end-instances-design.md` § Addresses.
+
+- **An instance's address is its own.** `ConfigField.ADB_PORT` (`adb.port`) is an instance setting, never an
+  emulator's and never copied (`EmulatorConfig.copyable`). Apply writes it into `bluestacks.conf`
+  (`bst.instance.<name>.adb_port`), then starts, reads and stops the instance on the new port; an undo goes back.
+  LDPlayer, MEmu and MuMu number their own ports and refuse it. `PortPlan` picks free ports for BlueStacks or MSI
+  instances that share one (from 5565, two apart, keeping LDPlayer's `5555 + 2 × index` free); nothing calls it yet.
+- **Who answers.** Each instance gets an ID file the first time BotMaker sees it, `/data/local/tmp/botmaker/instance`
+  (a random ID, its product and its name, never a device ID); the ID this PC expects comes from the `InstanceIds` the
+  SDK registers (`HostIds`, an `instance.id` row in `Instances.java`). `AdbDevice.connect(EmulatorInstance)` checks
+  the device by `EmulatorIdentity`: a matching file passes with nothing more read; otherwise the product is told by
+  its own packages (`EmulatorOwnApps`), then the file. Another instance is refused in words naming both. Apply, the
+  sign-in, the account chooser, the launch, a bot's emulator and the core's `device` tool all connect this way.
+- **A clash is shown.** `EmulatorLiveness.check` reads the address's ID file (kept 3 s). A file naming another
+  instance makes this one *port clash* when its product says it is up, else stopped, with words naming who answers.
+  A file holding this instance's ID under an older name is a rename, not a clash. *Mark as itself* gives a running
+  clone that still carries its source's file an ID of its own.
+
+## Making instances, the light profile and the RAM budget (2026-11-15)
+
+Spec § Making instances, § The light profile, § The RAM budget.
+
+- **Make.** `InstanceManager.Console.make(name, upTo, Prepare, …)` creates a fresh instance and readies it for one
+  account: new device IDs, ADB on, the light profile written while it is stopped (`Prepare.light`, through `Apply`,
+  logged for Undo), a first start held from bots that writes its ID file (`ManageHost.mark`), then a stop.
+  `missingNames` names what a product lacks up to a count (`LDPlayer-1`). The SDK's *Make two of each* runs it for
+  every emulator the window shows; BlueStacks and MSI open their own manager. `newDeviceIds` refuses an instance
+  BotMaker last saw holding a Google account.
+- **The light profile** (`LightProfile`): 2048 MB, 2 cores and 30 fps, keeping the screen, written with each
+  product's own fields only. No memory trim is written: no product documents a key for one.
+- **The RAM budget** (`RamBudget`): one more instance starts only while free physical memory, less a 5 GB reserve and
+  less what instances already starting will take, still leaves its configured memory plus 0.5 GB. The live
+  `ApplyHost.start` waits there, saying "Waiting for memory: …" through its `Operation.Context`; Cancel ends the wait,
+  and an instance bigger than the PC allows is refused at once. So several instances run together, as many as the PC
+  holds.
+
+## Pacing Google sign-ins (2026-11-15)
+
+Spec § Lowering Google's risk score. Different accounts still share this PC's address, so the pace is the PC's, not
+the account's.
+
+- **`SignInPace`**: one Google sign-in from this PC at a time, the next a random 5 to 10 minutes after the last one
+  ended, at most 8 in 24 hours. The count and the next start are kept in
+  `UserDirs.config()/google-sign-in-pace.properties`, so a restart resets neither; `capped()` says when a day at its
+  cap can go again. Instances still start and ready in parallel: only the sign-in itself waits its turn.
+- **`SignInReady`**, before an instance's sign-ins: its model, Android ID and Google services ID kept as salted hashes
+  only, one changed since its last sign-in refusing (`forget` and `renamed` carry it through a delete, make, clone or
+  rename); Play services present; its clock set by the network and within 2 minutes of this PC's; its time zone this
+  PC's and its region this PC's country, in English; 3 minutes after boot.
+- **`InstanceChanges`** readies each instance, waits each sign-in's turn, and starts no instance for sign-ins when the
+  day is at its cap. Play services and the Play Store are not updated first: Play has no account to update them with
+  until one is signed in.
+- **The second step** of an account that follows `Verification.AUTHENTICATOR` is typed from the key `AuthenticatorKeys`
+  holds in the OS credential store (`Totp`, RFC 6238), never shown, logged or exported; any other account's code is
+  asked of the user.
+- **Live check**: the SDK's `EndToEndLiveTest` (only with `BOTMAKER_LIVE_GOOGLE` set) makes two instances of each
+  emulator shown, signs each into one account through this path, and checks each instance holds its account and only
+  it.
