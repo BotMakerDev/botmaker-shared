@@ -71,11 +71,11 @@ class PasswordStoreTest {
     }
 
     @Test
-    void aPasswordIsRememberedOnlyOnceDoneAndOnlyWhenAsked() throws Exception {
+    void aPasswordIsRememberedAsSoonAsTypedAndOnlyWhenAsked() throws Exception {
         FakeStore store = new FakeStore();
         try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("pw".toCharArray(), true))) {
             passwords.of(EMAIL);
-            assertFalse(store.remembered(EMAIL), "not before the sign-in is done");
+            assertTrue(store.remembered(EMAIL), "kept as it is typed");
             assertTrue(passwords.done(EMAIL));
             assertArrayEquals("pw".toCharArray(), store.read(EMAIL).orElseThrow());
         }
@@ -109,9 +109,9 @@ class PasswordStoreTest {
         assertArrayEquals("pw".toCharArray(), stored.read(listed).orElseThrow());
     }
 
-    /** The live screen's *Fill password…*: what the user typed there is the one remembered, once the sign-in is done. */
+    /** The live screen's *Fill password…*: what the user typed there is the one remembered, at once. */
     @Test
-    void aPasswordTypedByTheUserReplacesTheBatchsAndIsRememberedOnceDone() throws Exception {
+    void aPasswordTypedByTheUserReplacesTheBatchsAndIsRememberedAtOnce() throws Exception {
         FakeStore store = new FakeStore();
         store.remember(EMAIL, "old".toCharArray());
         char[] fromStore;
@@ -121,7 +121,7 @@ class PasswordStoreTest {
             assertTrue(passwords.typedByUser(EMAIL, new Passwords.Answer(typed, true)));
             assertArrayEquals("old".toCharArray(), fromStore, "a sign-in may still hold the one it replaced");
             assertArrayEquals("new".toCharArray(), passwords.of(EMAIL));
-            assertArrayEquals("old".toCharArray(), store.read(EMAIL).orElseThrow(), "not before the sign-in is done");
+            assertArrayEquals("new".toCharArray(), store.read(EMAIL).orElseThrow(), "kept as it is typed");
             assertTrue(passwords.done(EMAIL));
             assertArrayEquals("new".toCharArray(), store.read(EMAIL).orElseThrow());
         }
@@ -163,6 +163,63 @@ class PasswordStoreTest {
         char[] late = "pw".toCharArray();
         assertFalse(passwords.typedByUser("other@example.com", new Passwords.Answer(late, true)));
         assertArrayEquals(new char[2], late);
+    }
+
+    /** A sign-in cancelled, or stopped on a page BotMaker doesn't know, keeps the password; a wrong one is forgotten. */
+    @Test
+    void aPasswordTypedIsKeptPastACancelAndForgottenWhenWrong() throws Exception {
+        FakeStore store = new FakeStore();
+        List<String> asked = new ArrayList<>();
+        try (Passwords passwords = new Passwords(store, email -> {
+            asked.add(email);
+            return new Passwords.Answer("pw".toCharArray(), true);
+        })) {
+            passwords.of(EMAIL);
+            passwords.drop(EMAIL);
+        }
+        try (Passwords passwords = new Passwords(store, email -> {
+            asked.add(email);
+            return null;
+        })) {
+            assertArrayEquals("pw".toCharArray(), passwords.of(EMAIL), "the next Apply types it without asking");
+            passwords.refused(EMAIL);
+        }
+        assertEquals(List.of(EMAIL), asked);
+        assertFalse(store.remembered(EMAIL), "Google said it is wrong: never typed again without asking");
+    }
+
+    /** No such account, or a password the instance can't type: what this batch kept goes, what was kept before stays. */
+    @Test
+    void aPasswordWithNothingToSignInIsForgottenOnlyWhenThisBatchKeptIt() throws Exception {
+        FakeStore store = new FakeStore();
+        try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("pw".toCharArray(), true))) {
+            passwords.of(EMAIL);
+            passwords.discard(EMAIL);
+            assertTrue(passwords.left(EMAIL));
+        }
+        assertFalse(store.remembered(EMAIL), "typed under an address Google doesn't know: not kept");
+
+        store.remember(EMAIL, "pw".toCharArray());
+        try (Passwords passwords = new Passwords(store, email -> null)) {
+            passwords.of(EMAIL);
+            passwords.discard(EMAIL);
+        }
+        assertTrue(store.remembered(EMAIL), "kept before this batch: the user's, not this sign-in's");
+    }
+
+    /** The store refuses what *Fill password…* typed: the one it already held is still forgotten when Google says wrong. */
+    @Test
+    void aPasswordTheStoreRefusesInPlaceOfAKeptOneLeavesTheKeptOneForgettable() throws Exception {
+        FakeStore store = new FakeStore();
+        store.remember(EMAIL, "old".toCharArray());
+        try (Passwords passwords = new Passwords(store, email -> null)) {
+            passwords.of(EMAIL);
+            store.refuses = true;
+            assertTrue(passwords.typedByUser(EMAIL, new Passwords.Answer("new".toCharArray(), true)));
+            assertArrayEquals("old".toCharArray(), store.read(EMAIL).orElseThrow());
+            passwords.refused(EMAIL);
+        }
+        assertFalse(store.remembered(EMAIL));
     }
 
     @Test

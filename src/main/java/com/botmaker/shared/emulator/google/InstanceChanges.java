@@ -313,8 +313,13 @@ public final class InstanceChanges {
                     problems.add(account(adds, email) + ": this PC's credential store refused to remember its"
                             + " password.");
                 }
-                if (result.end() == InstanceSignIn.End.WRONG_PASSWORD) passwords.refused(email);
-                else if (result.end().dropsAccount()) passwords.drop(email);
+                switch (result.end()) {
+                    case WRONG_PASSWORD -> passwords.refused(email);
+                    case NO_SUCH_ACCOUNT, CANNOT_TYPE -> passwords.discard(email);
+                    default -> {
+                        if (result.end().dropsAccount()) passwords.drop(email);
+                    }
+                }
                 if (result.signedIn() && !passwords.done(email, result.listedAs())) {
                     context.step(account(adds, email) + ": signed in, but this PC's credential store refused to"
                             + " remember its password.");

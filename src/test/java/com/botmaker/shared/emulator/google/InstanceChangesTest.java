@@ -314,7 +314,7 @@ class InstanceChangesTest {
                     change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
                     new TestScreens.Ctx());
         }
-        assertFalse(none.remembered(NEW), "refused right after the password: not known to be right");
+        assertTrue(none.remembered(NEW), "kept as typed: refused for another reason, Google never said it is wrong");
     }
 
     /** A driver given signs in in place of the screens; what its end means for the password stays the batch's. */
@@ -359,7 +359,7 @@ class InstanceChangesTest {
                     new TestScreens.Ctx());
             assertEquals("Google account 1 of 2: the sign-in did not run: the sign-in bot did not start", failed);
             assertTrue(store.remembered(NEW));
-            assertFalse(store.remembered(OLD));
+            assertTrue(store.remembered(OLD), "kept as typed: the next Apply doesn't ask again");
         }
         assertTrue(host.log.contains("kept"), "the signed-in end keeps the identity: " + host.log);
     }

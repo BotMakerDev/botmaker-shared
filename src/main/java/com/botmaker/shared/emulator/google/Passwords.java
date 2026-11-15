@@ -14,9 +14,12 @@ import java.util.Set;
  * this PC to remember it, else asked once by the caller's {@link Prompt} (the window's dialog), and every one cleared
  * when the batch closes, whatever its end.
  * <p>
- * A password the user asked to remember is kept in the store only once its sign-in is {@link #done}. An account whose
- * sign-in must not be tried again is {@link #drop}ped: its password cleared and never asked again in the batch; one
- * Google {@link #refused} is forgotten by the store too.
+ * A password the user asked to remember is kept in the store as soon as it is typed (2026-11-15, the user's call), so a
+ * sign-in cancelled or stopped on a page BotMaker doesn't know doesn't ask for it again; a store that refuses it then
+ * is tried again once the sign-in is {@link #done}. An account whose sign-in must not be tried again is
+ * {@link #drop}ped: its password cleared and never asked again in the batch, a kept one kept. One Google
+ * {@link #refused} is forgotten by the store, so a wrong password is never typed again without asking, and so is one
+ * this batch kept that has nothing to sign in ({@link #discard}: no such account, or one the instance can't type).
  */
 public final class Passwords implements AutoCloseable {
 
@@ -41,7 +44,10 @@ public final class Passwords implements AutoCloseable {
     private final Map<String, char[]> held = new HashMap<>();
     private final Set<String> skipped = new HashSet<>();
     private final Set<String> stored = new HashSet<>();
+    /** Accounts whose password the store refused when it was typed: tried again once the sign-in is done. */
     private final Set<String> toRemember = new HashSet<>();
+    /** Accounts whose password this batch put in the store as it was typed: taken out again when the user unticks. */
+    private final Set<String> keptNow = new HashSet<>();
     /** The accounts whose sign-in is done: a password typed for one afterwards has nothing left to be remembered by. */
     private final Set<String> finished = new HashSet<>();
     /** Passwords {@link #typedByUser} replaced, which a sign-in may still hold: cleared when the batch closes. */
@@ -77,13 +83,25 @@ public final class Passwords implements AutoCloseable {
             return null;
         }
         held.put(key, answer.password());
-        if (answer.remember()) toRemember.add(key);
+        if (answer.remember()) keepNow(email);
         return answer.password();
     }
 
+    /** {@code email}'s held password into the store now; refused, tried again once the sign-in is done. */
+    private void keepNow(String email) {
+        String key = PasswordStore.key(email);
+        if (store.remember(email, held.get(key))) {
+            stored.add(key);
+            keptNow.add(key);
+            toRemember.remove(key);
+        } else {
+            toRemember.add(key);
+        }
+    }
+
     /**
-     * {@code email} is signed in: its password is remembered if the user asked. False only when the store refused
-     * to keep it.
+     * {@code email} is signed in: a password the store refused as it was typed is tried there again. False only when
+     * the store refused it again.
      */
     public synchronized boolean done(String email) {
         return done(email, null);
@@ -91,8 +109,8 @@ public final class Passwords implements AutoCloseable {
 
     /**
      * {@code email} is signed in and Android lists it as {@code listedAs} (null: as typed), the address the
-     * configuration names from now on: its password is remembered under that one if the user asked, and one the
-     * store held under the typed address moves there. False only when the store refused to keep it.
+     * configuration names from now on: a password the store refused as it was typed is tried there again, and one the
+     * store holds under the typed address moves to that one. False only when the store refused to keep it.
      */
     public synchronized boolean done(String email, String listedAs) {
         String key = PasswordStore.key(email);
@@ -110,7 +128,8 @@ public final class Passwords implements AutoCloseable {
 
     /**
      * The user typed {@code email}'s password on the instance themselves (the live screen's *Fill password…*): the
-     * batch holds it in place of any it had, and remembers it once the sign-in is {@link #done} if they asked. The
+     * batch holds it in place of any it had, and remembers it now if they asked (unticked, one the batch kept as
+     * typed is forgotten). The
      * batch clears it; false, and the password cleared, when the batch is over, left the account out, or already
      * signed it in. Takes the batch's lock, which a prompt being answered holds: never call it on the prompt's thread.
      */
@@ -124,15 +143,21 @@ public final class Passwords implements AutoCloseable {
         char[] was = held.put(key, answer.password());
         // a sign-in may still be using the one it replaces: cleared when the batch closes, not now
         if (was != null && was != answer.password()) replaced.add(was);
-        stored.remove(key);
-        if (answer.remember()) toRemember.add(key);
-        else toRemember.remove(key);
+        toRemember.remove(key);
+        // the one this batch kept as it was typed goes either way; one kept before the batch stays
+        boolean keptBefore = stored.remove(key) && !keptNow.contains(key);
+        if (keptNow.remove(key)) store.forget(email);
+        if (answer.remember()) {
+            keepNow(email);
+            // the store refused the new one: the old one is still there, and a wrong password must still forget it
+            if (keptBefore && !stored.contains(key)) stored.add(key);
+        }
         return true;
     }
 
     /**
-     * Google took {@code email}'s password, though the sign-in may still fail past it (a second step): it is
-     * remembered now if the user asked, so a retry doesn't ask for it again. False only when the store refused it.
+     * Google took {@code email}'s password, though the sign-in may still fail past it (a second step): one the store
+     * refused as it was typed is tried there again, so a retry doesn't ask for it. False only when the store refused it.
      */
     public synchronized boolean accepted(String email) {
         String key = PasswordStore.key(email);
@@ -144,7 +169,17 @@ public final class Passwords implements AutoCloseable {
         return true;
     }
 
-    /** Clears {@code email}'s password and never asks for it again in this batch. */
+    /**
+     * The password typed for {@code email} has nothing to sign in: Google knows no such account, or the instance
+     * cannot type it. Dropped, and forgotten by the store when this batch kept it, so the next Apply asks again; one
+     * kept before the batch stays.
+     */
+    public synchronized void discard(String email) {
+        if (keptNow.remove(PasswordStore.key(email))) store.forget(email);
+        drop(email);
+    }
+
+    /** Clears {@code email}'s password and never asks for it again in this batch; a kept one stays kept. */
     public synchronized void drop(String email) {
         String key = PasswordStore.key(email);
         char[] password = held.remove(key);
@@ -172,6 +207,7 @@ public final class Passwords implements AutoCloseable {
         replaced.forEach(password -> Arrays.fill(password, '\0'));
         replaced.clear();
         toRemember.clear();
+        keptNow.clear();
         closed = true;
     }
 }

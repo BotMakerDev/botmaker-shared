@@ -14,6 +14,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **A remembered password is kept as soon as it is typed** (2026-11-15, the user's call, `emulator.google.Passwords`):
+  ticked *Remember on this PC*, it goes into the OS credential store when the user answers the prompt (or *Fill
+  password…*), not once the sign-in is done, so a sign-in cancelled, crashed or stopped on a page BotMaker doesn't
+  know never asks for it again. Only Google saying it is wrong forgets it; a store that refuses it then is tried
+  again once Google took it. Unticking it in *Fill password…* forgets the one this batch kept, never one kept before.
 - **Who drives a sign-in is passed in** (2026-11-15, `emulator.google.SignInDriver`): `InstanceChanges` keeps the
   queue, the pacing and the passwords, and hands each sign-in to a `SignInDriver`, whose `Attempt` says how it ended
   and whether Google took the password. `SignInDriver.SCREENS`, today's `InstanceSignIn`, is the default. A driver
