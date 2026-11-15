@@ -5,6 +5,7 @@ import com.botmaker.shared.emulator.tree.Trait;
 import com.botmaker.shared.emulator.tree.UiNode;
 import com.botmaker.shared.emulator.tree.UiTree;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -12,7 +13,9 @@ import java.util.Optional;
  * HTML ids reach the tree ({@code identifierId}, {@code passwordNext}), so the email and password screens are read by id
  * in any language; the screens after them by their English words, and one BotMaker cannot read is {@link #UNKNOWN},
  * which the user answers. Captured 2026-11-12 on MuMu 12 (Android 15): the email screen, and its answer to an address
- * Google has no account for. The second-step screens (2026-11-14) are built from Google's ids and words, never captured:
+ * Google has no account for. Captured 2026-11-15 on LDPlayer 14 (Android 14): the email screen with no HTML id at
+ * all, read by its one field and its English words, and moved on by a native NEXT. The second-step screens
+ * (2026-11-14) are built from Google's ids and words, never captured:
  * they need a real account.
  */
 public enum SignInScreen {
@@ -108,9 +111,7 @@ public enum SignInScreen {
             return CAPTCHA;
         }
         if (Screens.shows(tree, "couldn't sign you in", "this browser or app may not be secure")) return REFUSED;
-        if (Screens.byId(tree, "identifierId").isPresent()) {
-            return Screens.shows(tree, "couldn't find", "enter a valid email") ? NO_SUCH_ACCOUNT : EMAIL;
-        }
+        if (Screens.byId(tree, "identifierId").isPresent()) return email(tree);
         if (passwordField(tree).isPresent()) {
             if (Screens.shows(tree, "wrong password")) return WRONG_PASSWORD;
             // Google asking the password again to confirm it's the user is theirs: BotMaker types it once only
@@ -132,7 +133,12 @@ public enum SignInScreen {
         if (Screens.shows(tree, "google services") && Screens.saying(tree, "Accept", "More").isPresent()) {
             return SERVICES;
         }
-        return UNKNOWN;
+        // the email page by its words, last: on a page with no HTML id they are all there is to read
+        return emailField(tree).isPresent() ? email(tree) : UNKNOWN;
+    }
+
+    private static SignInScreen email(UiTree tree) {
+        return Screens.shows(tree, "couldn't find", "enter a valid email") ? NO_SUCH_ACCOUNT : EMAIL;
     }
 
     /**
@@ -176,9 +182,20 @@ public enum SignInScreen {
         return ways;
     }
 
-    /** Where the email is typed. */
+    /**
+     * Where the email is typed: Google's id for it, else, where the WebView gives the tree no HTML id (LDPlayer 14,
+     * Android 14, 2026-11-15), the one text field of a page offering "Forgot email?" or "Create account".
+     */
     static Optional<UiNode> emailField(UiTree tree) {
-        return Screens.byId(tree, "identifierId");
+        return Screens.byId(tree, "identifierId").or(() -> Screens.shows(tree, "forgot email", "create account")
+                ? onlyField(tree) : Optional.empty());
+    }
+
+    /** The screen's text field when it has exactly one that is not a password's. */
+    private static Optional<UiNode> onlyField(UiTree tree) {
+        List<UiNode> fields = tree.all().stream()
+                .filter(n -> n.className().endsWith("EditText") && !n.has(Trait.PASSWORD)).toList();
+        return fields.size() == 1 ? Optional.of(fields.getFirst()) : Optional.empty();
     }
 
     /** Where the password is typed: the field Android marks a password, else Google's own id for it. */

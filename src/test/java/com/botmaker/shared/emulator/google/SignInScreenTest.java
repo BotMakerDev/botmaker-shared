@@ -29,6 +29,22 @@ class SignInScreenTest {
         assertEquals(SignInScreen.NO_SUCH_ACCOUNT, SignInScreen.of(captured("mumu-a15-no-such-account")));
     }
 
+    /** Captured 2026-11-15 on LDPlayer 14, Android 14: no HTML id reaches the tree, and NEXT is a native button. */
+    @Test
+    void readsTheEmailScreenWithoutGooglesIds() {
+        UiTree email = captured("ldplayer-a14-email");
+        assertEquals(SignInScreen.EMAIL, SignInScreen.of(email));
+        assertEquals(new Rectangle(198, 430, 885, 83), SignInScreen.emailField(email).orElseThrow().bounds());
+        assertEquals("NEXT", SignInScreen.EMAIL.next(email).orElseThrow().text());
+        String field = "<node resource-id=\"\" text=\"\" class=\"android.widget.EditText\" package=\"PKG\" "
+                + "bounds=\"[100,400][700,480]\"/>";
+        assertEquals(SignInScreen.CODE, SignInScreen.of(tree(GMS, node("", "2-Step Verification", 1),
+                        node("", "Enter the code", 2), field, node("", "Create account", 6))),
+                "a code's one field is the code's, even beside the email page's words");
+        assertEquals(SignInScreen.UNKNOWN, SignInScreen.of(tree(GMS, node("", "Create account", 1), field,
+                field.replace("400][700,480", "500][700,580"))), "two fields are not the email page's one");
+    }
+
     @Test
     void aPageWithNoWordsYetIsLoading() {
         assertEquals(SignInScreen.LOADING, SignInScreen.of(null));

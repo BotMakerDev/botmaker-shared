@@ -14,6 +14,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **Google's email page read without its ids** (2026-11-15, live: LDPlayer 14's sign-in stopped on "a screen BotMaker
+  doesn't know"): on Android 14 the page's WebView gives the tree no HTML id, so `identifierId` never showed. The
+  email field is now that id, else the page's one text field where it offers "Forgot email?" or "Create account";
+  its native NEXT already moved it on. `SignInScreenTest` reads the captured page (`ldplayer-a14-email.xml`).
 - **A flexible RAM budget** (2026-11-15, live: a 13.9 GB PC with 4.9 GB free could start no instance): `RamBudget`
   keeps a tenth of the PC's memory, from 1 to 2 GB, instead of 5 GB, and weighs two measures. Free physical memory
   holds what an instance really uses, half its memory plus 0.5 GB, as Windows pages out what sits idle; what the OS
