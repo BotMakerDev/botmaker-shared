@@ -62,6 +62,10 @@ class SignInScreenTest {
                 node("", "Insert your security key", 2))));
         assertEquals(SignInScreen.TWO_STEP, SignInScreen.of(tree(GMS, node("", "Verify it’s you", 1),
                 node("", "", 4, true), node("passwordNext", "Next", 5))), "a password asked again is the user's");
+        assertEquals(SignInScreen.TWO_STEP, SignInScreen.of(tree(GMS, node("", "Confirm you’re signing in", 1),
+                node("", "Try another way", 5))), "a page offering another way is a second step, whatever its heading");
+        assertEquals(SignInScreen.TWO_STEP, SignInScreen.of(tree(GMS, node("", "Welcome", 1),
+                node("", "More ways to verify", 5))));
         assertEquals(SignInScreen.CAPTCHA, SignInScreen.of(TestScreens.captcha()));
         assertEquals(SignInScreen.TERMS, SignInScreen.of(TestScreens.terms()));
         assertEquals(SignInScreen.SERVICES, SignInScreen.of(TestScreens.services()));

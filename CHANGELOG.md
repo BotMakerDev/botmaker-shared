@@ -14,6 +14,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **A page offering "Try another way" is a second step** (2026-11-15, live: LDPlayer 14 stopped past the password on
+  such a page under a heading none of the second step's words named): `SignInScreen.of` reads any page offering
+  "Try another way" or "More ways to verify" as `TWO_STEP`, which taps it to reach the list of ways. A stopgap until
+  the sign-in becomes its own bot.
 - **Google's email page read without its ids** (2026-11-15, live: LDPlayer 14's sign-in stopped on "a screen BotMaker
   doesn't know"): on Android 14 the page's WebView gives the tree no HTML id, so `identifierId` never showed. The
   email field is now that id, else the page's one text field where it offers "Forgot email?" or "Create account";

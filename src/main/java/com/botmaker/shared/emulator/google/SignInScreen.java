@@ -120,7 +120,9 @@ public enum SignInScreen {
         }
         if (Screens.byId(tree, CODE_IDS).isPresent() || Screens.byId(tree, BACKUP_ID).isPresent()
                 || Screens.shows(tree, "2-step verification", "verify it's you", "verify that it's you",
-                "choose how you want to sign in", "check your phone") || passkey(tree) || ways(tree) >= 2) {
+                "choose how you want to sign in", "check your phone") || passkey(tree) || ways(tree) >= 2
+                // past the password, only a second step offers another way, under whatever heading (LDPlayer 14)
+                || anotherWay(tree).isPresent()) {
             return secondStep(tree);
         }
         if (Screens.byId(tree, "signinconsentNext").isPresent() || Screens.saying(tree, "I agree").isPresent()) {
