@@ -45,7 +45,7 @@ public final class EmulatorOperations implements AutoCloseable {
 
     /**
      * Queues {@code body} for an instance that doesn't exist yet (a create, named {@code key}), on its product's own
-     * lane: it starts nothing, so it waits for no port.
+     * lane: it waits for no port, and the first start a make gives it is on a port the product just numbered.
      */
     public Operation submit(String title, InstanceKey key, Operation.Body body) {
         return submit(title, key, "product-" + key.platform().id(), body);

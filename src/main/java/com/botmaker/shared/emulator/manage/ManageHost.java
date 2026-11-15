@@ -2,6 +2,7 @@ package com.botmaker.shared.emulator.manage;
 
 import com.botmaker.shared.Spawn;
 import com.botmaker.shared.emulator.AdbDevice;
+import com.botmaker.shared.emulator.EmulatorIdentity;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorPlatform;
 import com.botmaker.shared.emulator.PlatformId;
@@ -44,6 +45,12 @@ public interface ManageHost {
      * of an instance that had it off); null when it is on, else why not.
      */
     String adbOn(EmulatorInstance instance) throws Exception;
+
+    /**
+     * Gives the running {@code instance} its own BotMaker ID file ({@link EmulatorIdentity#mark}): a clone carries its
+     * source's, a made instance has none. Null when it worked, else why not.
+     */
+    String mark(EmulatorInstance instance) throws Exception;
 
     static ManageHost live() {
         return Live.INSTANCE;
@@ -102,6 +109,11 @@ public interface ManageHost {
             if (file.isEmpty()) return "BotMaker didn't find " + instance.name() + "'s settings file to turn ADB on.";
             if (Boolean.TRUE.equals(WindowsSettings.of(instance).adbOn())) return null;
             return SettingsFiles.edit(file.get(), text -> WindowsSettings.ldPlayerWithAdb(text, true));
+        }
+
+        @Override
+        public String mark(EmulatorInstance instance) {
+            return EmulatorIdentity.mark(instance).orElse(null);
         }
     }
 }

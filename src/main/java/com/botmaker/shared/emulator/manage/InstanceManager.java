@@ -8,13 +8,23 @@ import com.botmaker.shared.emulator.HeldInstances;
 import com.botmaker.shared.emulator.NewInstance;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms;
+import com.botmaker.shared.emulator.config.AndroidState;
+import com.botmaker.shared.emulator.config.Applies;
+import com.botmaker.shared.emulator.config.Apply;
+import com.botmaker.shared.emulator.config.ApplyHost;
+import com.botmaker.shared.emulator.config.ConfigField;
+import com.botmaker.shared.emulator.config.ConfigValue;
+import com.botmaker.shared.emulator.config.InstanceFacts;
+import com.botmaker.shared.emulator.config.LightProfile;
 import com.botmaker.shared.emulator.config.Operation;
+import com.botmaker.shared.emulator.config.ProductSettings;
 import com.botmaker.shared.emulator.google.AccountDevice;
 import com.botmaker.shared.emulator.google.InstanceSignOut;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
@@ -89,12 +99,32 @@ public sealed interface InstanceManager {
         };
     }
 
-    /** What a clone gets once its accounts are gone: its configuration's Apply. Null when it worked. */
+    /**
+     * What a clone gets once its accounts are gone, or a made instance before its first start: its configuration's
+     * Apply. Null when it worked.
+     */
     @FunctionalInterface
     interface Prepare {
         String run(EmulatorInstance clone, Operation.Context context) throws Exception;
 
         Prepare NOTHING = (clone, context) -> null;
+
+        /**
+         * The light profile ({@link LightProfile}) written on the stopped instance through {@link Apply}, logged in
+         * {@code log} for Undo with the values its settings had.
+         */
+        static Prepare light(ApplyHost host, Applies log) {
+            return (instance, context) -> {
+                Map<ConfigField, ConfigValue> fields = LightProfile.fields(ProductSettings.of(instance.platformId()));
+                if (fields.isEmpty()) return null;
+                InstanceFacts before = host.read(instance, null);
+                List<Apply.Change> changes = fields.entrySet().stream()
+                        .map(e -> new Apply.Change(e.getKey(), before == null ? null
+                                : before.field(e.getKey()).map(InstanceFacts.Read::value).orElse(null), e.getValue()))
+                        .toList();
+                return new Apply(host, instance, before, log).run(changes, context).failed();
+            };
+        }
     }
 
     /** A product's console, driven through a {@link ManageHost}. */
@@ -145,6 +175,65 @@ public sealed interface InstanceManager {
         }
 
         /**
+         * The names to make so that {@code product} has {@code count} instances, none when it has them: its name and
+         * the first free numbers, "LDPlayer-1", "LDPlayer-2".
+         */
+        public static List<String> missingNames(PlatformId product, List<EmulatorInstance> existing, int count) {
+            List<String> out = new ArrayList<>();
+            for (int n = 1; existing.size() + out.size() < count && n <= existing.size() + count; n++) {
+                String name = product.displayName() + "-" + n;
+                if (nameProblem(name, existing, null) == null) out.add(name);
+            }
+            return out;
+        }
+
+        /**
+         * Makes a fresh instance called {@code name}, ready for its one account: created, new device IDs, ADB on and
+         * {@code stopped} run while it is stopped (the light profile, {@link Prepare#light}), then a first start held
+         * from every bot that gives it its BotMaker ID file ({@link ManageHost#mark}), and stopped again. Nothing is made
+         * once the product has {@code upTo} instances, counted as the operation runs. {@code made} hears it as soon as
+         * it exists, so a window lists it even when a later step fails.
+         */
+        public Operation.Body make(String name, int upTo, Prepare stopped, Consumer<EmulatorInstance> made) {
+            return context -> {
+                String n = name == null ? "" : name.strip();
+                List<EmulatorInstance> all = host.instances(product());
+                if (all.size() >= upTo) {
+                    return product().displayName() + " has " + all.size() + " instances already, so " + n
+                            + " was not made.";
+                }
+                String problem = nameProblem(n, all, null);
+                if (problem != null) return problem;
+                context.step("Creating " + n + "…");
+                context.progress(0.05);
+                EmulatorInstance fresh = madeBy(console.create(n), n, made, context);
+                try (HeldInstances.Hold ignored = HeldInstances.hold(fresh)) {
+                    context.step("Giving " + n + " new device IDs…");
+                    context.progress(0.3);
+                    String ids = newIds(fresh);
+                    if (ids != null) return ids + " " + n + " was not started.";
+                    String adb = host.adbOn(fresh);
+                    if (adb != null) return adb + " " + n + " was not started.";
+                    if (context.cancelled()) return "Cancelled: " + n + " was made and never started.";
+                    context.step("Applying its configuration…");
+                    context.progress(0.45);
+                    String prepared = stopped.run(fresh, context);
+                    if (prepared != null) return prepared + " " + n + " was not started.";
+                    context.step("Starting " + n + ", held from bots, to give it its BotMaker ID…");
+                    context.progress(0.6);
+                    String outcome;
+                    try {
+                        String started = host.start(fresh, context);
+                        outcome = started != null ? started : host.mark(upNow(fresh));
+                    } catch (Exception e) {
+                        outcome = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                    }
+                    return joined(outcome, stopped(fresh, context));
+                }
+            };
+        }
+
+        /**
          * Creates an instance called {@code name}, with ADB on (LDPlayer's is off in a new one, 2026-11-12);
          * {@code made} hears it once it exists.
          */
@@ -190,7 +279,14 @@ public sealed interface InstanceManager {
                     String outcome;
                     try {
                         String started = host.start(clone, context);
-                        outcome = started != null ? started : prepared(clone, removal, prepare, context);
+                        // it carries its source's ID file, so every checked connect refuses it until it has its own
+                        String marked = started == null ? host.mark(upNow(clone)) : null;
+                        if (marked != null) {
+                            outcome = marked + " The Google accounts it copied are still on it: remove them in its "
+                                    + "Settings › Accounts before a bot uses it.";
+                        } else {
+                            outcome = started != null ? started : prepared(clone, removal, prepare, context);
+                        }
                     } catch (Exception e) {
                         outcome = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                     }
@@ -282,13 +378,22 @@ public sealed interface InstanceManager {
             };
         }
 
-        /** Gives the stopped {@code instance} new device IDs. */
-        public Operation.Body newDeviceIds(EmulatorInstance instance) {
+        /**
+         * Gives the stopped {@code instance} new device IDs, refused while it holds a Google account as BotMaker last saw
+         * it ({@code last}, null when never read): Google would see that account's device change.
+         */
+        public Operation.Body newDeviceIds(EmulatorInstance instance, InstanceFacts last) {
             return context -> {
                 EmulatorInstance now = find(host.instances(product()), instance);
                 if (now == null) return gone(instance);
                 if (host.running(now)) {
                     return "Stop " + now.name() + " first: its device IDs change only while it is stopped.";
+                }
+                Set<String> held = last == null ? Set.of()
+                        : last.android().flatMap(AndroidState::googleAccounts).orElse(Set.of());
+                if (!held.isEmpty()) {
+                    return now.name() + " holds a Google account, so its device IDs stay: new ones would show Google a "
+                            + "new device for it. Sign it out first, or make a new instance instead.";
                 }
                 context.step("Giving " + now.name() + " new device IDs…");
                 return newIds(now);
@@ -354,6 +459,12 @@ public sealed interface InstanceManager {
             EmulatorInstance now = find(host.instances(product()), instance);
             if (now != null && name.equals(now.name())) return now;
             throw new IOException(refused(done, "didn't rename " + instance.name()));
+        }
+
+        /** {@code instance} as discovery lists it now that it runs, its address as its product gave it; else itself. */
+        private EmulatorInstance upNow(EmulatorInstance instance) throws Exception {
+            EmulatorInstance now = find(host.instances(product()), instance);
+            return now == null ? instance : now;
         }
 
         /** {@code instance} as discovery lists it now, by its address; null when it is gone. */

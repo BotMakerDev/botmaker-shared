@@ -7,13 +7,19 @@ import com.botmaker.shared.emulator.EmulatorReadiness;
 import com.botmaker.shared.emulator.HeldInstances;
 import com.botmaker.shared.emulator.NewInstance;
 import com.botmaker.shared.emulator.PlatformId;
+import com.botmaker.shared.emulator.config.AndroidState;
+import com.botmaker.shared.emulator.config.InstanceFacts;
+import com.botmaker.shared.emulator.config.InstanceKey;
 import com.botmaker.shared.emulator.config.Operation;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -190,8 +196,8 @@ class InstanceManagerTest {
         };
         assertNull(console(PlatformId.LDPLAYER, LD, host).clone(source, "Farm", removal, prepare, made::set)
                 .run(new Ctx()));
-        assertEquals(List.of("console copy", "console modify", "adb on Farm", "start Farm", "accounts", "remove 1",
-                "accounts", "prepare", "stop Farm"), host.log);
+        assertEquals(List.of("console copy", "console modify", "adb on Farm", "start Farm", "mark Farm", "accounts",
+                "remove 1", "accounts", "prepare", "stop Farm"), host.log);
         assertEquals(List.of("start held from others: true"), heldDuring);
         assertFalse(HeldInstances.heldElsewhere(made.get()), "released at the end");
         assertEquals(List.of(LD, "copy", "--name", "Farm", "--from", "0"), host.commands.getFirst());
@@ -334,11 +340,113 @@ class InstanceManagerTest {
         EmulatorInstance one = mumu(0, "Main");
         Fake host = new Fake(one);
         host.running.add(one.identity());
-        assertTrue(console(PlatformId.MUMU, MUMU, host).newDeviceIds(one).run(new Ctx()).startsWith("Stop Main"));
+        assertTrue(console(PlatformId.MUMU, MUMU, host).newDeviceIds(one, null).run(new Ctx())
+                .startsWith("Stop Main"));
         host.running.clear();
         host.answer = command -> new Spawn.Completed(2, "bad value " + command.get(7));
-        String failed = console(PlatformId.MUMU, MUMU, host).newDeviceIds(one).run(new Ctx());
+        String failed = console(PlatformId.MUMU, MUMU, host).newDeviceIds(one, null).run(new Ctx());
         assertEquals("MuMuManager.exe refused new device IDs for Main (exit 2).", failed);
+    }
+
+    @Test
+    void deviceIdsAreRefusedOnAnInstanceHoldingAnAccount() throws Exception {
+        EmulatorInstance one = ld(0, "Main");
+        Fake host = new Fake(one);
+        String refused = console(PlatformId.LDPLAYER, LD, host)
+                .newDeviceIds(one, seen(one, Set.of("someone@example.com"))).run(new Ctx());
+        assertTrue(refused.startsWith("Main holds a Google account"), refused);
+        assertFalse(refused.contains("example.com"), "the email is never said");
+        assertTrue(host.commands.isEmpty(), "the console never ran");
+        assertNull(console(PlatformId.LDPLAYER, LD, host).newDeviceIds(one, seen(one, Set.of())).run(new Ctx()));
+        assertEquals(1, host.commands.size());
+    }
+
+    private static InstanceFacts seen(EmulatorInstance instance, Set<String> accounts) {
+        AndroidState android = new AndroidState(Map.of(), Optional.of(accounts), Optional.empty(), "9", false,
+                Instant.EPOCH);
+        return new InstanceFacts(InstanceKey.of(instance), Map.of(), Instant.EPOCH, Optional.of(android), false);
+    }
+
+    @Test
+    void twoOfEachFromNoneFromOneAndFromTwo() {
+        assertEquals(List.of("LDPlayer-1", "LDPlayer-2"),
+                InstanceManager.Console.missingNames(PlatformId.LDPLAYER, List.of(), 2));
+        assertEquals(List.of("LDPlayer-1"),
+                InstanceManager.Console.missingNames(PlatformId.LDPLAYER, List.of(ld(0, "LDPlayer")), 2));
+        assertEquals(List.of("LDPlayer-2"),
+                InstanceManager.Console.missingNames(PlatformId.LDPLAYER, List.of(ld(0, "ldplayer-1")), 2),
+                "a name taken in any case is skipped");
+        assertEquals(List.of(), InstanceManager.Console.missingNames(PlatformId.LDPLAYER,
+                List.of(ld(0, "LDPlayer"), ld(1, "Farm"), ld(2, "Spare")), 2));
+    }
+
+    @Test
+    void aMadeInstanceGetsIdsAndItsProfileStoppedThenAHeldStartThatMarksIt() throws Exception {
+        Fake host = new Fake(ld(0, "LDPlayer"));
+        host.answer = command -> {
+            if (!command.get(1).equals("add")) return new Spawn.Completed(0, "");
+            host.instances.add(ld(1, command.get(3)));
+            return new Spawn.Completed(1, ""); // ldconsole add exits 1 after creating one
+        };
+        List<String> heldDuring = new ArrayList<>();
+        host.onStart = made -> heldDuring.add("held from others: " + elsewhere(made));
+        InstanceManager.Prepare light = (made, context) -> {
+            host.log.add((host.running(made) ? "running" : "stopped") + " light " + made.name());
+            return null;
+        };
+        AtomicReference<EmulatorInstance> made = new AtomicReference<>();
+        assertNull(console(PlatformId.LDPLAYER, LD, host).make("LDPlayer-1", 2, light, made::set).run(new Ctx()));
+        assertEquals(List.of("console add", "console modify", "adb on LDPlayer-1", "stopped light LDPlayer-1",
+                "start LDPlayer-1", "mark LDPlayer-1", "stop LDPlayer-1"), host.log);
+        assertEquals(List.of("held from others: true"), heldDuring);
+        assertEquals("LDPlayer-1", made.get().name());
+        assertFalse(HeldInstances.heldElsewhere(made.get()), "released at the end");
+    }
+
+    @Test
+    void aMadeInstanceWhoseMarkFailedIsStoppedAndSaysWhy() throws Exception {
+        Fake host = new Fake();
+        host.answer = command -> {
+            if (command.get(1).equals("add")) host.instances.add(ld(0, command.get(3)));
+            return new Spawn.Completed(0, "");
+        };
+        host.markFails = "LDPlayer-1's ID file could not be written.";
+        String failed = console(PlatformId.LDPLAYER, LD, host).make("LDPlayer-1", 2, InstanceManager.Prepare.NOTHING,
+                i -> {}).run(new Ctx());
+        assertEquals("LDPlayer-1's ID file could not be written. It is stopped.", failed);
+        assertFalse(host.running(host.instances.getFirst()));
+    }
+
+    @Test
+    void aMakeCountsAsItRunsSoAStaleListOrASecondPressMakesNoThird() throws Exception {
+        Fake host = new Fake(ld(0, "Main"), ld(1, "Farm"));
+        String refused = console(PlatformId.LDPLAYER, LD, host).make("LDPlayer-1", 2, InstanceManager.Prepare.NOTHING,
+                i -> {}).run(new Ctx());
+        assertEquals("LDPlayer has 2 instances already, so LDPlayer-1 was not made.", refused);
+        assertTrue(host.commands.isEmpty());
+    }
+
+    @Test
+    void aCloneWhoseMarkFailedSaysItsCopiedAccountsAreStillOnIt() throws Exception {
+        EmulatorInstance source = ld(0, "LDPlayer");
+        Fake host = new Fake(source);
+        host.answer = command -> {
+            if (command.get(1).equals("copy")) host.instances.add(ld(1, command.get(3)));
+            return new Spawn.Completed(0, "");
+        };
+        host.markFails = "Farm is not the instance running there.";
+        String failed = console(PlatformId.LDPLAYER, LD, host).clone(source, "Farm", REFUSES,
+                InstanceManager.Prepare.NOTHING, i -> {}).run(new Ctx());
+        assertTrue(failed.startsWith("Farm is not the instance running there. The Google accounts it copied are still"),
+                failed);
+        assertFalse(host.log.contains("accounts"), "no removal was tried over a refused connect");
+        assertEquals("stop Farm", host.log.getLast());
+    }
+
+    @Test
+    void theNameSearchIsBoundedAndSkipsTakenNumbers() {
+        assertEquals(List.of("LDPlayer-4", "LDPlayer-5"), InstanceManager.Console.missingNames(PlatformId.LDPLAYER,
+                List.of(ld(0, "LDPlayer-1"), ld(1, "LDPlayer-2"), ld(2, "LDPlayer-3")), 5));
     }
 
     @Test
@@ -373,6 +481,7 @@ class InstanceManagerTest {
         Function<List<String>, Spawn.Completed> answer = command -> new Spawn.Completed(0, "");
         Consumer<EmulatorInstance> onStart = i -> {};
         String stopFails;
+        String markFails;
 
         Fake(EmulatorInstance... known) {
             instances.addAll(List.of(known));
@@ -421,6 +530,12 @@ class InstanceManagerTest {
         public String adbOn(EmulatorInstance instance) {
             log.add("adb on " + instance.name());
             return null;
+        }
+
+        @Override
+        public String mark(EmulatorInstance instance) {
+            log.add("mark " + instance.name());
+            return markFails;
         }
     }
 

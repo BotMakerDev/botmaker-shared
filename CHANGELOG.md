@@ -14,6 +14,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **Two instances per emulator** (2026-11-15, spec `2026-11-14-end-to-end-instances-design.md` § Making instances):
+  `InstanceManager.Console.make` creates a fresh instance and readies it for its one account: new device IDs, ADB on,
+  the light profile written while it is stopped (`Prepare.light`, through `Apply`, logged for Undo), then a first start
+  held from bots that gives it its BotMaker ID file (`ManageHost.mark`), and a stop. `missingNames` names what a
+  product lacks up to a count ("LDPlayer-1"). A clone is now marked right after its first start: it carried its
+  source's ID file, so every checked connect, its account removal included, refused it. `newDeviceIds` refuses an
+  instance BotMaker last saw holding a Google account.
 - **The RAM budget and the light profile** (2026-11-15, spec `2026-11-14-end-to-end-instances-design.md` § The light
   profile, § The RAM budget): `RamBudget` lets one more instance start only while free physical memory, less a 5 GB
   reserve and less what instances already starting take, leaves its configured memory plus 0.5 GB. The live
