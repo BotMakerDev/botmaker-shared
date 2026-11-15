@@ -14,6 +14,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **A flexible RAM budget** (2026-11-15, live: a 13.9 GB PC with 4.9 GB free could start no instance): `RamBudget`
+  keeps a tenth of the PC's memory, from 1 to 2 GB, instead of 5 GB, and weighs two measures. Free physical memory
+  holds what an instance really uses, half its memory plus 0.5 GB, as Windows pages out what sits idle; what the OS
+  can still commit (the page file included) holds all of it plus 0.5 GB, so a VM never fails to commit its memory. A
+  wait says which one holds it ("… 1.9 GB free, 1.5 GB needed …" or "… 2 GB left to commit, 2.5 GB needed …").
+
 - **The paced batch, ready for Google** (2026-11-15, spec `2026-11-14-end-to-end-instances-design.md` § Lowering
   Google's risk score): `SignInPace` lets one Google sign-in start from this PC at a time, a random 5 to 10 minutes
   after the last one ended, and at most 8 in 24 hours. It keeps the count and the next start in

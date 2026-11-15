@@ -143,8 +143,12 @@ Spec § Making instances, § The light profile, § The RAM budget.
   BotMaker last saw holding a Google account.
 - **The light profile** (`LightProfile`): 2048 MB, 2 cores and 30 fps, keeping the screen, written with each
   product's own fields only. No memory trim is written: no product documents a key for one.
-- **The RAM budget** (`RamBudget`): one more instance starts only while free physical memory, less a 5 GB reserve and
-  less what instances already starting will take, still leaves its configured memory plus 0.5 GB. The live
+- **The RAM budget** (`RamBudget`, made flexible the same day, the user's call: "it can run well despite hitting 100%
+  memory"): one more instance starts only while two measures, each less a reserve of a tenth of the PC's memory (1 to
+  2 GB) and less what instances already starting will take, still hold it. Free physical memory must hold what it
+  really uses, half its configured memory plus 0.5 GB (`uses`); what the OS can still commit, the page file included,
+  must hold all of it plus 0.5 GB (`takes`), or the VM fails to start. On a 13.9 GB PC with 4.9 GB free, two light
+  instances start. The live
   `ApplyHost.start` waits there, saying "Waiting for memory: …" through its `Operation.Context`; Cancel ends the wait,
   and an instance bigger than the PC allows is refused at once. So several instances run together, as many as the PC
   holds.
