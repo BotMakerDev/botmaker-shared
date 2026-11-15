@@ -14,6 +14,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **Who drives a sign-in is passed in** (2026-11-15, `emulator.google.SignInDriver`): `InstanceChanges` keeps the
+  queue, the pacing and the passwords, and hands each sign-in to a `SignInDriver`, whose `Attempt` says how it ended
+  and whether Google took the password. `SignInDriver.SCREENS`, today's `InstanceSignIn`, is the default. A driver
+  that throws costs only its account (the next ones are still tried), and an account whose password is gone by its
+  turn is skipped as "no password given" rather than tried.
 - **A page offering "Try another way" is a second step** (2026-11-15, live: LDPlayer 14 stopped past the password on
   such a page under a heading none of the second step's words named): `SignInScreen.of` reads any page offering
   "Try another way" or "More ways to verify" as `TWO_STEP`, which taps it to reach the list of ways. A stopgap until

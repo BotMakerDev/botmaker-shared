@@ -14,6 +14,7 @@ import com.botmaker.shared.launch.LaunchSpec;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -122,15 +123,26 @@ public final class InstanceChanges {
     private final Host host;
     private final Pace pace;
     private final SignInPace signIns;
+    private final SignInDriver driver;
 
     public InstanceChanges(Host host) {
-        this(host, Pace.REAL, SignInPace.live());
+        this(host, SignInDriver.SCREENS);
+    }
+
+    /** Each sign-in driven by {@code driver}; the queue, the pacing and the passwords stay here. */
+    public InstanceChanges(Host host, SignInDriver driver) {
+        this(host, Pace.REAL, SignInPace.live(), driver);
     }
 
     InstanceChanges(Host host, Pace pace, SignInPace signIns) {
+        this(host, pace, signIns, InstanceSignIn.driver(pace));
+    }
+
+    InstanceChanges(Host host, Pace pace, SignInPace signIns, SignInDriver driver) {
         this.host = host;
         this.pace = pace;
         this.signIns = signIns;
+        this.driver = Objects.requireNonNull(driver, "driver");
     }
 
     /** An account signed in under the address typed and listed by Android under another of its addresses. */
@@ -275,17 +287,29 @@ public final class InstanceChanges {
                             : left + " Google accounts were not signed in: ") + waits);
                     return true;
                 }
+                char[] password = passwords.of(email);
+                if (password == null) {
+                    signIns.done();
+                    problems.add(account(adds, email) + ": skipped, no password given.");
+                    continue;
+                }
                 context.step("Signing in to " + account(adds, email) + "…");
-                InstanceSignIn signIn = new InstanceSignIn(device, pace);
-                InstanceSignIn.Result result;
+                SignInDriver.Attempt attempt;
                 try {
-                    result = signIn.signIn(email, passwords.of(email), second, context);
+                    attempt = driver.signIn(instance, device, email, password, second, context);
+                } catch (InterruptedException e) {
+                    throw e;
+                } catch (Exception e) {
+                    // this account's driver failed, not the instance: the next accounts are still tried
+                    problems.add(account(adds, email) + ": the sign-in did not run: " + e.getMessage());
+                    continue;
                 } finally {
                     signIns.done();
                 }
+                InstanceSignIn.Result result = attempt.result();
                 if (result.signedIn()) host.signedIn(instance);
                 // kept before a failed end drops it: Google took it, a retry shouldn't ask again
-                if (!result.signedIn() && signIn.passwordAccepted() && !passwords.accepted(email)) {
+                if (!result.signedIn() && attempt.passwordAccepted() && !passwords.accepted(email)) {
                     problems.add(account(adds, email) + ": this PC's credential store refused to remember its"
                             + " password.");
                 }

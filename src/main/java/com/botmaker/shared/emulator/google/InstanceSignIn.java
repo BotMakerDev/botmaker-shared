@@ -187,6 +187,15 @@ public final class InstanceSignIn {
         return new InstanceSignIn(device, Pace.REAL).signIn(email, password, second, context);
     }
 
+    /** The {@link SignInDriver} that reads Google's pages here, each sign-in on a new reader paced by {@code pace}. */
+    static SignInDriver driver(Pace pace) {
+        return (instance, device, email, password, second, context) -> {
+            InstanceSignIn signIn = new InstanceSignIn(device, pace);
+            InstanceSignIn.Result result = signIn.signIn(email, password, second, context);
+            return new SignInDriver.Attempt(result, signIn.passwordAccepted());
+        };
+    }
+
     /** Whether {@code input text} types every character of {@code text}: printable ASCII only. */
     public static boolean typeable(char[] text) {
         if (text == null || text.length == 0) return false;

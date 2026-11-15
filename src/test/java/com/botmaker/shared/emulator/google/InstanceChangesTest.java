@@ -11,6 +11,7 @@ import com.botmaker.shared.launch.GameInstall;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -316,6 +317,58 @@ class InstanceChangesTest {
         assertFalse(none.remembered(NEW), "refused right after the password: not known to be right");
     }
 
+    /** A driver given signs in in place of the screens; what its end means for the password stays the batch's. */
+    @Test
+    void aGivenDriverSignsInAndTheBatchKeepsThePasswords() throws Exception {
+        Host host = new Host();
+        host.running = true;
+        List<String> driven = new ArrayList<>();
+        SignInDriver driver = (instance, device, email, password, second, context) -> {
+            driven.add(instance.name() + " " + email + " " + password.length);
+            return new SignInDriver.Attempt(new InstanceSignIn.Result(InstanceSignIn.End.REFUSED, "Google refused."),
+                    true);
+        };
+        PasswordStoreTest.FakeStore store = new PasswordStoreTest.FakeStore();
+        try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("pw".toCharArray(), true))) {
+            String failed = changes(host, driver).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
+                    new TestScreens.Ctx());
+            assertTrue(failed != null && failed.contains("Google refused."), String.valueOf(failed));
+            assertTrue(store.remembered(NEW), "the driver says Google took it");
+            assertTrue(passwords.left(NEW), "a refused end drops the account from the batch");
+        }
+        assertEquals(List.of("MuMu-0 " + NEW + " 2"), driven);
+        assertTrue(host.device.log.isEmpty(), "the screens drove nothing: " + host.device.log);
+    }
+
+    /** A driver that fails costs only its account: the next is still signed in, and remembered when asked. */
+    @Test
+    void aFailingDriverSkipsOnlyItsAccount() throws Exception {
+        Host host = new Host();
+        host.running = true;
+        SignInDriver driver = (instance, device, email, password, second, context) -> {
+            if (email.equals(OLD)) throw new IOException("the sign-in bot did not start");
+            return new SignInDriver.Attempt(new InstanceSignIn.Result(InstanceSignIn.End.SIGNED_IN, "Signed in."),
+                    true);
+        };
+        PasswordStoreTest.FakeStore store = new PasswordStoreTest.FakeStore();
+        try (Passwords passwords = new Passwords(store, email -> new Passwords.Answer("pw".toCharArray(), true))) {
+            String failed = changes(host, driver).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, OLD, ConfigDiff.AccountChange.Op.ADD),
+                    change(AccountRecord.Kind.GOOGLE, NEW, ConfigDiff.AccountChange.Op.ADD)), List.of(), passwords,
+                    new TestScreens.Ctx());
+            assertEquals("Google account 1 of 2: the sign-in did not run: the sign-in bot did not start", failed);
+            assertTrue(store.remembered(NEW));
+            assertFalse(store.remembered(OLD));
+        }
+        assertTrue(host.log.contains("kept"), "the signed-in end keeps the identity: " + host.log);
+    }
+
+    @Test
+    void aNullDriverIsRefusedAtOnce() {
+        assertThrows(NullPointerException.class, () -> new InstanceChanges(new Host(), null));
+    }
+
     /** Another emulator answering the instance's address: nothing is signed in or installed, and the words say why. */
     @Test
     void anotherEmulatorOnTheAddressChangesNothing() throws Exception {
@@ -414,5 +467,11 @@ class InstanceChangesTest {
     private InstanceChanges changes(InstanceChanges.Host host) {
         TestScreens.Clock clock = new TestScreens.Clock();
         return new InstanceChanges(host, clock, new SignInPace(paceFile(), clock, new Random(1), ZoneOffset.UTC));
+    }
+
+    private InstanceChanges changes(InstanceChanges.Host host, SignInDriver driver) {
+        TestScreens.Clock clock = new TestScreens.Clock();
+        return new InstanceChanges(host, clock, new SignInPace(paceFile(), clock, new Random(1), ZoneOffset.UTC),
+                driver);
     }
 }
