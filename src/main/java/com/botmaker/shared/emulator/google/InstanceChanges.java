@@ -33,7 +33,7 @@ public final class InstanceChanges {
         boolean running(EmulatorInstance instance);
 
         /** Null when it started, else why not. */
-        String start(EmulatorInstance instance, Consumer<String> words) throws Exception;
+        String start(EmulatorInstance instance, Operation.Context context) throws Exception;
 
         /** Null when it stopped, else why not. */
         String stop(EmulatorInstance instance) throws Exception;
@@ -58,8 +58,8 @@ public final class InstanceChanges {
                 }
 
                 @Override
-                public String start(EmulatorInstance instance, Consumer<String> words) throws Exception {
-                    return ApplyHost.live().start(instance, words);
+                public String start(EmulatorInstance instance, Operation.Context context) throws Exception {
+                    return ApplyHost.live().start(instance, context);
                 }
 
                 @Override
@@ -156,7 +156,7 @@ public final class InstanceChanges {
         boolean wasRunning = host.running(instance);
         if (!wasRunning) {
             context.step("Starting " + instance.name() + "…");
-            String failed = host.start(instance, context::step);
+            String failed = host.start(instance, context);
             if (failed != null) {
                 problems.addFirst(failed);
                 return String.join(" ", problems);

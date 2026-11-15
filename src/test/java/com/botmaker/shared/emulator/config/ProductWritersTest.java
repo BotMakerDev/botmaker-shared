@@ -195,6 +195,60 @@ class ProductWritersTest {
     }
 
     @Test
+    void theLightProfileRoundTripsThroughLdPlayer() throws IOException {
+        EmulatorInstance ld = instance(PlatformId.LDPLAYER, "C:/LDPlayer/ldconsole.exe", "launch", "--index", "1");
+        ProductWriters.Plan plan = light(ld);
+        assertEquals(List.of("C:/LDPlayer/ldconsole.exe", "modify", "--index", "1", "--cpu", "2", "--memory", "2048"),
+                ((SettingWrite.Console) plan.stopped().getFirst()).command());
+        String edited = ((SettingWrite.FileEdit) plan.stopped().get(1)).edit()
+                .apply(InstanceFactsTest.resource("ldplayer/leidian0.config"));
+        assertEquals(new ConfigValue.Count(30), ProductSettings.LDPLAYER.parse(ld, edited).get(FPS));
+    }
+
+    @Test
+    void theLightProfileRoundTripsThroughBlueStacks() throws IOException {
+        EmulatorInstance bs = instance(PlatformId.BLUESTACKS, "HD-Player.exe", "--instance", "Pie64");
+        ProductWriters.Plan plan = light(bs);
+        String original = InstanceFactsTest.resource("bluestacks/bluestacks.conf");
+        String edited = ((SettingWrite.FileEdit) plan.stopped().getFirst()).edit().apply(original);
+        Map<ConfigField, ConfigValue> read = ProductSettings.BLUESTACKS.parse(bs, edited);
+        assertEquals(new ConfigValue.Megabytes(2048), read.get(MEMORY));
+        assertEquals(new ConfigValue.Count(2), read.get(CPU_CORES));
+        assertEquals(new ConfigValue.Count(30), read.get(FPS));
+        assertEquals(ProductSettings.BLUESTACKS.parse(bs, original).get(SCREEN), read.get(SCREEN), "the screen kept");
+    }
+
+    @Test
+    void theLightProfileRoundTripsThroughMuMuAndMemu() {
+        EmulatorInstance mumu = instance(PlatformId.MUMU, "C:/MuMu/MuMuManager.exe", "control", "-v", "3", "launch");
+        List<String> command = ((SettingWrite.Console) light(mumu).stopped().getFirst()).command();
+        assertPair(command, "performance_cpu.custom", "2");
+        assertPair(command, "performance_mem.custom", "2.000000");
+        assertPair(command, "max_frame_rate", "30");
+
+        EmulatorInstance memu = instance(PlatformId.MEMU, "C:/Microvirt/MEmu/memuc.exe", "start", "-n", "MEmu_1");
+        assertEquals(List.of(
+                List.of("setconfigex", "-n", "MEmu_1", "cpus", "2"),
+                List.of("setconfigex", "-n", "MEmu_1", "memory", "2048"),
+                List.of("setconfigex", "-n", "MEmu_1", "fps", "30")),
+                light(memu).stopped().stream().map(w -> ((SettingWrite.Console) w).command().subList(1, 6)).toList());
+    }
+
+    @Test
+    void theLightProfileIsNothingOnAProductThatAppliesNone() {
+        assertTrue(LightProfile.fields(ProductSettings.AVD).isEmpty());
+        assertFalse(LightProfile.in(Map.of(), ProductSettings.AVD), "nothing to want is not the profile");
+        assertTrue(LightProfile.in(LightProfile.fields(ProductSettings.LDPLAYER), ProductSettings.LDPLAYER));
+    }
+
+    private static ProductWriters.Plan light(EmulatorInstance instance) {
+        ProductWriters.Plan plan = ProductWriters.of(instance,
+                LightProfile.fields(ProductSettings.of(instance.platformId())), Map.of(), file());
+        assertTrue(plan.refused().isEmpty(), plan.refused().toString());
+        return plan;
+    }
+
+    @Test
     void anAvdTakesNothing() {
         ProductWriters.Plan plan = ProductWriters.of(instance(PlatformId.AVD, "emulator", "-avd", "Pixel_8"),
                 Map.of(FPS, new ConfigValue.Count(30)), Map.of(), file());

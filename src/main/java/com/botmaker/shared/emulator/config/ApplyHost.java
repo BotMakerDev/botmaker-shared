@@ -15,7 +15,6 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -31,7 +30,11 @@ public interface ApplyHost {
 
     String stop(EmulatorInstance instance) throws Exception;
 
-    String start(EmulatorInstance instance, Consumer<String> words) throws Exception;
+    /**
+     * Starts the instance and waits for its Android, saying each step in {@code context}; this PC's waits first for
+     * room in the {@link RamBudget}, which the user may cancel.
+     */
+    String start(EmulatorInstance instance, Operation.Context context) throws Exception;
 
     String console(List<String> command) throws Exception;
 
@@ -71,9 +74,25 @@ public interface ApplyHost {
         }
 
         @Override
-        public String start(EmulatorInstance instance, Consumer<String> words) {
-            if (!EmulatorLauncher.launch(instance)) return instance.brand() + "'s start command did not run.";
-            return EmulatorReadiness.bringUp(instance, words).isPresent() ? null : EmulatorReadiness.notReady(instance);
+        public String start(EmulatorInstance instance, Operation.Context context) throws InterruptedException {
+            RamBudget.Hold room;
+            try {
+                room = RamBudget.live().await(memoryMb(instance), context);
+            } catch (RamBudget.NoRoom e) {
+                return e.getMessage();
+            }
+            if (room == null) return "Cancelled while waiting for memory.";
+            try (room) {
+                if (!EmulatorLauncher.launch(instance)) return instance.brand() + "'s start command did not run.";
+                return EmulatorReadiness.bringUp(instance, context::step).isPresent() ? null
+                        : EmulatorReadiness.notReady(instance);
+            }
+        }
+
+        /** The memory the stopped instance's own settings give its Android; 0 when they do not say. */
+        private static int memoryMb(EmulatorInstance instance) {
+            return ProductSettings.of(instance.platformId()).read(instance).get(ConfigField.MEMORY)
+                    instanceof ConfigValue.Megabytes(int mb) ? mb : 0;
         }
 
         @Override

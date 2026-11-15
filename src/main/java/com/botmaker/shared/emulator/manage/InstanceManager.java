@@ -189,7 +189,7 @@ public sealed interface InstanceManager {
                     if (adb != null) return adb + " " + n + " was not started.";
                     String outcome;
                     try {
-                        String started = host.start(clone, context::step);
+                        String started = host.start(clone, context);
                         outcome = started != null ? started : prepared(clone, removal, prepare, context);
                     } catch (Exception e) {
                         outcome = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();

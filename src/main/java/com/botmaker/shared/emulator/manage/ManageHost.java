@@ -10,13 +10,13 @@ import com.botmaker.shared.emulator.config.AndroidState;
 import com.botmaker.shared.emulator.checks.SettingsFiles;
 import com.botmaker.shared.emulator.checks.WindowsSettings;
 import com.botmaker.shared.emulator.config.ApplyHost;
+import com.botmaker.shared.emulator.config.Operation;
 
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Consumer;
 
 /**
  * What {@link InstanceManager} does to the world: list a product's instances, run its console, stop and start an
@@ -34,7 +34,7 @@ public interface ManageHost {
 
     String stop(EmulatorInstance instance) throws Exception;
 
-    String start(EmulatorInstance instance, Consumer<String> words) throws Exception;
+    String start(EmulatorInstance instance, Operation.Context context) throws Exception;
 
     /** The Google emails signed in on the running {@code instance}, or null when Android did not say. */
     Set<String> googleAccounts(EmulatorInstance instance) throws Exception;
@@ -83,8 +83,8 @@ public interface ManageHost {
         }
 
         @Override
-        public String start(EmulatorInstance instance, Consumer<String> words) throws Exception {
-            return ApplyHost.live().start(instance, words);
+        public String start(EmulatorInstance instance, Operation.Context context) throws Exception {
+            return ApplyHost.live().start(instance, context);
         }
 
         @Override

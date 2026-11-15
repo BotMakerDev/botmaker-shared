@@ -67,7 +67,7 @@ class ApplyLiveTest {
         }
 
         if (applied.written().stream().anyMatch(c -> c.field() == ConfigField.SCREEN)) {
-            if (!host.running(instance)) assertNull(host.start(instance, System.out::println));
+            if (!host.running(instance)) assertNull(host.start(instance, printing()));
             try (AdbDevice device = AdbDevice.connect(instance.adb())) {
                 String size = device.shell("wm size");
                 String density = device.shell("wm density");
@@ -89,7 +89,7 @@ class ApplyLiveTest {
             }
         }
         if (!wasRunning && host.running(instance)) assertNull(host.stop(instance));
-        if (wasRunning && !host.running(instance)) assertNull(host.start(instance, System.out::println));
+        if (wasRunning && !host.running(instance)) assertNull(host.start(instance, printing()));
         assertTrue(log.last(InstanceKey.of(instance)).isEmpty());
         System.out.println("== done, " + Map.of("applied", applied.written().size(), "undone",
                 undone.written().size()));

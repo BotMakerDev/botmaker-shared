@@ -404,7 +404,7 @@ class InstanceManagerTest {
         }
 
         @Override
-        public String start(EmulatorInstance instance, Consumer<String> words) {
+        public String start(EmulatorInstance instance, Operation.Context context) {
             log.add("start " + instance.name());
             running.add(instance.identity()); // the process runs even when Android never answers
             onStart.accept(instance);

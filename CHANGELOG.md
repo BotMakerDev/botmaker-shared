@@ -14,6 +14,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **The RAM budget and the light profile** (2026-11-15, spec `2026-11-14-end-to-end-instances-design.md` § The light
+  profile, § The RAM budget): `RamBudget` lets one more instance start only while free physical memory, less a 5 GB
+  reserve and less what instances already starting take, leaves its configured memory plus 0.5 GB. The live
+  `ApplyHost.start` waits there and says so; Cancel stops the wait, and an instance bigger than the PC allows is refused
+  at once. `ApplyHost`, `ManageHost` and `InstanceChanges.Host`'s `start` take the `Operation.Context` instead of a
+  words consumer. `LightProfile` is the preset of 2048 MB, 2 cores and 30 fps, keeping the screen, with each product's
+  fields only. No memory trim is written: no product has a documented key for one.
 - **The authenticator key** (2026-11-14, spec `2026-11-14-end-to-end-instances-design.md` § The authenticator key): a
   Google account may follow `Verification.AUTHENTICATOR` (id `authenticator`), an account's own and never the book's
   default (`Verification.defaults()`). `Totp` makes RFC 6238's code (SHA-1, 30 s, 6 digits) from a Base32 setup key;

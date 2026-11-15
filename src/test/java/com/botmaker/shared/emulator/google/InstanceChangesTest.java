@@ -5,6 +5,7 @@ import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.config.AccountRecord;
 import com.botmaker.shared.emulator.config.ConfigDiff;
 import com.botmaker.shared.emulator.config.GameRecord;
+import com.botmaker.shared.emulator.config.Operation;
 import com.botmaker.shared.emulator.tree.UiTree;
 import com.botmaker.shared.launch.GameInstall;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class InstanceChangesTest {
         }
 
         @Override
-        public String start(EmulatorInstance instance, Consumer<String> words) {
+        public String start(EmulatorInstance instance, Operation.Context context) {
             log.add("start");
             running = true;
             return null;

@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -223,7 +222,7 @@ class ApplyTest {
         }
 
         @Override
-        public String start(EmulatorInstance instance, Consumer<String> words) {
+        public String start(EmulatorInstance instance, Operation.Context context) {
             String failed = call("start");
             if (failed == null) up = true;
             return failed;

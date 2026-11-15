@@ -140,7 +140,7 @@ public final class Apply {
         if ((wasRunning || !plan.running().isEmpty()) && !host.running(instance)) {
             if (context.cancelled()) return undo.back("Cancelled.", wasRunning, plan.refused(), context);
             context.step("Starting " + instance.name());
-            String failed = host.start(instance, context::step);
+            String failed = host.start(instance, context);
             if (failed != null) return undo.back(failed, wasRunning, plan.refused(), context);
             startedHere = !wasRunning;
         }
@@ -295,7 +295,8 @@ public final class Apply {
                         : " Putting it back also failed: " + String.join("; ", problems));
                 if (wasRunning && !host.running(instance)) {
                     context.step("Starting " + instance.name() + " again");
-                    String failed = host.start(instance, context::step);
+                    // putting back finishes even after Cancel, which is often why it runs: its wait for memory goes on
+                    String failed = host.start(instance, uncancellable(context));
                     if (failed != null) end += " " + instance.name() + " stays stopped: " + failed;
                 } else if (!wasRunning && host.running(instance)) {
                     host.stop(instance);
@@ -312,6 +313,41 @@ public final class Apply {
 
         private static void add(List<String> problems, String failed) {
             if (failed != null) problems.add(failed);
+        }
+
+        /** {@code context}, its steps said, never cancelled. */
+        private static Operation.Context uncancellable(Operation.Context context) {
+            return new Operation.Context() {
+                @Override
+                public void step(String words) {
+                    context.step(words);
+                }
+
+                @Override
+                public void progress(double fraction) {
+                    context.progress(fraction);
+                }
+
+                @Override
+                public void needsYou(String why) {
+                    context.needsYou(why);
+                }
+
+                @Override
+                public void resumed() {
+                    context.resumed();
+                }
+
+                @Override
+                public boolean cancelled() {
+                    return false;
+                }
+
+                @Override
+                public void found(Operation.Finding finding) {
+                    context.found(finding);
+                }
+            };
         }
     }
 }
