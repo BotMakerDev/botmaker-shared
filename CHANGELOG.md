@@ -12,6 +12,13 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Changed
+
+- Licensed under PolyForm Noncommercial 1.0.0, copyright LiQiyeDev: free for any noncommercial use, commercial use
+  needs a license from LiQiyeDev. Releases up to v0.9.0 stay CC0 1.0.
+
 ## [0.9.0] — 2026-11-16
 
 - **A remembered password is kept as soon as it is typed** (2026-11-15, the user's call, `emulator.google.Passwords`):
