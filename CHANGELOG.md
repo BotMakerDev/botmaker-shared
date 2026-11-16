@@ -12,7 +12,7 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
-## [Unreleased]
+## [0.9.0] — 2026-11-16
 
 - **A remembered password is kept as soon as it is typed** (2026-11-15, the user's call, `emulator.google.Passwords`):
   ticked *Remember on this PC*, it goes into the OS credential store when the user answers the prompt (or *Fill
