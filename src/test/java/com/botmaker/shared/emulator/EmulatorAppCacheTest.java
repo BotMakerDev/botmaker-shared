@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 LiQiyeDev
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.botmaker.shared.emulator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

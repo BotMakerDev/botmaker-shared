@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 LiQiyeDev
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.botmaker.shared.emulator.config;
 
 /** A wanted value and the layer it comes from, which the window shows beside it. */
