@@ -25,7 +25,6 @@ import com.botmaker.shared.emulator.google.AccountDevice;
 import com.botmaker.shared.emulator.google.InstanceSignOut;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -492,7 +491,8 @@ public sealed interface InstanceManager {
         }
 
         private String program() {
-            return Path.of(console.exe()).getFileName().toString();
+            String exe = console.exe();
+            return exe.substring(Math.max(exe.lastIndexOf('\\'), exe.lastIndexOf('/')) + 1);
         }
     }
 }

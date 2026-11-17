@@ -14,6 +14,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Fixed
+
+- The sign-in pace's "the next can go on Jan 2" names the month in English, as the sentence around it, on a PC in
+  another language. BlueStacks' start and MuMu's refusal cut a Windows program path by hand, so the tests pass on Linux.
+
 ### Changed
 
 - One memory budget for whatever this PC starts: `RamBudget` became `com.botmaker.shared.host.MemoryBudget`, which a

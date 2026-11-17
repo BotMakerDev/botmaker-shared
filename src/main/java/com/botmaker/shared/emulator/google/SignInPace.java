@@ -17,6 +17,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.random.RandomGenerator;
@@ -42,7 +43,8 @@ public final class SignInPace {
     static final int CAP = 8;
     private static final Duration POLL = Duration.ofSeconds(1);
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("MMM d");
+    /** English, as the sentence it sits in, whatever the PC's language. */
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH);
 
     private static volatile SignInPace live;
 

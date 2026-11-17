@@ -29,10 +29,12 @@ public final class WindowsCommands {
 
     /** {@code command} started through ShellExecute from its program's folder. */
     public static List<String> shellExecute(List<String> command) {
-        Path program = Path.of(command.getFirst());
-        StringBuilder script = new StringBuilder("Start-Process -FilePath ").append(quoted(program.toString()));
-        if (program.getParent() != null) {
-            script.append(" -WorkingDirectory ").append(quoted(program.getParent().toString()));
+        // a Windows path, cut by hand: Path reads it as one name on Linux, where the tests run too
+        String program = command.getFirst();
+        StringBuilder script = new StringBuilder("Start-Process -FilePath ").append(quoted(program));
+        int slash = Math.max(program.lastIndexOf('\\'), program.lastIndexOf('/'));
+        if (slash > 0) {
+            script.append(" -WorkingDirectory ").append(quoted(program.substring(0, slash)));
         }
         if (command.size() > 1) {
             script.append(" -ArgumentList ").append(command.subList(1, command.size()).stream()
