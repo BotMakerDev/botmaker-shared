@@ -55,16 +55,25 @@ public final class InstanceSignOut {
                 problems.add("Cancelled.");
                 break;
             }
+            // planned on an instance not read: one it does not hold is passed, said
+            if (gone(lower(emails.get(i)))) {
+                context.step("Google account " + (i + 1) + " of " + emails.size() + " was not on it.");
+                continue;
+            }
             context.step("Removing Google account " + (i + 1) + " of " + emails.size() + "…");
-            String failed = signOut(emails.get(i), context);
+            String failed = remove(lower(emails.get(i)), context);
             if (failed != null) problems.add("Removing Google account " + (i + 1) + ": " + failed);
         }
         return problems.isEmpty() ? null : String.join(" ", problems);
     }
 
     String signOut(String email, Operation.Context context) throws InterruptedException {
-        String wanted = email == null ? "" : email.strip().toLowerCase(Locale.ROOT);
-        if (gone(wanted)) return null;
+        String wanted = lower(email);
+        return gone(wanted) ? null : remove(wanted, context);
+    }
+
+    /** Removes {@code wanted}, lower case, known to be on the device. */
+    private String remove(String wanted, Operation.Context context) throws InterruptedException {
         context.step("Opening Android's accounts…");
         device.shell(ACCOUNTS);
         long deadline = pace.nowMillis() + LIMIT.toMillis();
@@ -130,6 +139,10 @@ public final class InstanceSignOut {
             }
             pace.sleep(InstanceSignIn.POLL);
         }
+    }
+
+    private static String lower(String email) {
+        return email == null ? "" : email.strip().toLowerCase(Locale.ROOT);
     }
 
     private boolean gone(String email) {

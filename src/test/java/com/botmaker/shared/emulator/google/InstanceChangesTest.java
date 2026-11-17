@@ -169,6 +169,33 @@ class InstanceChangesTest {
     }
 
     @Test
+    void aSignOutPlannedUnreadPassesAnAccountTheInstanceDoesNotHold() throws Exception {
+        Host host = new Host();
+        host.device.accounts.remove(OLD);
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        try (Passwords passwords = new Passwords(email -> null)) {
+            assertNull(changes(host).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, OLD, ConfigDiff.AccountChange.Op.REMOVE)),
+                    List.of(), passwords, ctx));
+        }
+        assertEquals(List.of("start", "device", "close", "stop"), host.log, "started, read, nothing tapped");
+        assertTrue(ctx.steps.contains("Google account 1 of 1 was not on it."), ctx.steps.toString());
+    }
+
+    @Test
+    void aSignOutPlannedUnreadRemovesAnAccountTheInstanceHolds() throws Exception {
+        Host host = new Host();
+        TestScreens.Ctx ctx = new TestScreens.Ctx();
+        try (Passwords passwords = new Passwords(email -> null)) {
+            assertNull(changes(host).run(MUMU, List.of(
+                    change(AccountRecord.Kind.GOOGLE, OLD, ConfigDiff.AccountChange.Op.REMOVE)),
+                    List.of(), passwords, ctx));
+        }
+        assertEquals(List.of("start", "device", "sign out", "close", "stop"), host.log);
+        assertFalse(host.device.accounts.contains(OLD));
+    }
+
+    @Test
     void nothingToDoStartsNothing() throws Exception {
         Host host = new Host();
         try (Passwords passwords = new Passwords(email -> null)) {

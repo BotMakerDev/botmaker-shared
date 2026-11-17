@@ -16,8 +16,8 @@ import java.util.Set;
  * never a change either.
  *
  * @param accountsRead whether Android listed the accounts; when not (the instance is stopped), every wanted Google
- *                     account is a sign-in, which reads the instance first and passes one it holds, and no removal is
- *                     said
+ *                     account is a sign-in, which reads the instance first and passes one it holds, and every account
+ *                     removed from it a sign-out if it is on it, which passes one it lacks
  * @param gamesRead    whether Android listed the packages; when not (the instance is stopped), every wanted game is an
  *                     install, which passes one the instance has ({@code UP_TO_DATE}), and none is said to differ
  */
@@ -75,6 +75,19 @@ public record ConfigDiff(List<FieldState> fields, List<AccountChange> accounts, 
     /** A Google account to sign in or out. */
     public record AccountChange(AccountRecord account, Op op) {
         public enum Op { ADD, REMOVE }
+
+        /** Whether Apply signs this account out of the instance: a removal of an account BotMaker signs in. */
+        public boolean signsOut() {
+            return op == Op.REMOVE && account.kind().signedInByBotMaker();
+        }
+    }
+
+    /**
+     * What follows a sign-out's words: " if it is on it" when the accounts were not read, as Apply then reads them
+     * first and passes an account the instance lacks; else nothing.
+     */
+    public String signOutCondition() {
+        return accountsRead ? "" : " if it is on it";
     }
 
     /**
@@ -111,14 +124,14 @@ public record ConfigDiff(List<FieldState> fields, List<AccountChange> accounts, 
                 accounts.add(new AccountChange(record, AccountChange.Op.ADD));
             }
         }
-        held.ifPresent(emails -> {
-            for (AccountRecord.Key removed : wanted.removedAccounts()) {
-                if (removed.kind().signedInByBotMaker() && emails.contains(removed.name())) {
-                    accounts.add(new AccountChange(new AccountRecord(removed.kind(), removed.name()),
-                            AccountChange.Op.REMOVE));
-                }
+        // not read (stopped): a sign-out if it is on it, which reads the instance first and passes one it lacks
+        for (AccountRecord.Key removed : wanted.removedAccounts()) {
+            boolean maybeHeld = held.map(emails -> emails.contains(lower(removed.name()))).orElse(true);
+            if (removed.kind().signedInByBotMaker() && maybeHeld) {
+                accounts.add(new AccountChange(new AccountRecord(removed.kind(), removed.name()),
+                        AccountChange.Op.REMOVE));
             }
-        });
+        }
 
         Optional<Set<String>> packages = android.flatMap(AndroidState::packages);
         List<GameRecord> missing = wanted.games().stream().map(Sourced::value)

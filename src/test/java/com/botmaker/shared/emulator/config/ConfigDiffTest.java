@@ -97,6 +97,28 @@ class ConfigDiffTest {
     }
 
     @Test
+    void anAccountRemovedFromAnUnreadInstanceIsASignOutIfItIsOnIt() {
+        Layer own = Layer.EMPTY.removingAccount(new AccountRecord.Key(AccountRecord.Kind.GOOGLE, "old@example.com"))
+                .removingAccount(new AccountRecord.Key(AccountRecord.Kind.FACEBOOK, "a player"));
+        Wanted wanted = new EmulatorConfig(Map.of(), Map.of(LD, own)).wanted(LD);
+
+        ConfigDiff unread = ConfigDiff.of(wanted, facts(LD, Map.of(), Optional.empty()));
+
+        assertEquals(List.of(new ConfigDiff.AccountChange(
+                new AccountRecord(AccountRecord.Kind.GOOGLE, "old@example.com"), ConfigDiff.AccountChange.Op.REMOVE)),
+                unread.accounts(), "Facebook is a record only");
+        assertFalse(unread.differs(), "not known to differ");
+        assertTrue(unread.applicable());
+        assertEquals(" if it is on it", unread.signOutCondition());
+
+        Layer cased = Layer.EMPTY.removingAccount(new AccountRecord.Key(AccountRecord.Kind.GOOGLE, "Old@Example.com"));
+        ConfigDiff read = ConfigDiff.of(new EmulatorConfig(Map.of(), Map.of(LD, cased)).wanted(LD),
+                facts(LD, Map.of(), android(Set.of("old@example.com"), Set.of())));
+        assertEquals(1, read.accounts().size(), "Android lists it lower case: still signed out");
+        assertEquals("", read.signOutCondition());
+    }
+
+    @Test
     void missingGamesAndUnreadAndroidSayNothingFalseButAStoppedInstanceIsSignedIn() {
         Wanted wanted = EmulatorConfig.EMPTY.withEmulator(PlatformId.LDPLAYER, Layer.EMPTY.withGame(GAME)
                 .withAccount(new AccountRecord(AccountRecord.Kind.GOOGLE, "main@example.com"))).wanted(LD);

@@ -16,6 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- A Google account removed from an instance whose accounts were not read (a stopped one) is now a sign-out: Apply
+  starts the instance, reads its accounts and removes it if it is there, else says "Google account N of M was not on
+  it". Before, no removal was planned until the instance had been read running.
 - Every file states its license and copyright by REUSE (`REUSE.toml`, `LICENSES/`), every Java source starts with
   its SPDX header, and the `reuse` workflow checks both on each push. openatx's `u2.jar` keeps MIT.
 - Licensed under PolyForm Noncommercial 1.0.0, copyright LiQiyeDev: free for any noncommercial use, commercial use
