@@ -16,6 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- A Google sign-in waits for the instance to settle instead of a fixed 3 minutes after boot: its boot completed,
+  Google Play services running, and its CPU below a quarter, no core above 60 %, for 20 s. Five minutes end the wait,
+  said, and the sign-in goes on; an Android that answers none of it is not waited for.
 - A Google account removed from an instance whose accounts were not read (a stopped one) is now a sign-out: Apply
   starts the instance, reads its accounts and removes it if it is there, else says "Google account N of M was not on
   it". Before, no removal was planned until the instance had been read running.

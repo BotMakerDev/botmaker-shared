@@ -35,13 +35,24 @@ import java.util.regex.Pattern;
  *       account is signed in: before that it has none to update with);</li>
  *   <li>its clock set by the network and checked against this PC's, its time zone this PC's, and its region this PC's
  *       country, its language kept English, which the sign-in reads its screens in;</li>
- *   <li>three minutes gone since it booted.</li>
+ *   <li>Android settled: its boot completed, Google Play services running and its CPU quiet for 20 s, waited for at
+ *       most five minutes.</li>
  * </ol>
  * The identities are kept in {@link UserDirs#config()}, by instance.
  */
 public final class SignInReady {
 
-    static final Duration AFTER_BOOT = Duration.ofMinutes(3);
+    /** How long the instance's CPU stays below {@link #BUSY} to have settled. */
+    static final Duration QUIET = Duration.ofSeconds(20);
+    /** The share of CPU time, all cores, below which the instance is quiet. */
+    static final double BUSY = 0.25;
+    /** The share of one core's time at or above which the instance is busy, however idle the others are. */
+    static final double BUSY_CORE = 0.6;
+    /** How long the settling is waited for before the sign-in goes on all the same. */
+    static final Duration SETTLE_CAP = Duration.ofMinutes(5);
+    static final String BOOTED = "getprop sys.boot_completed";
+    static final String PLAY_UP = "pidof com.google.android.gms.persistent com.google.android.gms";
+    static final String CPU = "grep ^cpu /proc/stat";
     /** How far the instance's clock may be from this PC's once set. */
     static final Duration CLOCK = Duration.ofMinutes(2);
     private static final Duration POLL = Duration.ofSeconds(1);
@@ -155,7 +166,7 @@ public final class SignInReady {
         timeZone(name, context);
         region(name, context);
 
-        return booted(name, context);
+        return settled(name, context);
     }
 
     /** The parts read now and when the identity was kept that differ; none when no identity is kept. */
@@ -340,29 +351,100 @@ public final class SignInReady {
                 : name + "'s region could not be set to this PC's country, " + country + ".");
     }
 
-    /** Waits until {@link #AFTER_BOOT} has gone since the instance booted; null then, else why not. */
-    private String booted(String name, Operation.Context context) throws InterruptedException {
-        long said = -1;
+    /**
+     * Waits until Android has settled: its boot completed, Google Play services running, and its CPU below
+     * {@link #BUSY} (no core at {@link #BUSY_CORE}) for {@link #QUIET}. {@link #SETTLE_CAP} ends the wait, said, and
+     * the sign-in goes on; an Android that answers none of it is not waited for. Null then, else why not (cancelled).
+     */
+    private String settled(String name, Operation.Context context) throws InterruptedException {
+        long start = pace.nowMillis();
+        long quietSince = -1;
+        Map<String, long[]> last = null;
+        String said = null;
         while (true) {
             if (context.cancelled()) return "Cancelled.";
-            Double uptime = uptime();
-            if (uptime == null || uptime >= AFTER_BOOT.toSeconds()) return null;
-            long left = (long) Math.ceil(AFTER_BOOT.toSeconds() - uptime);
-            long minutes = (left + 59) / 60;
-            if (minutes != said) {
-                said = minutes;
-                context.step("Letting " + name + " settle for " + minutes + " min after its boot before it signs in…");
+            long now = pace.nowMillis();
+            String bootProp = shell.run(BOOTED).strip();
+            boolean booted = "1".equals(bootProp);
+            boolean play = booted && !shell.run(PLAY_UP).strip().isEmpty();
+            Map<String, long[]> cpu = cpu();
+            if (last == null && bootProp.isEmpty() && cpu == null) {
+                // nothing answers at all: no settling can be read, so none is waited for
+                context.step(name + "'s Android does not say whether it has settled; it signs in now.");
+                return null;
+            }
+            // a CPU Android does not say is not waited for; the first reading has nothing to compare with
+            boolean quiet = cpu == null || last != null && quiet(last, cpu);
+            boolean compared = cpu == null || last != null;
+            last = cpu;
+            String why = !booted ? "it is still booting" : !play ? "Google Play services are not up yet"
+                    : !compared ? null : !quiet ? "its CPU is busy" : null;
+            if (why == null && compared) {
+                if (quietSince < 0) quietSince = now;
+                if (now - quietSince >= QUIET.toMillis()) {
+                    context.step(name + " has settled.");
+                    return null;
+                }
+            } else {
+                quietSince = -1;
+            }
+            if (why != null && !why.equals(said)) {
+                said = why;
+                context.step("Letting " + name + " settle before it signs in: " + why + "…");
+            }
+            if (now - start >= SETTLE_CAP.toMillis()) {
+                context.step(name + " did not settle within " + SETTLE_CAP.toMinutes() + " min ("
+                        + (why == null ? "its CPU was not quiet for " + QUIET.toSeconds() + " s" : why)
+                        + "); it signs in all the same.");
+                return null;
             }
             pace.sleep(POLL);
         }
     }
 
-    private Double uptime() {
-        String out = shell.run("cat /proc/uptime").strip();
-        try {
-            return out.isEmpty() ? null : Double.parseDouble(out.split("\\s+")[0]);
-        } catch (NumberFormatException unread) {
-            return null;
+    /**
+     * {@code /proc/stat}'s CPU lines, by name ({@code cpu} all of them, {@code cpu0}… each core): time in all and idle
+     * (with waiting on I/O); null when there is no {@code cpu} line.
+     */
+    private Map<String, long[]> cpu() {
+        Map<String, long[]> lines = new LinkedHashMap<>();
+        for (String line : shell.run(CPU).strip().split("\\R")) {
+            String[] parts = line.strip().split("\\s+");
+            if (parts.length < 5 || !parts[0].startsWith("cpu")) continue;
+            long total = 0;
+            long idle = 0;
+            try {
+                // user nice system idle iowait irq softirq steal; guest time is in user already
+                for (int i = 1; i < Math.min(parts.length, 9); i++) {
+                    long value = Long.parseLong(parts[i]);
+                    total += value;
+                    if (i == 4 || i == 5) idle += value;
+                }
+            } catch (NumberFormatException unread) {
+                continue;
+            }
+            lines.put(parts[0], new long[] {total, idle});
         }
+        return lines.containsKey("cpu") ? lines : null;
+    }
+
+    /**
+     * Whether the CPU was quiet between two readings: all of it below {@link #BUSY}, and no core below
+     * {@link #BUSY_CORE}, so one core held by Play services is not hidden by the idle others.
+     */
+    static boolean quiet(Map<String, long[]> before, Map<String, long[]> after) {
+        if (busy(before.get("cpu"), after.get("cpu")) >= BUSY) return false;
+        for (Map.Entry<String, long[]> core : after.entrySet()) {
+            long[] was = before.get(core.getKey());
+            if (!core.getKey().equals("cpu") && was != null && busy(was, core.getValue()) >= BUSY_CORE) return false;
+        }
+        return true;
+    }
+
+    /** The share of CPU time not idle between two readings; 1 when no time passed, so nothing is taken for quiet. */
+    static double busy(long[] before, long[] after) {
+        long total = after[0] - before[0];
+        if (total <= 0) return 1;
+        return 1 - (double) (after[1] - before[1]) / total;
     }
 }

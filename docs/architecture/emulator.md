@@ -165,7 +165,9 @@ the account's.
 - **`SignInReady`**, before an instance's sign-ins: its model, Android ID and Google services ID kept as salted hashes
   only, one changed since its last sign-in refusing (`forget` and `renamed` carry it through a delete, make, clone or
   rename); Play services present; its clock set by the network and within 2 minutes of this PC's; its time zone this
-  PC's and its region this PC's country, in English; 3 minutes after boot.
+  PC's and its region this PC's country, in English; then Android settled (`sys.boot_completed`, Play services
+  running by `pidof`, `/proc/stat` below 25 % busy and no core at 60 % for 20 s), waited for at most 5 minutes, which goes on, said;
+  an Android answering none of the three is not waited for.
 - **`InstanceChanges`** readies each instance, waits each sign-in's turn, and starts no instance for sign-ins when the
   day is at its cap. Play services and the Play Store are not updated first: Play has no account to update them with
   until one is signed in.
