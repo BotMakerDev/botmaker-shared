@@ -131,7 +131,7 @@ Spec `2026-11-14-end-to-end-instances-design.md` § Addresses.
   A file holding this instance's ID under an older name is a rename, not a clash. *Mark as itself* gives a running
   clone that still carries its source's file an ID of its own.
 
-## Making instances, the light profile and the RAM budget (2026-11-15)
+## Making instances, the light profile and the memory budget (2026-11-15)
 
 Spec § Making instances, § The light profile, § The RAM budget.
 
@@ -143,15 +143,16 @@ Spec § Making instances, § The light profile, § The RAM budget.
   BotMaker last saw holding a Google account.
 - **The light profile** (`LightProfile`): 2048 MB, 2 cores and 30 fps, keeping the screen, written with each
   product's own fields only. No memory trim is written: no product documents a key for one.
-- **The RAM budget** (`RamBudget`, made flexible the same day, the user's call: "it can run well despite hitting 100%
-  memory"): one more instance starts only while two measures, each less a reserve of a tenth of the PC's memory (1 to
-  2 GB) and less what instances already starting will take, still hold it. Free physical memory must hold what it
-  really uses, half its configured memory plus 0.5 GB (`uses`); what the OS can still commit, the page file included,
-  must hold all of it plus 0.5 GB (`takes`), or the VM fails to start. On a 13.9 GB PC with 4.9 GB free, two light
-  instances start. The live
-  `ApplyHost.start` waits there, saying "Waiting for memory: …" through its `Operation.Context`; Cancel ends the wait,
-  and an instance bigger than the PC allows is refused at once. So several instances run together, as many as the PC
-  holds.
+- **The memory budget** (host's `MemoryBudget`, 2026-11-17, the user's calls: "it can run well despite hitting 100%
+  memory", and the budget is not the emulators' but whatever this PC starts): a starter asks by a `Need` (who, what
+  it commits, what it uses once up) and holds that room until it is up. Only what the OS can still commit, the page
+  file included, less a reserve of a tenth of the PC's memory (1 to 2 GB) and less what is already starting, holds a
+  start back: a VM that cannot commit its memory fails to start. Short free physical memory is a step ("… the PC may
+  page and slow down."), not a wait. An instance is the first starter (`InstanceMemory`): it commits all its configured
+  memory plus 0.5 GB (`takes`) and uses about half of it plus 0.5 GB (`uses`). The live `ApplyHost.start` waits
+  there, saying "Waiting for memory to start X: …" through its `Operation.Context`; Cancel ends the wait, and an
+  instance bigger than the PC allows is refused at once. `SdkPools`' offer counts by the same budget. Game VMs and
+  private displays join when they need it.
 
 ## Pacing Google sign-ins (2026-11-15)
 

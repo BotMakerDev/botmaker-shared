@@ -13,6 +13,7 @@ import com.botmaker.shared.emulator.EmulatorState;
 import com.botmaker.shared.emulator.checks.SettingsFiles;
 import com.botmaker.shared.emulator.checks.WindowsBackups;
 import com.botmaker.shared.emulator.checks.WindowsFixes;
+import com.botmaker.shared.host.MemoryBudget;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -35,7 +36,7 @@ public interface ApplyHost {
 
     /**
      * Starts the instance and waits for its Android, saying each step in {@code context}; this PC's waits first for
-     * room in the {@link RamBudget}, which the user may cancel.
+     * room in the {@link MemoryBudget}, which the user may cancel.
      */
     String start(EmulatorInstance instance, Operation.Context context) throws Exception;
 
@@ -78,11 +79,13 @@ public interface ApplyHost {
 
         @Override
         public String start(EmulatorInstance instance, Operation.Context context) throws InterruptedException {
-            RamBudget.Hold room;
+            MemoryBudget budget = MemoryBudget.live();
+            MemoryBudget.Hold room;
             try {
-                room = RamBudget.live().await(memoryMb(instance), context);
-            } catch (RamBudget.NoRoom e) {
-                return e.getMessage();
+                room = budget.await(InstanceMemory.need(instance.name(), memoryMb(instance), budget),
+                        new MemoryBudget.Waiter(context::step, context::cancelled));
+            } catch (MemoryBudget.NoRoom e) {
+                return e.getMessage() + " Give it less memory, such as the light profile's 2 GB.";
             }
             if (room == null) return "Cancelled while waiting for memory.";
             try (room) {

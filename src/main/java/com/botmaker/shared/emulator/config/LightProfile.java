@@ -13,9 +13,9 @@ import static com.botmaker.shared.emulator.config.ConfigField.MEMORY;
 
 /**
  * The light profile (spec {@code 2026-11-14-end-to-end-instances-design.md} § The light profile): 2048 MB, 2 cores and
- * 30 frames a second, so several instances run together within the {@link RamBudget}. A preset of the configuration:
- * setting it writes these fields into a layer, which Apply makes so like any other change, and undo takes back. The
- * screen is left as the game's.
+ * 30 frames a second, so several instances run together within this PC's memory ({@link InstanceMemory}). A preset of
+ * the configuration: setting it writes these fields into a layer, which Apply makes so like any other change, and undo
+ * takes back. The screen is left as the game's.
  *
  * <p>No memory trim (checked 2026-11-15): LDPlayer's files have no such key, and BlueStacks' trim is a set of
  * edition-wide {@code bst.mem_*} keys whose effect nothing documents, so neither is written.

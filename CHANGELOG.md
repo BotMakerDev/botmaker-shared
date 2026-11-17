@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- One memory budget for whatever this PC starts: `RamBudget` became `com.botmaker.shared.host.MemoryBudget`, which a
+  starter asks by its `Need` (who, what it commits, what it uses once up); an emulator instance is the first, sized
+  by `emulator.config.InstanceMemory`. Only what the OS cannot commit holds a start back; low free physical memory is
+  said as a step ("the PC may page and slow down") and the start goes on. A wait names what it starts and what else is
+  starting.
 - A Google sign-in waits for the instance to settle instead of a fixed 3 minutes after boot: its boot completed,
   Google Play services running, and its CPU below a quarter, no core above 60 %, for 20 s. Five minutes end the wait,
   said, and the sign-in goes on; an Android that answers none of it is not waited for.
