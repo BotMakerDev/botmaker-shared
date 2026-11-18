@@ -118,6 +118,18 @@
             <version>${botmaker.runlog.version}</version>
         </dependency>
 
+        <!--
+          Web discovery's read-only guard (com.botmaker.shared.web): the public suffix list a scope is judged by
+          (EffectiveTldFinder, the list shipped in the jar, nothing fetched) and robots.txt's parser
+          (SimpleRobotRulesParser). Apache-2.0. It brings commons-io and slf4j-api, no slf4j provider: nothing in
+          it starts or logs by itself.
+        -->
+        <dependency>
+            <groupId>com.github.crawler-commons</groupId>
+            <artifactId>crawler-commons</artifactId>
+            <version>1.6</version>
+        </dependency>
+
         <!-- Tests: JUnit Jupiter (see CLAUDE.md). Used by the ipc telemetry round-trip/loopback tests. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

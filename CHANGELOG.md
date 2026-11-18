@@ -24,6 +24,21 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   box), a JPEG frame, its console and failed requests, and presses or types into a node through CDP's input, never
   the user's cursor. Tests tagged `@Tag("slow")` start the real browser and are left out of the default run
   (`-Dgroups=slow -Dsurefire.excludedGroups=` runs them).
+- The web target's read-only guard (web discovery phase 2):
+  - `Scope`: the start URL's registrable domain and every subdomain of it. It is decided by the public suffix list
+    that crawler-commons ships, a new dependency.
+  - `Guard` judges each request of a tab through CDP's `Fetch`:
+    - a navigation off the site is aborted and recorded as an exit, and nothing reaches the other host;
+    - a page `robots.txt` disallows is never loaded;
+    - after a press, a write to the site is failed;
+    - the page's own requests to other hosts pass;
+    - a popup or new tab the page opens is attached paused and guarded the same before it runs.
+  - `Presses` refuses submit buttons, a button in a form that sends, Enter in a field, and a closed word list
+    (buy, pay, sign up, delete…).
+  - `Robots` reads `robots.txt` with crawler-commons' parser, as `BotMaker/<version> (+discovery, read-only)`.
+  - `Pace` allows one action a second, and `Crawl-delay` only slows it.
+  - `Budget` is 200 page loads or 30 min.
+  - `Consent` picks a cookie dialog's reject or necessary-only button, or stops when the dialog has none.
 
 ### Fixed
 

@@ -22,6 +22,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 /**
  * <b>One tab of a {@link Chromium}</b>: it opens a URL, waits for the page to settle, reads the page's tree, a frame,
@@ -50,6 +51,21 @@ public final class WebPage implements AutoCloseable {
             })();
             """.formatted(BINDING);
 
+    /** The element's press facts: the control the node is or sits in, and its form. */
+    private static final String PRESS_FACTS = """
+            function() {
+              const el = this.nodeType === 1 ? this : this.parentElement;
+              if (!el) return {submit: false, inForm: false, formAction: ''};
+              const control = el.closest('button, input') || el;
+              const form = control.form || el.closest('form');
+              const tag = control.tagName;
+              const type = (control.getAttribute('type') || (tag === 'BUTTON' ? 'submit' : '')).toLowerCase();
+              const submit = !!control.form && ((tag === 'BUTTON' && type === 'submit')
+                  || (tag === 'INPUT' && (type === 'submit' || type === 'image')));
+              return {submit, inForm: !!form, formAction: form ? (form.getAttribute('action') || '') : ''};
+            }
+            """;
+
     /** Requests that stay open by design and would keep a page from ever settling. */
     private static final Set<String> LONG_LIVED = Set.of("EventSource", "WebSocket");
 
@@ -64,10 +80,16 @@ public final class WebPage implements AutoCloseable {
     /** Each document's load, by the loader that brought it; emptied at each {@link #open}. */
     private final Map<String, CompletableFuture<Void>> loads = new ConcurrentHashMap<>();
 
-    WebPage(Cdp cdp, String targetId, Cdp.Session session) {
+    /** The browser's: who guards the pages a tab opens, by the opener's target id. */
+    private final Map<String, Consumer<JsonNode>> openers;
+    /** The openers this tab put in {@link #openers}: itself and the pages it opened. */
+    private final Set<String> opening = ConcurrentHashMap.newKeySet();
+
+    WebPage(Cdp cdp, String targetId, Cdp.Session session, Map<String, Consumer<JsonNode>> openers) {
         this.cdp = cdp;
         this.targetId = targetId;
         this.session = session;
+        this.openers = openers;
         listen();
         session.call("Page.enable");
         session.call("Page.setLifecycleEventsEnabled", Map.of("enabled", true));
@@ -231,6 +253,34 @@ public final class WebPage implements AutoCloseable {
         session.call("Input.insertText", Map.of("text", text));
     }
 
+    /**
+     * What the page says of {@code node}'s element that its tree does not: whether a press would submit a form. Empty
+     * when the element cannot be read (no DOM node, detached, the call failed).
+     */
+    public Optional<Presses.Facts> pressFacts(WebNode node) {
+        if (node.backendId() == 0) {
+            return Optional.empty();
+        }
+        try {
+            String object = session.call("DOM.resolveNode", Map.of("backendNodeId", node.backendId()))
+                    .path("object").path("objectId").asText("");
+            if (object.isEmpty()) {
+                return Optional.empty();
+            }
+            JsonNode answer = session.call("Runtime.callFunctionOn", Map.of("objectId", object,
+                    "returnByValue", true, "functionDeclaration", PRESS_FACTS));
+            session.send("Runtime.releaseObject", Map.of("objectId", object));
+            JsonNode facts = answer.path("result").path("value");
+            if (answer.has("exceptionDetails") || !facts.isObject()) {
+                return Optional.empty();
+            }
+            return Optional.of(new Presses.Facts(facts.path("submit").asBoolean(false),
+                    facts.path("inForm").asBoolean(false), facts.path("formAction").asText("")));
+        } catch (Cdp.CdpException goneOrDetached) {
+            return Optional.empty();
+        }
+    }
+
     /** The tab's own commands and events, for what this class does not say yet. */
     public Cdp.Session session() {
         return session;
@@ -244,6 +294,26 @@ public final class WebPage implements AutoCloseable {
             // A closed browser closed its tabs.
         }
         cdp.forget(session.id());
+        opening.forEach(openers::remove);
+    }
+
+    /** The session of a target this tab opened, which the browser attached by itself. */
+    Cdp.Session session(String sessionId) {
+        return cdp.session(sessionId);
+    }
+
+    /**
+     * Gives each page {@code opener} opens (this tab, or a page it opened) to {@code guard}, attached and paused before
+     * it runs: {@code Target.attachedToTarget}'s parameters. Until this tab closes.
+     */
+    void onOpened(String opener, Consumer<JsonNode> guard) {
+        opening.add(opener);
+        openers.put(opener, guard);
+    }
+
+    /** The tab's target, which is its main frame's id too. */
+    String targetId() {
+        return targetId;
     }
 
     private CompletableFuture<Void> load(String loader) {

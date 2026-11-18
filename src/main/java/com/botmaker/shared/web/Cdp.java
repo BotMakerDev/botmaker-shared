@@ -91,6 +91,11 @@ public final class Cdp implements AutoCloseable {
         return new Session(this, answer.path("sessionId").asText());
     }
 
+    /** The session of a target the browser attached by itself ({@code Target.attachedToTarget}). */
+    Session session(String sessionId) {
+        return new Session(this, sessionId);
+    }
+
     /** A new empty map of parameters, for a command whose parameters are nested. */
     public static ObjectNode params() {
         return JSON.createObjectNode();

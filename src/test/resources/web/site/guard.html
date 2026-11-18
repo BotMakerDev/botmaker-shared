@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fixture guard</title></head>
+<body>
+<nav aria-label="Ways out">
+  <a href="%OTHER%/jobs">Jobs board</a>
+  <a href="%ACCOUNTS%/signin">Sign in with Google</a>
+  <a href="%ALIAS%/case-studies">Case studies on www</a>
+  <a href="/redirect-out">Careers</a>
+  <a href="/private/secret">Secret</a>
+  <a href="%OTHER%/tab" target="_blank">Shop in a new tab</a>
+  <a href="#" onclick="window.open('%OTHER%/popup'); return false">Chat with us</a>
+</nav>
+<main>
+  <img alt="pixel" src="%OTHER%/pixel.png">
+  <form action="/api/save" method="post">
+    <input aria-label="Draft" name="draft">
+    <button type="button" onclick="fetch('/api/save', {method: 'POST', body: 'x'}).catch(() => {})">Save draft</button>
+    <button type="submit">Go</button>
+  </form>
+  <button type="button" onclick="document.getElementById('said').textContent = 'Opened'">Subscribe</button>
+  <button type="button" onclick="document.getElementById('said').textContent = 'Shown'">Show more</button>
+  <p id="said"></p>
+</main>
+</body>
+</html>

@@ -3,6 +3,8 @@
 
 package com.botmaker.shared.web;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -15,7 +17,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * <b>One running Chromium</b>, started for BotMaker alone: a fresh profile in a temporary folder, deleted on
@@ -35,10 +39,32 @@ public final class Chromium implements AutoCloseable {
     private final Path profile;
     private final Cdp cdp;
 
+    /** Who guards the pages a tab opens, by the opening tab's target id. */
+    private final Map<String, Consumer<JsonNode>> openers = new ConcurrentHashMap<>();
+
     private Chromium(Process process, Path profile, Cdp cdp) {
         this.process = process;
         this.profile = profile;
         this.cdp = cdp;
+    }
+
+    /**
+     * Every new page is attached paused before it runs, so a tab's guard sees a popup or a {@code target=_blank} tab
+     * before its first request; a page no tab claims by its {@code openerId} is let go at once.
+     */
+    private void attachPages() {
+        cdp.browser().on("Target.attachedToTarget", params -> {
+            Cdp.Session opened = cdp.session(params.path("sessionId").asText());
+            Consumer<JsonNode> guard = openers.get(params.path("targetInfo").path("openerId").asText(""));
+            if (guard != null) {
+                guard.accept(params);
+                return;
+            }
+            // Let go, not detached: newPage's own attach may be given this same session.
+            opened.send("Runtime.runIfWaitingForDebugger", Map.of());
+        });
+        cdp.browser().call("Target.setAutoAttach", Map.of("autoAttach", true, "waitForDebuggerOnStart", true,
+                "flatten", true, "filter", List.of(Map.of("type", "page"))));
     }
 
     /**
@@ -74,7 +100,14 @@ public final class Chromium implements AutoCloseable {
                 .redirectOutput(log.toFile()).start();
         try {
             URI socket = devTools(process, profile, log);
-            return new Chromium(process, profile, Cdp.connect(socket));
+            Chromium chromium = new Chromium(process, profile, Cdp.connect(socket));
+            try {
+                chromium.attachPages();
+            } catch (RuntimeException e) {
+                chromium.cdp.close();
+                throw e;
+            }
+            return chromium;
         } catch (IOException | RuntimeException e) {
             process.descendants().forEach(ProcessHandle::destroyForcibly);
             process.destroyForcibly();
@@ -93,7 +126,7 @@ public final class Chromium implements AutoCloseable {
     public WebPage newPage() {
         String target = cdp.browser().call("Target.createTarget", Map.of("url", "about:blank"))
                 .path("targetId").asText();
-        return new WebPage(cdp, target, cdp.attach(target));
+        return new WebPage(cdp, target, cdp.attach(target), openers);
     }
 
     public boolean alive() {
