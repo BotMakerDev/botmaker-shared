@@ -93,6 +93,8 @@ public final class Launcher {
                 RunningProbe.record(spec.spec(), p);
                 return p;
             }
+            // The run opens a website in its own guarded browser; nothing on this machine launches it.
+            case WEB -> Diag.log("[Target] " + spec.spec() + ": a website opens in the run's own browser");
             case UNKNOWN -> Diag.log("[Target] start: don't know how to launch '" + spec.spec() + "'");
         }
         return null;

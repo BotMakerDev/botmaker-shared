@@ -13,6 +13,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -40,16 +41,42 @@ public final class WebPage implements AutoCloseable {
     public static final Duration SETTLE_MAX = Duration.ofSeconds(10);
 
     private static final String BINDING = "__botmakerMutation";
+    /**
+     * Reports the page's changes, but not an animation's: a change of a {@code style} attribute never counts (what a
+     * script animates frame by frame), and a node that changed {@value #ANIMATING_STREAK} times in a row, each within
+     * {@value #ANIMATING_GAP_MS} ms of the one before, is animating: its changes stop counting until it rests that
+     * long. A press's answer adds, removes or retexts nodes that were at rest, so it counts.
+     */
     private static final String OBSERVER = """
             (() => {
               if (window.__botmakerObserving) return;
               window.__botmakerObserving = true;
               let pending = false;
+              const seen = new WeakMap();
+              const animating = node => {
+                const now = performance.now();
+                const was = seen.get(node) || {last: -1e9, streak: 0};
+                const streak = now - was.last < %d ? was.streak + 1 : 0;
+                seen.set(node, {last: now, streak});
+                return streak >= %d;
+              };
               const report = () => { pending = false; try { %s(''); } catch (e) {} };
-              new MutationObserver(() => { if (!pending) { pending = true; setTimeout(report, 50); } })
-                .observe(document, {subtree: true, childList: true, attributes: true, characterData: true});
+              new MutationObserver(records => {
+                let counts = false;
+                for (const r of records) {
+                  // An element added or removed always counts: it is never a frame of an animation, and a
+                  // parent a ticker keeps appending to must not hide what a press puts beside it.
+                  const element = n => n.nodeType === 1;
+                  if (r.type === 'childList' && ([...r.addedNodes].some(element)
+                      || [...r.removedNodes].some(element))) { counts = true; continue; }
+                  if (!animating(r.target)) counts = true;
+                }
+                if (counts && !pending) { pending = true; setTimeout(report, 50); }
+              }).observe(document, {subtree: true, childList: true, attributes: true, characterData: true});
             })();
-            """.formatted(BINDING);
+            """.formatted(WebPage.ANIMATING_GAP_MS, WebPage.ANIMATING_STREAK, BINDING);
+    private static final int ANIMATING_GAP_MS = 300;
+    private static final int ANIMATING_STREAK = 4;
 
     /** The element's press facts: the control the node is or sits in, and its form. */
     private static final String PRESS_FACTS = """
@@ -251,6 +278,78 @@ public final class WebPage implements AutoCloseable {
     public void type(WebNode node, String text) {
         session.call("DOM.focus", Map.of("backendNodeId", node.backendId()));
         session.call("Input.insertText", Map.of("text", text));
+    }
+
+    /** Presses the left button at {@code at}, in viewport CSS pixels: a press no node of the tree names. */
+    public void clickAt(Point at) {
+        for (String type : List.of("mouseMoved", "mousePressed", "mouseReleased")) {
+            session.call("Input.dispatchMouseEvent", Map.of("type", type, "x", at.x, "y", at.y,
+                    "button", type.equals("mouseMoved") ? "none" : "left", "clickCount", 1));
+        }
+    }
+
+    /** Turns the wheel at {@code at} by {@code dx}, {@code dy} CSS pixels: positive scrolls right and down. */
+    public void wheel(Point at, int dx, int dy) {
+        session.call("Input.dispatchMouseEvent", Map.of("type", "mouseWheel", "x", at.x, "y", at.y,
+                "deltaX", dx, "deltaY", dy));
+    }
+
+    /** Types {@code text} into whatever has the focus, as one insertion. */
+    public void insert(String text) {
+        session.call("Input.insertText", Map.of("text", text));
+    }
+
+    /**
+     * Presses and releases the key {@code key}, a DOM key name ({@code Enter}, {@code Escape}, {@code Tab},
+     * {@code ArrowDown}, {@code a}).
+     */
+    public void key(String key) {
+        char c = key.length() == 1 ? key.charAt(0) : 0;
+        String code = Character.isLetter(c) ? "Key" + key.toUpperCase(Locale.ROOT)
+                : Character.isDigit(c) ? "Digit" + key : c == ' ' ? "Space" : key;
+        // A key that types carries its text on keyDown, as Chrome's own input does: without it a letter types
+        // nothing and Enter neither submits nor follows a focused link. Any other key goes down raw.
+        String text = key.equals("Enter") ? "\r" : key.length() == 1 ? key : null;
+        Map<String, Object> down = new HashMap<>(Map.of("type", text == null ? "rawKeyDown" : "keyDown", "key", key,
+                "code", code, "windowsVirtualKeyCode", virtualKey(key)));
+        if (text != null) {
+            down.put("text", text);
+            down.put("unmodifiedText", text);
+        }
+        session.call("Input.dispatchKeyEvent", down);
+        session.call("Input.dispatchKeyEvent", Map.of("type", "keyUp", "key", key, "code", code,
+                "windowsVirtualKeyCode", virtualKey(key)));
+    }
+
+    /** The Windows virtual key code CDP needs for a key's default action (Enter submitting, Tab moving focus). */
+    private static int virtualKey(String key) {
+        return switch (key) {
+            case "Enter" -> 13;
+            case "Escape" -> 27;
+            case "Tab" -> 9;
+            case "Backspace" -> 8;
+            case " " -> 32;
+            case "ArrowLeft" -> 37;
+            case "ArrowUp" -> 38;
+            case "ArrowRight" -> 39;
+            case "ArrowDown" -> 40;
+            case "PageUp" -> 33;
+            case "PageDown" -> 34;
+            case "Home" -> 36;
+            case "End" -> 35;
+            case "Delete" -> 46;
+            default -> key.length() == 1 ? Character.toUpperCase(key.charAt(0))
+                    : key.matches("F([1-9]|1[0-2])") ? 111 + Integer.parseInt(key.substring(1)) : 0;
+        };
+    }
+
+    /** Closes the page {@code targetId}, one this tab opened; a page already gone is no error. */
+    void closeOpened(String targetId) {
+        try {
+            cdp.browser().send("Target.closeTarget", Map.of("targetId", targetId));
+        } catch (RuntimeException gone) {
+            // Closed by itself, or the browser went.
+        }
     }
 
     /**

@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.StreamSupport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -118,6 +119,7 @@ class GuardSlowTest {
         site.robots(null);
         try (WebPage page = chromium.newPage(); Guard guard = guard(page)) {
             page.open(home());
+            long before = pages();
             assertTrue(guard.press(link(page, "Shop in a new tab")).isEmpty());
             List<Guard.Stopped> tab = stopped(page, guard);
             assertEquals(List.of(new Guard.Stopped(Guard.Kind.EXIT, "http://elsewhere.test:" + other.port() + "/tab",
@@ -128,7 +130,18 @@ class GuardSlowTest {
                     "http://elsewhere.test:" + other.port() + "/popup", "GET")), popup);
             assertEquals(0, other.hits("/tab"));
             assertEquals(0, other.hits("/popup"));
+            // Each tab the guard turned back is closed, not left on about:blank.
+            for (int i = 0; i < 40 && pages() > before; i++) {
+                Thread.sleep(50);
+            }
+            assertEquals(before, pages());
         }
+    }
+
+    /** The browser's open pages. */
+    private static long pages() {
+        return StreamSupport.stream(chromium.cdp().browser().call("Target.getTargets").path("targetInfos")
+                .spliterator(), false).filter(t -> t.path("type").asText().equals("page")).count();
     }
 
     @Test

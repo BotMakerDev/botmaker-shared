@@ -84,6 +84,17 @@ class WebPageSlowTest {
     }
 
     @Test
+    void aPageThatNeverStopsAnimatingStillSettlesAndItsAnswerToAPressCounts() {
+        try (WebPage page = chromium.newPage()) {
+            assertTrue(page.open(site.url("/animated")).settled(), "a spinner and a ticker are an animation");
+            page.click(page.tree().find(Role.BUTTON, "Ask").getFirst());
+            assertTrue(page.settled());
+            assertTrue(page.tree().nodes().stream().anyMatch(n -> n.name().equals("Answered")),
+                    page.tree().outline());
+        }
+    }
+
+    @Test
     void aLinkPressNavigates() {
         try (WebPage page = chromium.newPage()) {
             page.open(site.url("/"));

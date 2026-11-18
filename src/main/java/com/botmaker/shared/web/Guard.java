@@ -5,6 +5,7 @@ package com.botmaker.shared.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.awt.Point;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -145,6 +146,24 @@ public final class Guard implements AutoCloseable {
         page.type(node, text);
     }
 
+    /** Presses at {@code at}, a point no node of the tree names; from then on, writes to the site are failed. */
+    public void pressAt(Point at) {
+        arm();
+        page.clickAt(at);
+    }
+
+    /** Presses the key {@code key} ({@link WebPage#key}); from then on, writes to the site are failed. */
+    public void key(String key) {
+        arm();
+        page.key(key);
+    }
+
+    /** Types {@code text} where the focus is; from then on, writes to the site are failed. */
+    public void insert(String text) {
+        arm();
+        page.insert(text);
+    }
+
     /** From now on, writes to the site are failed: what a press does, with nothing pressed. */
     void arm() {
         pressed = true;
@@ -191,7 +210,13 @@ public final class Guard implements AutoCloseable {
                 return;
             }
             try {
-                navigations.execute(() -> answer(session, params, true));
+                navigations.execute(() -> {
+                    boolean aborted = answer(session, params, true);
+                    // A popup the guard turned back would stay on about:blank: nothing is left to see in it.
+                    if (aborted && !targetId.equals(page.targetId())) {
+                        page.closeOpened(targetId);
+                    }
+                });
             } catch (RejectedExecutionException closing) {
                 // Closing: no robots.txt fetch on the socket's thread; a navigation then is simply not made.
                 session.send("Fetch.failRequest", Map.of("requestId", params.path("requestId").asText(),
@@ -218,7 +243,8 @@ public final class Guard implements AutoCloseable {
         opened.send("Runtime.runIfWaitingForDebugger", Map.of());
     }
 
-    private void answer(Cdp.Session session, JsonNode params, boolean navigation) {
+    /** Lets the request go or fails it; whether it was failed. */
+    private boolean answer(Cdp.Session session, JsonNode params, boolean navigation) {
         String id = params.path("requestId").asText();
         JsonNode request = params.path("request");
         String url = request.path("url").asText("");
@@ -232,7 +258,7 @@ public final class Guard implements AutoCloseable {
         }
         if (verdict.isEmpty()) {
             session.send("Fetch.continueRequest", Map.of("requestId", id));
-            return;
+            return false;
         }
         synchronized (stopped) {
             stopped.add(new Stopped(verdict.get(), url, method));
@@ -240,6 +266,7 @@ public final class Guard implements AutoCloseable {
         // Aborted, not blocked: an aborted navigation commits no error page, so the tab stays where it was.
         session.send("Fetch.failRequest", Map.of("requestId", id,
                 "errorReason", navigation ? "Aborted" : "BlockedByClient"));
+        return true;
     }
 
     private Optional<Kind> verdict(String url, String method, boolean navigation) {

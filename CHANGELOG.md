@@ -39,6 +39,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   - `Pace` allows one action a second, and `Crawl-delay` only slows it.
   - `Budget` is 200 page loads or 30 min.
   - `Consent` picks a cookie dialog's reject or necessary-only button, or stops when the dialog has none.
+- A website is a launch target, `LaunchKind.WEB` (web discovery phase 3). It runs off the desktop on every known OS.
+  `WebTree.asUiTree()` gives a page's tree as the emulator tree's nodes: class `web:<role>`, its traits, and its
+  box. `WebTree.pressedAt` finds the node under a point.
+  `WebPage` and `Guard` press at a point, roll the wheel, insert text and press a key. A popup tab the guard aborted
+  is closed. A page counts as settled when only its `style` changes, or when a node changed 4 times in a row, each
+  within 300 ms of the last: that node is animating, and its changes no longer count.
 
 ### Fixed
 

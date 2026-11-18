@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fixture animated</title></head>
+<body>
+<main>
+  <h1>Always moving</h1>
+  <div id="spinner" style="width: 20px; height: 20px; background: #333"></div>
+  <p id="ticker">0</p>
+  <button type="button" onclick="document.getElementById('said').textContent = 'Answered'">Ask</button>
+  <p id="said"></p>
+</main>
+<script>
+  let turn = 0;
+  setInterval(() => {
+    turn++;
+    document.getElementById('spinner').style.transform = 'rotate(' + (turn * 10) + 'deg)';
+    document.getElementById('ticker').textContent = String(turn);
+  }, 50);
+</script>
+</body>
+</html>

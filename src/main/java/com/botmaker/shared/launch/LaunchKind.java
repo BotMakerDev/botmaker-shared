@@ -66,6 +66,11 @@ public enum LaunchKind {
     EXE("exe", "Executable"),
     /** An app inside a named Android emulator instance, spelled {@code <package>@<instance>}. */
     EMULATOR_APP("emu-app", "Emulator app"),
+    /**
+     * A website, spelled by its start URL: opened in BotMaker's own Chromium ({@code shared.web}) under the read-only
+     * guard, by the run that drives it, never by a launcher of this machine.
+     */
+    WEB("web", "Website"),
     /** A kind we don't recognise — parsed rather than rejected, so an unknown spec is still printable. */
     UNKNOWN("", "Launch target");
 
@@ -146,9 +151,12 @@ public enum LaunchKind {
      * nothing to offer it, so being unable to isolate it is the normal case rather than a problem. Consumers
      * ask this instead of testing the kind, so the fact lives on the closed set (the {@code PlatformId}
      * pattern) rather than in each launch surface's {@code if}.
+     *
+     * <p>A {@link #WEB website} is off the desktop too: its Chromium is headless and takes CDP's input, never the
+     * desktop's cursor.
      */
     public boolean runsOffDesktop() {
-        return this == EMULATOR_APP;
+        return this == EMULATOR_APP || this == WEB;
     }
 
     /**
@@ -168,7 +176,7 @@ public enum LaunchKind {
     public boolean runsOn(Os os) {
         if (os == null) return false;
         return switch (this) {
-            case STEAM, CLI, EXE, EMULATOR_APP, DESKTOP -> os != Os.UNKNOWN;
+            case STEAM, CLI, EXE, EMULATOR_APP, DESKTOP, WEB -> os != Os.UNKNOWN;
             case HEROIC, URL, EPIC -> os == Os.WINDOWS || os == Os.MAC;
             case LUTRIS -> os == Os.LINUX;
             case FAUGUS, BOTTLES, UNKNOWN -> false;

@@ -3,11 +3,16 @@
 
 package com.botmaker.shared.web;
 
+import com.botmaker.shared.emulator.tree.Trait;
+import com.botmaker.shared.emulator.tree.UiNode;
+import com.botmaker.shared.emulator.tree.UiTree;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -118,6 +123,12 @@ public record WebTree(List<WebNode> nodes) {
         return nodes.stream().filter(WebNode::interactive).toList();
     }
 
+    /** The node a press at {@code at} lands on: the smallest laid-out node a person acts on whose box holds it. */
+    public Optional<WebNode> pressedAt(Point at) {
+        return nodes.stream().filter(n -> n.interactive() && n.laidOut() && n.box().contains(at))
+                .min(Comparator.comparingLong(n -> (long) n.box().width * n.box().height));
+    }
+
     /** The nodes of one role whose name is {@code name}, ignoring case and surrounding space. */
     public List<WebNode> find(Role role, String name) {
         String wanted = name == null ? "" : name.strip();
@@ -148,6 +159,56 @@ public record WebTree(List<WebNode> nodes) {
             }
         }
         return out.toString();
+    }
+
+    /** What {@link #asUiTree} puts before a role's id in a node's {@link UiNode#className()}. */
+    public static final String CLASS_PREFIX = "web:";
+
+    /**
+     * This tree as an emulator's {@link UiTree}, so what finds an element on a phone finds it on a page: each node a
+     * {@link UiNode} whose {@code id} is its test id, else its DOM id; whose {@code label} is its accessible name and
+     * whose {@code text} is a field's value, else its name; whose {@code className} is {@link #CLASS_PREFIX} and its
+     * role's id; whose {@code bounds} is its box. A node a person acts on is clickable unless disabled.
+     */
+    public UiTree asUiTree() {
+        if (nodes.isEmpty()) {
+            return new UiTree(List.of());
+        }
+        // Tree order puts a child after its parent: built from the last node back, each child is ready first.
+        UiNode[] built = new UiNode[nodes.size()];
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            WebNode node = nodes.get(i);
+            List<UiNode> children = node.children().stream().map(c -> built[c]).toList();
+            built[i] = new UiNode(node.testId().isEmpty() ? node.domId() : node.testId(),
+                    field(node.role()) ? node.value() : node.name(), node.name(), CLASS_PREFIX + node.role().id(), "",
+                    node.box(), traits(node), children);
+        }
+        return new UiTree(List.of(built[0]));
+    }
+
+    /** The role {@link #asUiTree} spelled in {@code className}; empty for a node no web tree gave. */
+    public static Optional<Role> roleOf(String className) {
+        return className != null && className.startsWith(CLASS_PREFIX)
+                ? Optional.of(Role.fromId(className.substring(CLASS_PREFIX.length()))) : Optional.empty();
+    }
+
+    /** Whether a person types into a node of {@code role}. */
+    public static boolean field(Role role) {
+        return role == Role.TEXTBOX || role == Role.SEARCHBOX || role == Role.COMBOBOX || role == Role.SPINBUTTON;
+    }
+
+    private static Set<Trait> traits(WebNode node) {
+        EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+        boolean enabled = !node.has(WebState.DISABLED);
+        if (enabled) traits.add(Trait.ENABLED);
+        // A control with no box (a collapsed menu's link) cannot be pressed: its point would be the page's corner.
+        if (enabled && node.interactive() && node.laidOut()) traits.add(Trait.CLICKABLE);
+        if (node.has(WebState.CHECKED)) traits.add(Trait.CHECKED);
+        if (node.has(WebState.SELECTED)) traits.add(Trait.SELECTED);
+        if (node.role() == Role.CHECKBOX || node.role() == Role.SWITCH || node.role() == Role.RADIO) {
+            traits.add(Trait.CHECKABLE);
+        }
+        return traits;
     }
 
     private static boolean skipped(JsonNode node) {

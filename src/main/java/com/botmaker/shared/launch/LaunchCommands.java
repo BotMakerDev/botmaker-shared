@@ -179,7 +179,7 @@ public final class LaunchCommands {
             case BOTTLES -> spec.bottle() == null ? List.of() : bottles(spec.bottle(), spec.bottleProgram());
             case DESKTOP -> DesktopEntries.find(spec.token()).filter(entry -> !entry.flatpakId().isBlank()).isPresent()
                     ? withoutWayland(desktop(spec.token())) : desktop(spec.token());
-            case EMULATOR_APP, EPIC, URL, UNKNOWN -> List.of();
+            case EMULATOR_APP, EPIC, URL, WEB, UNKNOWN -> List.of();
         };
     }
 

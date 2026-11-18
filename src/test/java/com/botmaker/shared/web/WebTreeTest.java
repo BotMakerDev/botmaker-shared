@@ -3,14 +3,19 @@
 
 package com.botmaker.shared.web;
 
+import com.botmaker.shared.emulator.tree.Trait;
+import com.botmaker.shared.emulator.tree.UiNode;
+import com.botmaker.shared.emulator.tree.UiTree;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -78,6 +83,30 @@ class WebTreeTest {
         assertEquals(12, start.backendId());
         assertTrue(start.laidOut());
         assertFalse(tree.find(Role.BUTTON, "Talk to us").getFirst().laidOut());
+    }
+
+    @Test
+    void asAUiTreeEachNodeKeepsItsRoleNameIdsBoxAndTraits() throws Exception {
+        WebTree web = tree();
+        UiTree tree = web.asUiTree();
+        assertEquals(web.nodes().size(), tree.all().size());
+        UiNode cases = tree.all().stream().filter(n -> n.label().equals("Case studies")
+                && n.className().equals("web:link")).findFirst().orElseThrow();
+        assertEquals("nav-cases", cases.id());
+        assertEquals("Case studies", cases.text());
+        assertEquals(new Rectangle(10, 20, 100, 24), cases.bounds());
+        assertTrue(cases.has(Trait.CLICKABLE) && cases.has(Trait.ENABLED));
+        assertEquals(Optional.of(Role.LINK), WebTree.roleOf(cases.className()));
+        UiNode start = tree.all().stream().filter(n -> n.id().equals("cta-start")).findFirst().orElseThrow();
+        assertFalse(start.has(Trait.CLICKABLE), "disabled");
+        assertFalse(start.has(Trait.ENABLED));
+        UiNode email = tree.all().stream().filter(n -> n.label().equals("Email")).findFirst().orElseThrow();
+        assertEquals("nobody", email.text(), "a field's text is its value");
+        assertTrue(tree.all().stream().filter(n -> n.label().equals("Remember me")).findFirst().orElseThrow()
+                .has(Trait.CHECKED));
+        assertEquals(Optional.empty(), WebTree.roleOf("android.widget.Button"));
+        assertEquals(Optional.of(web.find(Role.LINK, "Case studies").getFirst()), web.pressedAt(new Point(50, 30)));
+        assertEquals(Optional.empty(), web.pressedAt(new Point(5, 5)));
     }
 
     @Test

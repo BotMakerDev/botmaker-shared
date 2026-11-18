@@ -225,8 +225,8 @@ public record LaunchSpec(LaunchKind kind, String token) {
             // No id appears in the live game's process: Lutris names its wrapper after the game's title, an app
             // runs as its own binary and a bottle's program as its .exe. Looked up by Launcher.runningTokens.
             case LUTRIS, DESKTOP, BOTTLES -> null;
-            // A link is handed to its launcher, whose game carries no trace of it.
-            case URL -> null;
+            // A link is handed to its launcher, whose game carries no trace of it; a website is the run's own tab.
+            case URL, WEB -> null;
             case EXE, CLI -> {
                 String name = fileName();
                 yield name.isBlank() ? null : name;
