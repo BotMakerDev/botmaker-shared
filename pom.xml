@@ -32,6 +32,9 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- The run log's format (botmaker-runlog): its writer, every format's reader. -->
         <botmaker.runlog.version>0.1.1-SNAPSHOT</botmaker.runlog.version>
+        <!-- Tests tagged @Tag("slow") start a real browser (web/): left out by default, run by
+             -Dgroups=slow -Dsurefire.excludedGroups= -->
+        <surefire.excludedGroups>slow</surefire.excludedGroups>
     </properties>
 
     <!-- botmaker-runlog is shared's first dependency served only by JitPack: without this repository, JitPack's
@@ -143,6 +146,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
+                <configuration>
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
+                </configuration>
             </plugin>
             <!-- Source Plugin: attaches source code so consumers get Javadoc/code in their IDE -->
             <plugin>

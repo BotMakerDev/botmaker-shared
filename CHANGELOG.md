@@ -14,6 +14,17 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- `com.botmaker.shared.web`, the web target of web discovery (spec `2026-11-18-web-discovery-design.md`, phase 1):
+  BotMaker's own Chromium (Chrome for Testing 158, pinned by sha256 per platform, unpacked into the cache), started
+  headless with a fresh profile deleted on close; a DevTools Protocol client over the JDK's WebSocket (`Cdp`, no
+  Playwright or Selenium); a tab (`WebPage`) that opens a URL, waits until no request is in flight and nothing changed
+  for 500 ms, reads the page's accessibility tree (`WebTree`: role, name, value, states, href, DOM id, `data-testid`,
+  box), a JPEG frame, its console and failed requests, and presses or types into a node through CDP's input, never
+  the user's cursor. Tests tagged `@Tag("slow")` start the real browser and are left out of the default run
+  (`-Dgroups=slow -Dsurefire.excludedGroups=` runs them).
+
 ### Fixed
 
 - The sign-in pace's "the next can go on Jan 2" names the month in English, as the sentence around it, on a PC in
