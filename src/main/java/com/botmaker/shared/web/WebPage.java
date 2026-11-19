@@ -243,6 +243,19 @@ public final class WebPage implements AutoCloseable {
         return Base64.getDecoder().decode(data);
     }
 
+    /**
+     * The page's part inside {@code box}, as PNG, rendered by Chromium even where the viewport does not reach: a
+     * tree's box ({@link #tree}) is the viewport's, so the page's scroll is added to clip it from the whole page.
+     */
+    public byte[] picture(Rectangle box) {
+        JsonNode view = session.call("Page.getLayoutMetrics").path("cssVisualViewport");
+        Map<String, Object> clip = Map.of("x", box.x + view.path("pageX").asDouble(0),
+                "y", box.y + view.path("pageY").asDouble(0), "width", box.width, "height", box.height, "scale", 1);
+        String data = session.call("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true,
+                "clip", clip)).path("data").asText("");
+        return Base64.getDecoder().decode(data);
+    }
+
     /** The console's lines since the last call. */
     public List<ConsoleMessage> console() {
         synchronized (console) {

@@ -16,6 +16,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `WebPage.picture(box)`: the page's part inside a tree's box as PNG, rendered by Chromium beyond the viewport too.
+
 - `web.FormProbe`, a page's form rules found by trying them (web discovery phase 7a): it reads each field's kind,
   `required`, `pattern`, `min`/`max`, lengths and label, types a valid sample into every field and each invalid
   sample alone through the `Guard`, never submitting, and reads the submit's `disabled`, each field's message and
