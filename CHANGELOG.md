@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `web.FormProbe`, a page's form rules found by trying them (web discovery phase 7a): it reads each field's kind,
+  `required`, `pattern`, `min`/`max`, lengths and label, types a valid sample into every field and each invalid
+  sample alone through the `Guard`, never submitting, and reads the submit's `disabled`, each field's message and
+  `invalid`. `FormRule` says what the tries showed (`Create account is enabled when Email is a valid email and
+  Password has 8 characters or more`, `Email shows "Enter a valid email" when it holds no @`), with the tries.
 - `com.botmaker.shared.web`, the web target of web discovery (spec `2026-11-18-web-discovery-design.md`, phase 1):
   BotMaker's own Chromium (Chrome for Testing 158, pinned by sha256 per platform, unpacked into the cache), started
   headless with a fresh profile deleted on close; a DevTools Protocol client over the JDK's WebSocket (`Cdp`, no
