@@ -51,7 +51,7 @@ shared is consumed by two modules (SDK + Studio) via the `NativeController` inte
 value types (`GenericWindow`, `WindowInfo`). **No published bot/project consumes them yet, so this API is
 currently freely breakable** — change signatures when it makes the contract cleaner. The only cost is the
 ordered cross-module release: land the shared change, release it, then bump both consumers (see the umbrella
-`../CLAUDE.md` and `../release.sh`). Reinstate stability discipline once real bots ship.
+`../CLAUDE.md` § Releasing; `sluice` releases). Reinstate stability discipline once real bots ship.
 
 ## Rules
 
