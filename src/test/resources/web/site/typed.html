@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fixture typed</title></head>
+<body>
+<main>
+  <video src="/stream.mp4" autoplay muted playsinline></video>
+  <h1>We <span id="word"></span><span id="cursor" class="typed-cursor">|</span></h1>
+  <!-- The answer comes late and only by a style change, as a panel a script opens. -->
+  <button type="button"
+          onclick="setTimeout(() => { document.getElementById('said').style.display = 'block'; }, 700)">Ask</button>
+  <p id="said" style="display: none">Answered</p>
+</main>
+<script>
+  // A worker started from a blob: URL, as analytics and bundlers do: its script loads in the worker's own target,
+  // so the page's network never says that request finished.
+  new Worker(URL.createObjectURL(new Blob(['onmessage = () => {};'], {type: 'text/javascript'})));
+  // And one from the network, as a bundle's own worker file.
+  new Worker('/worker.js');
+  // A typewriter: a word typed in a burst, then a rest with the cursor blinking, as typed.js does.
+  const words = ['test', 'play', 'ship'];
+  let turn = 0;
+  setInterval(() => {
+    const word = words[turn++ % words.length];
+    const cursor = document.getElementById('cursor');
+    cursor.className = 'typed-cursor';
+    for (let i = 1; i <= word.length; i++) {
+      setTimeout(() => { document.getElementById('word').textContent = word.slice(0, i); }, i * 50);
+    }
+    setTimeout(() => { cursor.className = 'typed-cursor typed-cursor--blink'; }, 1000);
+  }, 2000);
+  // A staggered reveal, round after round: each box fades in by four style changes, then the next one does, so no
+  // box changes often enough to read as animating.
+  const boxes = [];
+  for (let i = 0; i < 8; i++) {
+    const box = document.createElement('div');
+    box.style.opacity = '0';
+    document.querySelector('main').appendChild(box);
+    boxes.push(box);
+  }
+  let step = 0;
+  setInterval(() => {
+    const box = boxes[Math.floor(step / 4) % boxes.length];
+    box.style.opacity = String((step % 4 + 1) / 4);
+    step++;
+  }, 110);
+</script>
+</body>
+</html>

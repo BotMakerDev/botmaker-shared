@@ -42,8 +42,9 @@ public final class WebPage implements AutoCloseable {
 
     private static final String BINDING = "__botmakerMutation";
     /**
-     * Reports the page's changes, but not an animation's: a change of a {@code style} attribute never counts (what a
-     * script animates frame by frame), and a node that changed {@value #ANIMATING_STREAK} times in a row, each within
+     * Reports the page's changes, but not an animation's: a change of a {@code style} attribute counts only when it
+     * shows or hides the node, its inline {@code display} or {@code visibility} (the rest is what a script animates,
+     * frame by frame or box after box), and a node that changed {@value #ANIMATING_STREAK} times in a row, each within
      * {@value #ANIMATING_GAP_MS} ms of the one before, is animating: its changes stop counting until it rests that
      * long. A press's answer adds, removes or retexts nodes that were at rest, so it counts.
      */
@@ -60,6 +61,11 @@ public final class WebPage implements AutoCloseable {
                 seen.set(node, {last: now, streak});
                 return streak >= %d;
               };
+              const probe = document.createElement('div');
+              const shown = css => {
+                probe.style.cssText = css || '';
+                return probe.style.display + '|' + probe.style.visibility;
+              };
               const report = () => { pending = false; try { %s(''); } catch (e) {} };
               new MutationObserver(records => {
                 let counts = false;
@@ -69,10 +75,17 @@ public final class WebPage implements AutoCloseable {
                   const element = n => n.nodeType === 1;
                   if (r.type === 'childList' && ([...r.addedNodes].some(element)
                       || [...r.removedNodes].some(element))) { counts = true; continue; }
+                  // A style change is what a script animates, frame by frame or box after box in a reveal; only
+                  // one that shows or hides the node counts, as a panel opened by display: block.
+                  if (r.type === 'attributes' && r.attributeName === 'style') {
+                    if (shown(r.oldValue) !== shown(r.target.getAttribute('style'))) counts = true;
+                    continue;
+                  }
                   if (!animating(r.target)) counts = true;
                 }
                 if (counts && !pending) { pending = true; setTimeout(report, 50); }
-              }).observe(document, {subtree: true, childList: true, attributes: true, characterData: true});
+              }).observe(document, {subtree: true, childList: true, attributes: true, attributeOldValue: true,
+                  characterData: true});
             })();
             """.formatted(WebPage.ANIMATING_GAP_MS, WebPage.ANIMATING_STREAK, BINDING);
     private static final int ANIMATING_GAP_MS = 300;
@@ -93,8 +106,11 @@ public final class WebPage implements AutoCloseable {
             }
             """;
 
-    /** Requests that stay open by design and would keep a page from ever settling. */
-    private static final Set<String> LONG_LIVED = Set.of("EventSource", "WebSocket");
+    /**
+     * Requests that stay open by design and would keep a page from ever settling: a video or sound streams as it plays
+     * (nunu.ai's landing video, 2026-11-20).
+     */
+    private static final Set<String> LONG_LIVED = Set.of("EventSource", "WebSocket", "Media");
 
     private final Cdp cdp;
     private final String targetId;
@@ -280,36 +296,40 @@ public final class WebPage implements AutoCloseable {
      * @throws IllegalStateException when it has no box to press
      */
     public void click(WebNode node) {
-        Point at = centre(node);
-        for (String type : List.of("mouseMoved", "mousePressed", "mouseReleased")) {
-            session.call("Input.dispatchMouseEvent", Map.of("type", type, "x", at.x, "y", at.y,
-                    "button", type.equals("mouseMoved") ? "none" : "left", "clickCount", 1));
-        }
+        clickAt(centre(node));
     }
 
     /** Focuses {@code node} and types {@code text} into it as one insertion. */
     public void type(WebNode node, String text) {
         session.call("DOM.focus", Map.of("backendNodeId", node.backendId()));
-        session.call("Input.insertText", Map.of("text", text));
+        insert(text);
     }
 
-    /** Presses the left button at {@code at}, in viewport CSS pixels: a press no node of the tree names. */
+    /**
+     * Presses the left button at {@code at}, in viewport CSS pixels: a press no node of the tree names.
+     *
+     * <p>Every input counts as activity, so a settle after it waits at least {@link #QUIET}: an answer the page shows
+     * a moment later, or a change whose report is still on its way, is not missed.
+     */
     public void clickAt(Point at) {
         for (String type : List.of("mouseMoved", "mousePressed", "mouseReleased")) {
             session.call("Input.dispatchMouseEvent", Map.of("type", type, "x", at.x, "y", at.y,
                     "button", type.equals("mouseMoved") ? "none" : "left", "clickCount", 1));
         }
+        touch();
     }
 
     /** Turns the wheel at {@code at} by {@code dx}, {@code dy} CSS pixels: positive scrolls right and down. */
     public void wheel(Point at, int dx, int dy) {
         session.call("Input.dispatchMouseEvent", Map.of("type", "mouseWheel", "x", at.x, "y", at.y,
                 "deltaX", dx, "deltaY", dy));
+        touch();
     }
 
     /** Types {@code text} into whatever has the focus, as one insertion. */
     public void insert(String text) {
         session.call("Input.insertText", Map.of("text", text));
+        touch();
     }
 
     /**
@@ -332,6 +352,7 @@ public final class WebPage implements AutoCloseable {
         session.call("Input.dispatchKeyEvent", down);
         session.call("Input.dispatchKeyEvent", Map.of("type", "keyUp", "key", key, "code", code,
                 "windowsVirtualKeyCode", virtualKey(key)));
+        touch();
     }
 
     /** The Windows virtual key code CDP needs for a key's default action (Enter submitting, Tab moving focus). */
@@ -459,8 +480,9 @@ public final class WebPage implements AutoCloseable {
         });
         session.on("Network.requestWillBeSent", params -> {
             String id = params.path("requestId").asText();
-            urls.put(id, params.path("request").path("url").asText(""));
-            if (!LONG_LIVED.contains(params.path("type").asText())) {
+            // Only a request waited for is kept: one never finishing here would stay in urls for the tab's life.
+            if (!LONG_LIVED.contains(params.path("type").asText()) && !workerScript(params)) {
+                urls.put(id, params.path("request").path("url").asText(""));
                 inFlight.add(id);
             }
             touch();
@@ -503,6 +525,16 @@ public final class WebPage implements AutoCloseable {
             addConsole(new ConsoleMessage(ConsoleMessage.Level.fromId(entry.path("level").asText()),
                     entry.path("text").asText(""), entry.path("url").asText("")));
         });
+    }
+
+    /**
+     * A worker's own script: a script no parser or script of the page asked for, its initiator {@code other}. The
+     * worker loads it in its own target, so this tab never hears that it finished; waiting for it held every settle
+     * of nunu.ai, whose worker comes from a {@code blob:} URL, to {@link #SETTLE_MAX} (2026-11-20).
+     */
+    private static boolean workerScript(JsonNode request) {
+        return "Script".equals(request.path("type").asText())
+                && "other".equals(request.path("initiator").path("type").asText());
     }
 
     private void done(String requestId) {

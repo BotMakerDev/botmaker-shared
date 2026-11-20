@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -89,6 +90,19 @@ class WebPageSlowTest {
             assertTrue(page.open(site.url("/animated")).settled(), "a spinner and a ticker are an animation");
             page.click(page.tree().find(Role.BUTTON, "Ask").getFirst());
             assertTrue(page.settled());
+            assertTrue(page.tree().nodes().stream().anyMatch(n -> n.name().equals("Answered")),
+                    page.tree().outline());
+        }
+    }
+
+    @Test
+    void aPageLikeNunuAiSettlesSoonAfterAPressAndWaitsForItsLateAnswer() {
+        try (WebPage page = chromium.newPage()) {
+            assertTrue(page.open(site.url("/typed")).settled(),
+                    "a streaming video, workers' scripts and a staggered reveal are not waited for");
+            page.click(page.tree().find(Role.BUTTON, "Ask").getFirst());
+            // The answer shows 700 ms after the press; the typewriter's rests leave a quiet half second soon after.
+            assertTrue(page.settled(WebPage.QUIET, Duration.ofSeconds(3)), "a typewriter rests between words");
             assertTrue(page.tree().nodes().stream().anyMatch(n -> n.name().equals("Answered")),
                     page.tree().outline());
         }

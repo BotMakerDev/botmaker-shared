@@ -3,6 +3,7 @@
 
 package com.botmaker.shared.web;
 
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
@@ -11,9 +12,12 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -25,7 +29,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 final class FixtureSite implements AutoCloseable {
 
+    /** How long {@code /stream.mp4} stays open: longer than any settle. */
+    private static final Duration STREAM_HOLD = Duration.ofSeconds(15);
+
     private final HttpServer server;
+    private final ExecutorService threads = Executors.newCachedThreadPool();
     private final AtomicInteger hits = new AtomicInteger();
     private final AtomicInteger writes = new AtomicInteger();
     private final Map<String, AtomicInteger> byPath = new ConcurrentHashMap<>();
@@ -49,6 +57,19 @@ final class FixtureSite implements AutoCloseable {
                 exchange.close();
                 return;
             }
+            if (path.equals("/stream.mp4")) {
+                stream(exchange);
+                return;
+            }
+            if (path.equals("/worker.js")) {
+                byte[] script = "onmessage = () => {};".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "text/javascript");
+                exchange.sendResponseHeaders(200, script.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(script);
+                }
+                return;
+            }
             Optional<byte[]> page = path.equals("/robots.txt")
                     ? Optional.ofNullable(robots).map(r -> r.getBytes(StandardCharsets.UTF_8))
                     : page(path).map(this::named);
@@ -63,7 +84,23 @@ final class FixtureSite implements AutoCloseable {
                 }
             }
         });
+        // A stream holds its thread: the others are served beside it.
+        server.setExecutor(threads);
         server.start();
+    }
+
+    /** A video that streams as it plays: its headers, then nothing for {@link #STREAM_HOLD}, as a slow CDN gives. */
+    private static void stream(HttpExchange exchange) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", "video/mp4");
+        exchange.sendResponseHeaders(200, 0);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.flush();
+            Thread.sleep(STREAM_HOLD.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (IOException closed) {
+            // The page let go of it first.
+        }
     }
 
     /** The site's root, {@code http://127.0.0.1:<port>}. */
@@ -134,5 +171,6 @@ final class FixtureSite implements AutoCloseable {
     @Override
     public void close() {
         server.stop(0);
+        threads.shutdownNow();
     }
 }

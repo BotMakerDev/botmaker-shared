@@ -55,6 +55,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- A website's page settles once it is quiet instead of after the 10 s cap (nunu.ai: 13 s a press). `WebPage` no
+  longer waits for a streaming video or sound (`Media`), nor for a worker's own script (initiator `other`), which the
+  worker loads in its own target where the tab never hears it finish. A `style` attribute change counts as activity
+  only when it shows or hides the node (inline `display` or `visibility`), so a staggered reveal does not hold a
+  settle. Every press, key, wheel turn and typing counts as activity, so a settle after it waits at least the quiet
+  half second and sees an answer that comes a moment later.
 - The sign-in pace's "the next can go on Jan 2" names the month in English, as the sentence around it, on a PC in
   another language. BlueStacks' start and MuMu's refusal cut a Windows program path by hand, so the tests pass on Linux.
 
