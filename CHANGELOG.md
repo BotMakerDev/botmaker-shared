@@ -55,6 +55,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- `WebPage.documentStatus()` says the HTTP status the tab's page was loaded with, so a consumer tells an error page
+  the server answered (a 404, a 431) from a page of the site.
 - A navigation the `Guard` turns back leaves no cookie behind: the jar is kept at each input and put back when the
   navigation it started is aborted. A sign-in's redirect sets a new state cookie each press on its way off the
   site, and after enough presses nunu.ai refused every page with `494 REQUEST_HEADER_TOO_LARGE`.

@@ -123,6 +123,8 @@ public final class WebPage implements AutoCloseable {
     private final Map<String, String> urls = new ConcurrentHashMap<>();
     /** The host that refused the tab's page as sending too many headers, waiting for {@link #settled}; else empty. */
     private final AtomicReference<String> crowded = new AtomicReference<>("");
+    /** The HTTP status the tab's page was last loaded with; 0 before any load. */
+    private volatile int documentStatus;
     private final AtomicLong lastActivity = new AtomicLong(System.nanoTime());
     private final List<ConsoleMessage> console = new ArrayList<>();
     private final List<RequestFailure> failures = new ArrayList<>();
@@ -304,6 +306,14 @@ public final class WebPage implements AutoCloseable {
         String data = session.call("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true,
                 "clip", clip)).path("data").asText("");
         return Base64.getDecoder().decode(data);
+    }
+
+    /**
+     * The HTTP status the tab's page was last loaded with, as its server answered (a 404, a 431 error page); 0 before
+     * any load. A page that changes its address in place keeps its load's.
+     */
+    public int documentStatus() {
+        return documentStatus;
     }
 
     /** The console's lines since the last call. */
@@ -523,8 +533,10 @@ public final class WebPage implements AutoCloseable {
         });
         session.on("Network.responseReceived", params -> {
             int status = params.path("response").path("status").asInt(0);
-            if (TOO_LARGE.contains(status) && "Document".equals(params.path("type").asText())
-                    && targetId.equals(params.path("frameId").asText())) {
+            boolean page = "Document".equals(params.path("type").asText())
+                    && targetId.equals(params.path("frameId").asText());
+            if (page) documentStatus = status;
+            if (TOO_LARGE.contains(status) && page) {
                 try {
                     String host = URI.create(params.path("response").path("url").asText("")).getHost();
                     crowded.set(host == null ? "" : host);
