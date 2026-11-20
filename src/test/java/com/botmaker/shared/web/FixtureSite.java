@@ -52,6 +52,9 @@ final class FixtureSite implements AutoCloseable {
                 writes.incrementAndGet();
             }
             if (path.equals("/redirect-out")) {
+                // As a sign-in's redirect does: a new state cookie each time, on the way off the site.
+                exchange.getResponseHeaders().add("Set-Cookie", "state-" + byPath.get(path).get() + "="
+                        + "x".repeat(1000) + "; Path=/; HttpOnly");
                 exchange.getResponseHeaders().set("Location", redirect);
                 exchange.sendResponseHeaders(302, -1);
                 exchange.close();

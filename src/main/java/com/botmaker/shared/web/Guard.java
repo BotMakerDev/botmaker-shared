@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.awt.Point;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -94,6 +95,8 @@ public final class Guard implements AutoCloseable {
     private final List<Cdp.Session> guarded = new ArrayList<>();
     private volatile boolean pressed;
     private volatile boolean closed;
+    /** The cookies before the last input; null before one, or when they could not be read. */
+    private volatile JsonNode jar;
 
     private Guard(WebPage page, Scope scope, Robots robots, String userAgent) {
         this.page = page;
@@ -164,9 +167,17 @@ public final class Guard implements AutoCloseable {
         page.insert(text);
     }
 
-    /** From now on, writes to the site are failed: what a press does, with nothing pressed. */
+    /**
+     * From now on, writes to the site are failed: what a press does, with nothing pressed. The cookies are kept as
+     * they are now, for a navigation this input starts that is turned back.
+     */
     void arm() {
         pressed = true;
+        try {
+            jar = page.session().call("Storage.getCookies").path("cookies");
+        } catch (RuntimeException e) {
+            jar = null;
+        }
     }
 
     /** What was stopped since the last call. */
@@ -266,7 +277,57 @@ public final class Guard implements AutoCloseable {
         // Aborted, not blocked: an aborted navigation commits no error page, so the tab stays where it was.
         session.send("Fetch.failRequest", Map.of("requestId", id,
                 "errorReason", navigation ? "Aborted" : "BlockedByClient"));
+        if (navigation) {
+            // Once: a later load turned back is not this input's, and the jar may have changed since.
+            restore(jar);
+            jar = null;
+        }
         return true;
+    }
+
+    /**
+     * Puts the cookies back as {@code cookies} had them: a navigation turned back leaves nothing behind. A sign-in's
+     * redirect sets a cookie on its way off the site, a new one each press (an OAuth state), and the jar grows until
+     * the site refuses every request as too large.
+     */
+    private void restore(JsonNode cookies) {
+        if (cookies == null || !cookies.isArray()) {
+            return;
+        }
+        List<Map<String, Object>> params = new ArrayList<>();
+        for (JsonNode cookie : cookies) {
+            params.add(cookieParam(cookie));
+        }
+        try {
+            page.session().call("Storage.clearCookies");
+            if (!params.isEmpty()) {
+                page.session().call("Storage.setCookies", Map.of("cookies", params));
+            }
+        } catch (RuntimeException e) {
+            // A jar that cannot be put back is left as it is: the navigation was still turned back.
+        }
+    }
+
+    /** {@code cookie}, as {@code Storage.getCookies} gave it, as {@code Storage.setCookies} takes one. */
+    private static Map<String, Object> cookieParam(JsonNode cookie) {
+        Map<String, Object> param = new LinkedHashMap<>();
+        for (String text : List.of("name", "value", "domain", "path", "sameSite", "priority", "sourceScheme")) {
+            if (cookie.hasNonNull(text)) {
+                param.put(text, cookie.path(text).asText());
+            }
+        }
+        param.put("secure", cookie.path("secure").asBoolean());
+        param.put("httpOnly", cookie.path("httpOnly").asBoolean());
+        if (!cookie.path("session").asBoolean() && cookie.has("expires")) {
+            param.put("expires", cookie.path("expires").asDouble());
+        }
+        if (cookie.has("sourcePort")) {
+            param.put("sourcePort", cookie.path("sourcePort").asInt());
+        }
+        if (cookie.has("partitionKey") && cookie.path("partitionKey").isObject()) {
+            param.put("partitionKey", cookie.path("partitionKey"));
+        }
+        return param;
     }
 
     private Optional<Kind> verdict(String url, String method, boolean navigation) {

@@ -55,6 +55,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- A navigation the `Guard` turns back leaves no cookie behind: the jar is kept at each input and put back when the
+  navigation it started is aborted. A sign-in's redirect sets a new state cookie each press on its way off the
+  site, and after enough presses nunu.ai refused every page with `494 REQUEST_HEADER_TOO_LARGE`.
+
 - A website's page settles once it is quiet instead of after the 10 s cap (nunu.ai: 13 s a press). `WebPage` no
   longer waits for a streaming video or sound (`Media`), nor for a worker's own script (initiator `other`), which the
   worker loads in its own target where the tab never hears it finish. A `style` attribute change counts as activity

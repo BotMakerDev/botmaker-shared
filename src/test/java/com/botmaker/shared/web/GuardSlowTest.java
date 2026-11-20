@@ -160,6 +160,27 @@ class GuardSlowTest {
     }
 
     @Test
+    void aRedirectTurnedBackLeavesNoCookieBehind() throws Exception {
+        site.robots(null);
+        site.redirect("http://elsewhere.test:" + other.port() + "/careers");
+        try (WebPage page = chromium.newPage(); Guard guard = guard(page)) {
+            page.open(home());
+            // The visitor's own cookie stays as it was.
+            page.session().call("Storage.setCookies", Map.of("cookies", List.of(Map.of("name", "kept", "value", "1",
+                    "domain", "site.test", "path", "/", "httpOnly", true))));
+            String before = page.session().call("Storage.getCookies").path("cookies").toString();
+            assertTrue(before.contains("\"kept\""), before);
+            for (int i = 0; i < 3; i++) {
+                guard.press(link(page, "Careers"));
+                stopped(page, guard);
+            }
+            assertTrue(site.hits("/redirect-out") >= 3);
+            assertEquals(before, page.session().call("Storage.getCookies").path("cookies").toString(),
+                    "each sign-in's state cookie is undone with its turned-back redirect");
+        }
+    }
+
+    @Test
     void theWwwAliasIsOnTheSite() throws Exception {
         site.robots(null);
         try (WebPage page = chromium.newPage(); Guard guard = guard(page)) {
