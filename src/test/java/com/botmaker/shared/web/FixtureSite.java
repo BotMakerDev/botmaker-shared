@@ -13,6 +13,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,6 +37,7 @@ final class FixtureSite implements AutoCloseable {
     private final ExecutorService threads = Executors.newCachedThreadPool();
     private final AtomicInteger hits = new AtomicInteger();
     private final AtomicInteger writes = new AtomicInteger();
+    private final AtomicInteger crowdedRefusals = new AtomicInteger();
     private final Map<String, AtomicInteger> byPath = new ConcurrentHashMap<>();
     private volatile String robots;
     private volatile String redirect = "";
@@ -58,6 +60,10 @@ final class FixtureSite implements AutoCloseable {
                 exchange.getResponseHeaders().set("Location", redirect);
                 exchange.sendResponseHeaders(302, -1);
                 exchange.close();
+                return;
+            }
+            if (path.equals("/crowded")) {
+                crowded(exchange, byPath.get(path).get());
                 return;
             }
             if (path.equals("/stream.mp4")) {
@@ -90,6 +96,32 @@ final class FixtureSite implements AutoCloseable {
         // A stream holds its thread: the others are served beside it.
         server.setExecutor(threads);
         server.start();
+    }
+
+    /**
+     * A page that sets a new 1000-byte cookie each load, as a sign-in's verifier does, and answers 494 once the
+     * cookies it is sent pass 3000 bytes, as a host refusing large headers does.
+     */
+    private void crowded(HttpExchange exchange, int load) throws IOException {
+        String cookies = String.join("; ", exchange.getRequestHeaders().getOrDefault("Cookie", List.of()));
+        boolean tooLarge = cookies.length() > 3000;
+        if (tooLarge) {
+            crowdedRefusals.incrementAndGet();
+        } else {
+            exchange.getResponseHeaders().add("Set-Cookie", "verifier-" + load + "=" + "v".repeat(1000) + "; Path=/");
+        }
+        byte[] body = (tooLarge ? "<!doctype html><title>494 Too large</title>"
+                : "<!doctype html><title>Crowded</title><h1>Crowded</h1>").getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(tooLarge ? 494 : 200, body.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(body);
+        }
+    }
+
+    /** Times {@code /crowded} refused its request as too large. */
+    int crowdedRefusals() {
+        return crowdedRefusals.get();
     }
 
     /** A video that streams as it plays: its headers, then nothing for {@link #STREAM_HOLD}, as a slow CDN gives. */

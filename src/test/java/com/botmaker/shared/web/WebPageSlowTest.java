@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -59,6 +60,18 @@ class WebPageSlowTest {
             assertEquals(1, tree.find(Role.HEADING, "Agents that play").size(), tree.outline());
             assertEquals(1, tree.find(Role.NAVIGATION, "Main").size(), tree.outline());
             assertEquals(site.url("/"), page.url());
+        }
+    }
+
+    @Test
+    void aPageRefusedForTooManyCookiesIsLoadedAgainWithoutThem() {
+        try (WebPage page = chromium.newPage()) {
+            for (int i = 0; i < 6; i++) {
+                assertTrue(page.open(site.url("/crowded")).ok());
+                assertEquals("Crowded", page.session().call("Runtime.evaluate", Map.of("expression", "document.title",
+                        "returnByValue", true)).path("result").path("value").asText(), "load " + i);
+            }
+            assertTrue(site.crowdedRefusals() > 0, "the site did refuse the grown jar");
         }
     }
 

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.awt.Point;
 import java.awt.Rectangle;
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -23,6 +24,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -111,12 +113,16 @@ public final class WebPage implements AutoCloseable {
      * (nunu.ai's landing video, 2026-11-20).
      */
     private static final Set<String> LONG_LIVED = Set.of("EventSource", "WebSocket", "Media");
+    /** A page refused for its request's headers: 431, and 494 as nginx and Vercel answer. */
+    private static final Set<Integer> TOO_LARGE = Set.of(431, 494);
 
     private final Cdp cdp;
     private final String targetId;
     private final Cdp.Session session;
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
     private final Map<String, String> urls = new ConcurrentHashMap<>();
+    /** The host that refused the tab's page as sending too many headers, waiting for {@link #settled}; else empty. */
+    private final AtomicReference<String> crowded = new AtomicReference<>("");
     private final AtomicLong lastActivity = new AtomicLong(System.nanoTime());
     private final List<ConsoleMessage> console = new ArrayList<>();
     private final List<RequestFailure> failures = new ArrayList<>();
@@ -194,8 +200,36 @@ public final class WebPage implements AutoCloseable {
         return settled(QUIET, SETTLE_MAX);
     }
 
-    /** Waits until no request is in flight and nothing changed for {@code quiet}, or {@code max} passed. */
+    /**
+     * Waits until no request is in flight and nothing changed for {@code quiet}, or {@code max} passed. A page the
+     * site refused as sending too many headers is loaded again once, with that site's cookies cleared: a site that
+     * sets a new cookie on each page (a sign-in's verifier) refuses a visitor who reads many pages fast.
+     */
     public boolean settled(Duration quiet, Duration max) {
+        boolean settled = settledOnce(quiet, max);
+        String host = crowded.getAndSet("");
+        if (host.isEmpty()) {
+            return settled;
+        }
+        clearCookies(host);
+        loads.clear();
+        session.call("Page.reload", Map.of("ignoreCache", false));
+        return settledOnce(quiet, max);
+    }
+
+    /** Deletes every cookie the browser sends to {@code host}. */
+    private void clearCookies(String host) {
+        for (JsonNode cookie : session.call("Storage.getCookies").path("cookies")) {
+            String domain = cookie.path("domain").asText("");
+            String bare = domain.startsWith(".") ? domain.substring(1) : domain;
+            if (host.equals(bare) || host.endsWith("." + bare)) {
+                session.call("Network.deleteCookies", Map.of("name", cookie.path("name").asText(),
+                        "domain", domain, "path", cookie.path("path").asText("/")));
+            }
+        }
+    }
+
+    private boolean settledOnce(Duration quiet, Duration max) {
         long deadline = System.nanoTime() + max.toNanos();
         while (true) {
             long now = System.nanoTime();
@@ -489,6 +523,15 @@ public final class WebPage implements AutoCloseable {
         });
         session.on("Network.responseReceived", params -> {
             int status = params.path("response").path("status").asInt(0);
+            if (TOO_LARGE.contains(status) && "Document".equals(params.path("type").asText())
+                    && targetId.equals(params.path("frameId").asText())) {
+                try {
+                    String host = URI.create(params.path("response").path("url").asText("")).getHost();
+                    crowded.set(host == null ? "" : host);
+                } catch (IllegalArgumentException odd) {
+                    // A URL that does not parse names no host to clear.
+                }
+            }
             if (status >= 400) {
                 addFailure(new RequestFailure(params.path("response").path("url").asText(""), status, ""));
             }
