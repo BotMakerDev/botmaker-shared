@@ -82,3 +82,13 @@ Package map:
   what the user told us and nothing can rebuild (`SavedDevices`), `cache()` is what we can always fetch again
   (everything in `tools/`). A downloaded tool in config makes a cache-cleaner unable to reclaim 16 MB; a saved
   address in cache makes one delete the user's phones.
+- `web/` — a website as a run reads it (2026-11-18, the umbrella's spec `2026-11-18-web-discovery-design.md`), on
+  Playwright for Java since 2026-11-21 (spec `2026-11-21-playwright-web-design.md`). `ChromiumInstall` puts
+  Playwright's own Chromium under `UserDirs.cache()/playwright`; `Chromium` starts it and opens each `WebPage` as a
+  tab in a context of its own, at 1440×900, recorded into a folder when asked (`newPage(Path)`, `WebPage.video()`).
+  `BrowserThread` makes every Playwright call, which the library needs on one thread. `WebPage` loads, presses,
+  types, shoots the viewport (`frame`) and the whole page (`whole`), and reads the accessibility tree (`WebTree`,
+  `WebNode`, `Role`); `PageCdp`, package-private, is the tab's own CDP session for what Playwright has no call for
+  (the tree by backend node, the guard's redirect pause, a new user agent on an open tab). The guard (`Guard`,
+  `Scope`, `Robots`, `Presses`, `FormProbe`, `FormRule`) keeps a run read-only and on its site; `Pace` and `Budget`
+  slow and count its loads; `Consent` answers a cookie banner.
