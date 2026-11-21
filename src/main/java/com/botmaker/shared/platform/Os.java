@@ -27,7 +27,7 @@ import java.util.List;
 public enum Os {
 
     /** Windows, in every edition JNA recognises. */
-    WINDOWS("Windows") {
+    WINDOWS("windows", "Windows") {
         /**
          * rundll32 url.dll,FileProtocolHandler routes the URI through ShellExecute, which honours
          * registered protocol handlers (steam://, com.epicgames.launcher://, …). Unlike `explorer.exe
@@ -45,10 +45,10 @@ public enum Os {
     },
 
     /** Linux — the only platform Waydroid runs on; input listener over X11 XRecord. */
-    LINUX("Linux"),
+    LINUX("linux", "Linux"),
 
     /** macOS: {@code MacController} (CoreGraphics + Accessibility); input listener over a CoreGraphics event tap. */
-    MAC("macOS") {
+    MAC("macos", "macOS") {
         @Override
         public List<String> openCommand(String uri) {
             return List.of("open", uri);
@@ -56,14 +56,32 @@ public enum Os {
     },
 
     /** Anything else (Solaris, the BSDs, …) — treated as a generic freedesktop host. */
-    UNKNOWN("this platform");
+    UNKNOWN("unknown", "this platform");
 
     private static final Os CURRENT = detect();
 
+    private final String id;
     private final String displayName;
 
-    Os(String displayName) {
+    Os(String id, String displayName) {
+        this.id = id;
         this.displayName = displayName;
+    }
+
+    /**
+     * The stable id, the same as the catalog's {@code Platform} ids a bot's pom ({@code botmaker.platforms}) lists
+     * (2026-11-21), which is how the core asks whether a bot runs here; never change one.
+     */
+    public String id() {
+        return id;
+    }
+
+    /** The constant with that id, {@link #UNKNOWN} for null or an id this BotMaker does not know. */
+    public static Os fromId(String id) {
+        for (Os os : values()) {
+            if (os.id.equals(id)) return os;
+        }
+        return UNKNOWN;
     }
 
     /**

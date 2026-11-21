@@ -12,6 +12,13 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Added
+
+- `Os.id()` and `Os.fromId(String)`: a stable id per system (`windows`, `linux`, `macos`, `unknown`), the same as
+  the catalog's platform ids a bot's pom lists in `botmaker.platforms`, so the core can say whether a bot runs here.
+
 ## [0.10.0] — 2026-11-21
 
 ### Added

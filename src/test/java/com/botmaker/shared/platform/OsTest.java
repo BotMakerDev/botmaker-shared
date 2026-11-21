@@ -5,6 +5,7 @@ package com.botmaker.shared.platform;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -83,6 +84,22 @@ class OsTest {
     void windowsRoutesThroughTheProtocolHandler() {
         assertEquals(List.of("rundll32", "url.dll,FileProtocolHandler", "u"), Os.WINDOWS.openCommand("u"));
         assertEquals(List.of("open", "u"), Os.MAC.openCommand("u"));
+    }
+
+    /**
+     * The id is what a bot's pom ({@code botmaker.platforms}) and the catalog store (2026-11-21), so it round-trips
+     * and an id from a newer BotMaker reads as {@link Os#UNKNOWN} rather than throwing.
+     */
+    @Test
+    void idsRoundTrip() {
+        for (Os os : Os.values()) {
+            assertSame(os, Os.fromId(os.id()), os.name());
+        }
+        assertSame(Os.MAC, Os.fromId("macos"));
+        assertSame(Os.UNKNOWN, Os.fromId("beos"));
+        assertSame(Os.UNKNOWN, Os.fromId(null));
+        assertEquals(List.of("windows", "linux", "macos", "unknown"),
+                Arrays.stream(Os.values()).map(Os::id).toList());
     }
 
     /** The host is one of the modelled constants and answers its own predicate — no third idiom in between. */
