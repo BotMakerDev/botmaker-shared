@@ -73,14 +73,23 @@ public final class KeyringStore implements PasswordStore {
         }
     }
 
-    /** The keyring, opened once; null when this PC has none that answers. */
+    /**
+     * The keyring, opened once; null when this PC has none that answers. Opened with this class's own loader as the
+     * thread's context loader: dbus-java finds its socket transport by {@code ServiceLoader} through the context loader,
+     * and a plugin's code runs on a host thread whose loader holds no transport, so the Secret Service never opened.
+     */
     private Keyring keyring() {
         if (!opened) {
             opened = true;
+            Thread thread = Thread.currentThread();
+            ClassLoader was = thread.getContextClassLoader();
+            thread.setContextClassLoader(KeyringStore.class.getClassLoader());
             try {
                 keyring = Keyring.create();
             } catch (Exception | LinkageError e) {
                 keyring = null;
+            } finally {
+                thread.setContextClassLoader(was);
             }
         }
         return keyring;

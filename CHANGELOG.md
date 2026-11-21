@@ -55,6 +55,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- `KeyringStore` opens the Secret Service on Linux from a plugin's thread too: the keyring is opened with shared's
+  own loader as the context loader, where dbus-java looks for its socket transport.
+
 - `WebPage.documentStatus()` says the HTTP status the tab's page was loaded with, so a consumer tells an error page
   the server answered (a 404, a 431) from a page of the site.
 - A navigation the `Guard` turns back leaves no cookie behind: the jar is kept at each input and put back when the
