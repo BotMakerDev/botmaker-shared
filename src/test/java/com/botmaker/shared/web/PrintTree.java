@@ -5,7 +5,6 @@ package com.botmaker.shared.web;
 
 import com.botmaker.shared.tools.Downloads;
 
-import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -18,9 +17,10 @@ public final class PrintTree {
 
     public static void main(String[] args) throws Exception {
         String url = args.length > 0 ? args[0] : "https://nunu.ai";
-        Path binary = ChromiumInstall.install(Downloads.Progress.IGNORED)
-                .orElseThrow(() -> new IllegalStateException("no Chromium"));
-        try (Chromium chromium = Chromium.start(binary, false, List.of()); WebPage page = chromium.newPage()) {
+        if (!ChromiumInstall.install(Downloads.Progress.IGNORED)) {
+            throw new IllegalStateException("no Chromium");
+        }
+        try (Chromium chromium = Chromium.start(false, List.of()); WebPage page = chromium.newPage()) {
             WebPage.Opened opened = page.open(url);
             System.out.println("opened " + url + " -> " + page.url() + " ok=" + opened.ok() + " settled="
                     + opened.settled() + " " + opened.error());

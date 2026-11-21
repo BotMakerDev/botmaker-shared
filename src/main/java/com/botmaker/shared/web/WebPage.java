@@ -6,6 +6,9 @@ package com.botmaker.shared.web;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.Cookie;
 
 import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
@@ -20,6 +23,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -33,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 /**
  * <b>One tab of a {@link Chromium}</b>: it opens a URL, waits for the page to settle, reads the page's tree, a frame,
@@ -124,9 +127,13 @@ public final class WebPage implements AutoCloseable {
     /** A page refused for its request's headers: 431, and 494 as nginx and Vercel answer. */
     private static final Set<Integer> TOO_LARGE = Set.of(431, 494);
 
-    private final Cdp cdp;
+    /** How long a command's answer is waited for where a missing one is read as nothing. */
+    private static final Duration ANSWER_TIMEOUT = Duration.ofSeconds(30);
+
+    private final BrowserThread thread;
+    private final Page page;
     private final String targetId;
-    private final Cdp.Session session;
+    private final PageCdp session;
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
     private final Map<String, String> urls = new ConcurrentHashMap<>();
     /** The host that refused the tab's page as sending too many headers, waiting for {@link #settled}; else empty. */
@@ -139,16 +146,13 @@ public final class WebPage implements AutoCloseable {
     /** Each document's load, by the loader that brought it; emptied at each {@link #open}. */
     private final Map<String, CompletableFuture<Void>> loads = new ConcurrentHashMap<>();
 
-    /** The browser's: who guards the pages a tab opens, by the opener's target id. */
-    private final Map<String, Consumer<JsonNode>> openers;
-    /** The openers this tab put in {@link #openers}: itself and the pages it opened. */
-    private final Set<String> opening = ConcurrentHashMap.newKeySet();
-
-    WebPage(Cdp cdp, String targetId, Cdp.Session session, Map<String, Consumer<JsonNode>> openers) {
-        this.cdp = cdp;
-        this.targetId = targetId;
+    /** Made on the {@link BrowserThread}, which every Playwright call of {@code page} goes through. */
+    WebPage(BrowserThread thread, Page page, PageCdp session) {
+        this.thread = thread;
+        this.page = page;
         this.session = session;
-        this.openers = openers;
+        // The tab's target id, which is its main frame's id too.
+        this.targetId = session.call("Target.getTargetInfo").path("targetInfo").path("targetId").asText();
         listen();
         session.call("Page.enable");
         session.call("Page.setLifecycleEventsEnabled", Map.of("enabled", true));
@@ -223,20 +227,57 @@ public final class WebPage implements AutoCloseable {
         }
         clearCookies(host);
         loads.clear();
+        // The reload is activity itself: its first request may be heard only after the settle below starts.
+        touch();
         session.call("Page.reload", Map.of("ignoreCache", false));
         return settledOnce(quiet, max);
     }
 
     /** Deletes every cookie the browser sends to {@code host}. */
     private void clearCookies(String host) {
-        for (JsonNode cookie : session.call("Storage.getCookies").path("cookies")) {
-            String domain = cookie.path("domain").asText("");
+        List<Cookie> kept = new ArrayList<>();
+        for (Cookie cookie : cookies()) {
+            String domain = cookie.domain == null ? "" : cookie.domain;
             String bare = domain.startsWith(".") ? domain.substring(1) : domain;
-            if (host.equals(bare) || host.endsWith("." + bare)) {
-                session.call("Network.deleteCookies", Map.of("name", cookie.path("name").asText(),
-                        "domain", domain, "path", cookie.path("path").asText("/")));
+            if (!host.equals(bare) && !host.endsWith("." + bare)) {
+                kept.add(cookie);
             }
         }
+        cookies(kept);
+    }
+
+    /** The cookies of the tab's context: its own jar, which no other tab shares. */
+    List<Cookie> cookies() {
+        return thread.call(() -> page.context().cookies());
+    }
+
+    /**
+     * Puts {@code cookies} in place of every cookie of the tab's context: they are set first, then each other cookie is
+     * cleared by its name, domain and path, so a cookie the browser refuses leaves the jar as it was, not empty.
+     */
+    void cookies(List<Cookie> cookies) {
+        thread.run(() -> {
+            BrowserContext context = page.context();
+            List<Cookie> before = context.cookies();
+            if (!cookies.isEmpty()) {
+                context.addCookies(cookies);
+            }
+            Set<String> wanted = new HashSet<>();
+            for (Cookie cookie : cookies) {
+                wanted.add(key(cookie));
+            }
+            for (Cookie cookie : before) {
+                if (!wanted.contains(key(cookie))) {
+                    context.clearCookies(new BrowserContext.ClearCookiesOptions().setName(cookie.name)
+                            .setDomain(cookie.domain).setPath(cookie.path));
+                }
+            }
+        });
+    }
+
+    /** What tells a cookie from another of the jar: its name, domain and path. */
+    private static String key(Cookie cookie) {
+        return cookie.name + "\n" + cookie.domain + "\n" + cookie.path;
     }
 
     private boolean settledOnce(Duration quiet, Duration max) {
@@ -558,15 +599,6 @@ public final class WebPage implements AutoCloseable {
         };
     }
 
-    /** Closes the page {@code targetId}, one this tab opened; a page already gone is no error. */
-    void closeOpened(String targetId) {
-        try {
-            cdp.browser().send("Target.closeTarget", Map.of("targetId", targetId));
-        } catch (RuntimeException gone) {
-            // Closed by itself, or the browser went.
-        }
-    }
-
     /**
      * What the page says of {@code node}'s element that its tree does not: whether a press would submit a form. Empty
      * when the element cannot be read (no DOM node, detached, the call failed).
@@ -590,7 +622,7 @@ public final class WebPage implements AutoCloseable {
             }
             return Optional.of(new Presses.Facts(facts.path("submit").asBoolean(false),
                     facts.path("inForm").asBoolean(false), facts.path("formAction").asText("")));
-        } catch (Cdp.CdpException goneOrDetached) {
+        } catch (PageCdp.CdpException goneOrDetached) {
             return Optional.empty();
         }
     }
@@ -630,7 +662,7 @@ public final class WebPage implements AutoCloseable {
             session.call("DOM.scrollIntoViewIfNeeded", Map.of("backendNodeId", node.backendId()));
             return Optional.ofNullable(orNull(session.send("DOM.getBoxModel", Map.of("backendNodeId",
                     node.backendId())))).map(b -> rectangle(b.path("model").path("border"))).filter(b -> !b.isEmpty());
-        } catch (Cdp.CdpException goneOrDetached) {
+        } catch (PageCdp.CdpException goneOrDetached) {
             return Optional.empty();
         }
     }
@@ -638,7 +670,7 @@ public final class WebPage implements AutoCloseable {
     private void evaluate(String expression) {
         try {
             session.call("Runtime.evaluate", Map.of("expression", expression));
-        } catch (Cdp.CdpException gone) {
+        } catch (PageCdp.CdpException gone) {
             // A page navigating away takes its marks with it.
         }
     }
@@ -669,38 +701,33 @@ public final class WebPage implements AutoCloseable {
             }""".formatted(MARKS_ID);
 
     /** The tab's own commands and events, for what this class does not say yet. */
-    public Cdp.Session session() {
+    public PageCdp session() {
         return session;
     }
 
+    /** Closes the tab with its context, and what it opened. */
     @Override
     public void close() {
         try {
-            cdp.browser().call("Target.closeTarget", Map.of("targetId", targetId));
+            thread.run(() -> page.context().close());
         } catch (RuntimeException ignored) {
             // A closed browser closed its tabs.
         }
-        cdp.forget(session.id());
-        opening.forEach(openers::remove);
     }
 
-    /** The session of a target this tab opened, which the browser attached by itself. */
-    Cdp.Session session(String sessionId) {
-        return cdp.session(sessionId);
-    }
-
-    /**
-     * Gives each page {@code opener} opens (this tab, or a page it opened) to {@code guard}, attached and paused before
-     * it runs: {@code Target.attachedToTarget}'s parameters. Until this tab closes.
-     */
-    void onOpened(String opener, Consumer<JsonNode> guard) {
-        opening.add(opener);
-        openers.put(opener, guard);
+    /** The Playwright page, called on {@link #thread()} only. */
+    Page page() {
+        return page;
     }
 
     /** The tab's target, which is its main frame's id too. */
     String targetId() {
         return targetId;
+    }
+
+    /** The thread every call of {@link #page()} is made on. */
+    BrowserThread thread() {
+        return thread;
     }
 
     private CompletableFuture<Void> load(String loader) {
@@ -825,7 +852,7 @@ public final class WebPage implements AutoCloseable {
 
     private static JsonNode orNull(CompletableFuture<JsonNode> answer) {
         try {
-            return answer.get(Cdp.CALL_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            return answer.get(ANSWER_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;

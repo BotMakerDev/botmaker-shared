@@ -4,165 +4,125 @@
 package com.botmaker.shared.web;
 
 import com.botmaker.shared.tools.Downloads;
-import com.botmaker.shared.tools.Unzip;
 import com.botmaker.shared.tools.UserDirs;
+import com.microsoft.playwright.impl.driver.Driver;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Locale;
-import java.util.Optional;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
- * <b>BotMaker's own Chromium</b>: Chrome for Testing at one pinned version, pinned as {@code ManagedTools} pins adb and
- * scrcpy — a URL, a sha256 and a byte count per platform — downloaded into {@code UserDirs.cache()/chromium/<version>/}
- * and unzipped there. A digest that does not match installs nothing. Never the user's browser.
- *
- * <p>The pins are constants read once from Google's {@code last-known-good-versions-with-downloads.json} (Stable,
- * 2026-11-18) and the zips' own bytes, which that file does not hash; nothing is fetched to decide what to install.
+ * <b>BotMaker's own Chromium</b>: the build the pinned Playwright drives, installed by Playwright's own installer into
+ * {@code UserDirs.cache()/playwright/} ({@code PLAYWRIGHT_BROWSERS_PATH}), never the user's browser nor Playwright's
+ * default folder. Playwright checks what it fetches; a Playwright upgrade installs its own build beside the old.
  */
 public final class ChromiumInstall {
 
     private ChromiumInstall() {}
 
-    /** The Chrome for Testing version pinned below. */
-    public static final String VERSION = "158.0.8127.36";
+    /** The environment variable Playwright reads its browsers' folder from. */
+    static final String BROWSERS_PATH = "PLAYWRIGHT_BROWSERS_PATH";
 
-    /** The platforms Chrome for Testing publishes that BotMaker runs on, by the name its URLs use. */
-    public enum Platform {
-        WIN64("win64", "6a8ad290952cc612c7777ffb3eb62f345539a2a1a8d440cfac190c6d36b34d2c", 214_927_656L),
-        LINUX64("linux64", "dba9cc838e1ce269c33ea68170881127bd15d078fc3ca5891c90802819a4d7c7", 208_062_943L),
-        MAC_ARM64("mac-arm64", "b86d3b393def1f87d369b022abff0a51acb015d6fcb79ddfd1c379c9d72fbbe2", 200_339_070L),
-        MAC_X64("mac-x64", "1390e9b1386a1fd8ec2c4940b9ff59cbbda71b896b85182d7efbd73c58213802", 213_549_680L);
+    private static final long INSTALL_MINUTES = 15;
+    /** A progress line of Playwright's installer: {@code |■■■     | 40% of 170.2 MiB}. */
+    private static final Pattern PERCENT = Pattern.compile("(\\d{1,3})% of ([\\d.]+) MiB");
 
-        private final String id;
-        private final String sha256;
-        private final long size;
-
-        Platform(String id, String sha256, long size) {
-            this.id = id;
-            this.sha256 = sha256;
-            this.size = size;
-        }
-
-        public String id() {
-            return id;
-        }
-
-        /** The pinned zip. */
-        public Downloads.Remote remote() {
-            return new Downloads.Remote("https://storage.googleapis.com/chrome-for-testing-public/" + VERSION + "/"
-                    + id + "/chrome-" + id + ".zip", Downloads.Digest.SHA_256, sha256, size);
-        }
-
-        /** The executable inside the unpacked zip, relative to {@link #directory()}. */
-        public Path binary() {
-            Path root = Path.of("chrome-" + id);
-            return switch (this) {
-                case WIN64 -> root.resolve("chrome.exe");
-                case LINUX64 -> root.resolve("chrome");
-                case MAC_ARM64, MAC_X64 -> root.resolve("Google Chrome for Testing.app").resolve("Contents")
-                        .resolve("MacOS").resolve("Google Chrome for Testing");
-            };
-        }
-
-        /** The platform of an OS and processor, by their system properties' values; empty for one not published. */
-        public static Optional<Platform> of(String osName, String arch) {
-            String os = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
-            String cpu = arch == null ? "" : arch.toLowerCase(Locale.ROOT);
-            boolean x64 = cpu.equals("amd64") || cpu.equals("x86_64");
-            boolean arm64 = cpu.equals("aarch64") || cpu.equals("arm64");
-            if (os.contains("win") && x64) {
-                return Optional.of(WIN64);
-            }
-            if (os.contains("mac") && arm64) {
-                return Optional.of(MAC_ARM64);
-            }
-            if (os.contains("mac") && x64) {
-                return Optional.of(MAC_X64);
-            }
-            if (os.contains("nux") && x64) {
-                return Optional.of(LINUX64);
-            }
-            return Optional.empty();
-        }
-
-        /** This computer's platform. */
-        public static Optional<Platform> current() {
-            return of(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
-        }
-    }
-
-    /** Where the pinned version unpacks, whether or not it is there. */
+    /** Where Playwright keeps its browsers for BotMaker, whether or not one is there. */
     public static Path directory() {
-        return UserDirs.cache().resolve("chromium").resolve(VERSION);
+        return UserDirs.cache().resolve("playwright");
     }
 
-    /** The pinned Chromium's executable on this computer, if it is installed. */
-    public static Optional<Path> installed() {
-        return Platform.current().map(p -> directory().resolve(p.binary())).filter(Files::isExecutable);
+    /** What every Playwright BotMaker starts is told: its browsers' folder. */
+    static Map<String, String> environment() {
+        return Map.of(BROWSERS_PATH, directory().toString());
     }
 
     /**
-     * Downloads and unpacks the pinned Chromium when it is not installed; returns its executable, or empty on a
-     * platform with no build or when the download or unpacking failed. About 200 MB, once per version.
+     * What a Playwright that runs the browser is told: its browsers' folder, and to download none. Started without it,
+     * Playwright runs its bare {@code install} on each start, which fetches every browser it knows, not only Chromium;
+     * {@link #install} alone downloads, Chromium only.
      */
-    public static Optional<Path> install(Downloads.Progress progress) {
-        Optional<Path> installed = installed();
-        if (installed.isPresent()) {
-            return installed;
+    static Map<String, String> runEnvironment() {
+        return Map.of(BROWSERS_PATH, directory().toString(), "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", "1");
+    }
+
+    /**
+     * Whether a Chromium Playwright installed is in {@link #directory()}: a {@code chromium-*} folder its installer
+     * finished. It may be an older Playwright's; {@link #install} decides that.
+     */
+    public static boolean installed() {
+        if (!Files.isDirectory(directory())) {
+            return false;
         }
-        Optional<Platform> platform = Platform.current();
-        if (platform.isEmpty()) {
-            return Optional.empty();
-        }
-        // Per process, so two installs at once share no file; the tree is unpacked beside its place and moved there
-        // whole, so a half-unpacked one never counts as installed.
-        String mine = VERSION + "-" + platform.get().id() + "-" + ProcessHandle.current().pid();
-        Path archive = directory().resolveSibling(mine + ".zip");
-        Path unpacking = directory().resolveSibling(mine + ".unpacking");
-        try {
-            if (!Downloads.fetch(platform.get().remote(), archive, progress)) {
-                return Optional.empty();
-            }
-            boolean unpacked = platform.get() == Platform.MAC_ARM64 || platform.get() == Platform.MAC_X64
-                    ? ditto(archive, unpacking)
-                    : Unzip.extract(archive, unpacking);
-            if (!unpacked || !Files.isExecutable(unpacking.resolve(platform.get().binary()))) {
-                return Optional.empty();
-            }
-            Files.move(unpacking, directory(), StandardCopyOption.ATOMIC_MOVE);
+        try (Stream<Path> builds = Files.list(directory())) {
+            return builds.anyMatch(b -> b.getFileName().toString().startsWith("chromium")
+                    && Files.isRegularFile(b.resolve("INSTALLATION_COMPLETE")));
         } catch (IOException e) {
-            // Another install moved its tree in first, or the move failed: what is in place decides.
-            return installed();
-        } finally {
-            Chromium.deleteQuietly(unpacking);
-            try {
-                Files.deleteIfExists(archive);
-            } catch (IOException ignored) {
-                // A leftover zip costs disk, not correctness: the unpacked tree is what anything starts.
-            }
+            return false;
         }
-        return installed();
     }
 
     /**
-     * Unpacks with macOS's own {@code ditto}: the app bundle's frameworks are symbolic links, which a
-     * {@code ZipInputStream} writes as small files and so breaks the app.
+     * Installs the Chromium this Playwright drives (and its headless shell) when it is not there yet: Playwright's
+     * {@code install chromium}, which does nothing for a build already in place. About 300 MB, once per Playwright
+     * version. Whether it is installed now.
      */
-    private static boolean ditto(Path archive, Path target) {
+    public static boolean install(Downloads.Progress progress) {
         try {
-            Files.createDirectories(target);
-            Process process = new ProcessBuilder("/usr/bin/ditto", "-x", "-k", archive.toString(), target.toString())
-                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
-            return process.waitFor(5, TimeUnit.MINUTES) && process.exitValue() == 0;
+            Driver driver = Driver.ensureDriverInstalled(environment(), false);
+            ProcessBuilder builder = driver.createProcessBuilder();
+            builder.environment().putAll(environment());
+            builder.command().add("install");
+            builder.command().add("chromium");
+            builder.redirectErrorStream(true);
+            Process process = builder.start();
+            // Read on a thread of its own, so the wait below is what bounds a download that stalls.
+            Thread reader = Thread.ofVirtual().start(() -> {
+                try (BufferedReader out = new BufferedReader(new InputStreamReader(process.getInputStream(),
+                        StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = out.readLine()) != null) {
+                        report(line, progress);
+                    }
+                } catch (IOException | RuntimeException ended) {
+                    // The installer's output closed with it.
+                }
+            });
+            if (!process.waitFor(INSTALL_MINUTES, TimeUnit.MINUTES)) {
+                process.destroyForcibly();
+                return false;
+            }
+            reader.join(TimeUnit.SECONDS.toMillis(5));
+            return process.exitValue() == 0 && installed();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             return false;
         }
+    }
+
+    /** Passes on what an installer's line says of its download, in bytes. */
+    private static void report(String line, Downloads.Progress progress) {
+        Matcher m = PERCENT.matcher(line);
+        String last = null;
+        String total = null;
+        while (m.find()) {
+            last = m.group(1);
+            total = m.group(2);
+        }
+        if (last == null) {
+            return;
+        }
+        long bytes = (long) (Double.parseDouble(total) * 1024 * 1024);
+        progress.accept(bytes * Integer.parseInt(last) / 100, bytes);
     }
 }

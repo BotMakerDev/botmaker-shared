@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -34,9 +33,10 @@ class WebPageSlowTest {
     @BeforeAll
     static void start() throws Exception {
         site = new FixtureSite();
-        Path binary = ChromiumInstall.install(Downloads.Progress.IGNORED)
-                .orElseThrow(() -> new IllegalStateException("no Chromium for this platform, or its download failed"));
-        chromium = Chromium.start(binary, false, List.of());
+        if (!ChromiumInstall.install(Downloads.Progress.IGNORED)) {
+            throw new IllegalStateException("no Chromium for this platform, or its download failed");
+        }
+        chromium = Chromium.start(false, List.of());
     }
 
     @AfterAll

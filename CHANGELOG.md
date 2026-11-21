@@ -29,6 +29,22 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - `Os.id()` and `Os.fromId(String)`: a stable id per system (`windows`, `linux`, `macos`, `unknown`), the same as
   the catalog's platform ids a bot's pom lists in `botmaker.platforms`, so the core can say whether a bot runs here.
 
+### Changed
+
+- The web layer drives the browser through Playwright for Java (1.64.0) and its own Chromium, installed under
+  `UserDirs.cache()/playwright` by `ChromiumInstall.install`; the hand-written CDP client `Cdp` is deleted. Each
+  `WebPage` is a tab in its own browser context, so pages share no cookies; `WebPage.session()` is a `PageCdp`, the
+  tab's own CDP session. One thread (`BrowserThread`) makes every Playwright call and hears the browser between
+  them. `Chromium.start(show, switches)` takes no binary path.
+- The guard judges the tab's documents in its CDP `Fetch` (each redirect again) and everything else of its context
+  through a Playwright route. A page the tab opens (a popup, a `target=_blank` tab) never loads: its navigation is
+  turned back and the page closed, an exit when off the site, loaded in the tab instead when on it, where each
+  redirect is judged. A turned-back navigation restores the cookies through the context, not CDP's `Storage`, and
+  setting the jar no longer empties it when the browser refuses one cookie.
+- `PageCdp.call` gives up after 30 s (`CdpException`), and a browser that closes refuses calls made meanwhile, so
+  neither hangs its caller; `ChromiumInstall.install`'s 15-minute cap now holds while a download stalls, and starting
+  the browser downloads nothing (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`).
+
 ### Fixed
 
 - `WebPage.click` no longer presses a link to another app (`mailto:`, `tel:`, any scheme but a page's): Chromium

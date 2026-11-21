@@ -151,7 +151,7 @@ public final class FormProbe {
 
     /** The page's forms, each with a field, then the fields no form holds as one more. */
     public static List<Form> forms(WebPage page) {
-        Cdp.Session session = page.session();
+        PageCdp session = page.session();
         JsonNode scopes = session.call("Runtime.evaluate", Map.of("expression", SCOPES)).path("result");
         String array = scopes.path("objectId").asText("");
         if (array.isEmpty()) return List.of();
@@ -282,7 +282,7 @@ public final class FormProbe {
         }
     }
 
-    private static Form form(Cdp.Session session, String scope) {
+    private static Form form(PageCdp session, String scope) {
         JsonNode described = session.call("Runtime.callFunctionOn", Map.of("objectId", scope, "returnByValue", true,
                 "functionDeclaration", DESCRIBE)).path("result").path("value");
         List<Field> fields = new ArrayList<>();
@@ -303,7 +303,7 @@ public final class FormProbe {
     }
 
     /** The DOM node of {@code scope}'s {@code i}th field ({@code -1} its submit), {@code 0} when there is none. */
-    private static int backendId(Cdp.Session session, String scope, int i) {
+    private static int backendId(PageCdp session, String scope, int i) {
         String element = session.call("Runtime.callFunctionOn", Map.of("objectId", scope, "functionDeclaration", ELEMENT,
                 "arguments", List.of(Map.of("value", i)))).path("result").path("objectId").asText("");
         if (element.isEmpty()) return 0;
@@ -327,12 +327,12 @@ public final class FormProbe {
 
     /** {@code function} called on the element {@code backendId}, by value; a node gone or detached answers null. */
     private static JsonNode call(WebPage page, int backendId, String function) {
-        Cdp.Session session = page.session();
+        PageCdp session = page.session();
         String object;
         try {
             object = session.call("DOM.resolveNode", Map.of("backendNodeId", backendId)).path("object")
                     .path("objectId").asText("");
-        } catch (Cdp.CdpException goneOrDetached) {
+        } catch (PageCdp.CdpException goneOrDetached) {
             return NullNode.getInstance();
         }
         if (object.isEmpty()) return NullNode.getInstance();
@@ -340,7 +340,7 @@ public final class FormProbe {
             JsonNode answer = session.call("Runtime.callFunctionOn", Map.of("objectId", object, "returnByValue", true,
                     "functionDeclaration", function));
             return answer.has("exceptionDetails") ? NullNode.getInstance() : answer.path("result").path("value");
-        } catch (Cdp.CdpException goneOrDetached) {
+        } catch (PageCdp.CdpException goneOrDetached) {
             return NullNode.getInstance();
         } finally {
             session.send("Runtime.releaseObject", Map.of("objectId", object));

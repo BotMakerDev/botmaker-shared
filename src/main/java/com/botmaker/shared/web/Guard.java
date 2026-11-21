@@ -4,24 +4,26 @@
 package com.botmaker.shared.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.Frame;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.Request;
+import com.microsoft.playwright.Route;
+import com.microsoft.playwright.options.Cookie;
 
 import java.awt.Point;
 import java.net.URI;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
 
 /**
- * <b>The read-only guard of one tab</b> (spec §3): every request the tab makes pauses in CDP's {@code Fetch} and is
- * judged before it leaves.
+ * <b>The read-only guard of one tab</b> (spec §3): every request the tab, or a page it opened, makes is judged before
+ * it leaves.
  * <ul>
  *   <li>A navigation of the tab to a page off the {@link Scope} is failed: {@link Kind#EXIT}, its URL recorded,
  *       nothing sent to the other host. Each redirect is judged again, so where a navigation lands decides.</li>
@@ -31,12 +33,15 @@ import java.util.concurrent.TimeUnit;
  *   <li>Everything else passes, the page's own requests to other hosts (scripts, fonts, analytics) included: the
  *       visitor's, not ours.</li>
  * </ul>
- * A failed navigation is aborted, so the tab stays on the page it was on. A page the tab opens (a popup, a
- * {@code target=_blank} tab) is attached paused by {@link Chromium} and guarded as the tab before it runs.
- * {@link #press} asks {@link Presses} first.
+ * A failed navigation is aborted, so the tab stays on the page it was on. {@link #press} asks {@link Presses} first.
  *
- * <p>A request is judged on the socket's thread, but a navigation on a thread of the guard's own, since judging one
- * may fetch a {@code robots.txt}.
+ * <p>Two hands, both on the {@link BrowserThread}: the tab's own documents pause in CDP's {@code Fetch} on its session,
+ * which sees each redirect as a request of its own (a Playwright route sees only a chain's first); every other request
+ * of the tab's context, a popup's or a {@code target=_blank} tab's included, goes through a Playwright route, which
+ * holds a page the tab opens before its first request. Such a page's navigations never run in it ({@link #routed}): one
+ * on the site is loaded in the tab instead. Each request is judged on that thread, inside the handler: a paused request
+ * is answered only there, since the call waiting for it (a navigation) holds the thread. A host's first
+ * {@code robots.txt} is fetched there too, so the browser is not heard until it answers; {@link Robots} keeps it after.
  */
 public final class Guard implements AutoCloseable {
 
@@ -85,18 +90,21 @@ public final class Guard implements AutoCloseable {
         }
     }
 
+    /** The route that judges every request of the context. */
+    private static final String EVERY = "**/*";
+    /** What the tab's own {@code Fetch} pauses: its documents, the main frame's and its frames'. */
+    private static final Map<String, Object> DOCUMENTS = Map.of("patterns", List.of(Map.of("urlPattern", "*",
+            "resourceType", "Document", "requestStage", "Request")));
+
     private final WebPage page;
     private final Scope scope;
     private final Robots robots;
     private final String userAgent;
-    private final ExecutorService navigations = Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon()
-            .name("botmaker-web-guard").factory());
     private final List<Stopped> stopped = new ArrayList<>();
-    private final List<Cdp.Session> guarded = new ArrayList<>();
     private volatile boolean pressed;
     private volatile boolean closed;
     /** The cookies before the last input; null before one, or when they could not be read. */
-    private volatile JsonNode jar;
+    private volatile List<Cookie> jar;
 
     private Guard(WebPage page, Scope scope, Robots robots, String userAgent) {
         this.page = page;
@@ -110,13 +118,18 @@ public final class Guard implements AutoCloseable {
      * Before its first {@link WebPage#open}.
      */
     public static Guard on(WebPage page, Scope scope, Robots robots) {
-        Cdp.Session session = page.session();
+        PageCdp session = page.session();
         String browser = session.call("Browser.getVersion").path("userAgent").asText("");
         Guard guard = new Guard(page, scope, robots, (browser.isEmpty() ? "" : browser + " ") + robots.userAgent());
         session.call("Network.setUserAgentOverride", Map.of("userAgent", guard.userAgent));
-        guard.listen(session, page.targetId());
-        session.call("Fetch.enable", Map.of("patterns", List.of(Map.of("urlPattern", "*", "requestStage", "Request"))));
-        page.onOpened(page.targetId(), guard::attached);
+        session.on("Fetch.requestPaused", guard::paused);
+        session.call("Fetch.enable", DOCUMENTS);
+        page.thread().run(() -> {
+            BrowserContext context = page.page().context();
+            // What the tab opens sends the agent too, and is routed before its first request.
+            context.setExtraHTTPHeaders(Map.of("User-Agent", guard.userAgent));
+            context.route(EVERY, guard::routed);
+        });
         return guard;
     }
 
@@ -174,7 +187,7 @@ public final class Guard implements AutoCloseable {
     void arm() {
         pressed = true;
         try {
-            jar = page.session().call("Storage.getCookies").path("cookies");
+            jar = page.cookies();
         } catch (RuntimeException e) {
             jar = null;
         }
@@ -189,100 +202,125 @@ public final class Guard implements AutoCloseable {
         }
     }
 
-    /** Stops guarding: what is paused is judged first, then {@code Fetch} lets everything through again. */
+    /** Stops guarding: from now on every request is let through, the tab's {@code Fetch} and the route taken off. */
     @Override
     public void close() {
         closed = true;
-        navigations.shutdown();
         try {
-            navigations.awaitTermination(Cdp.CALL_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        List<Cdp.Session> sessions;
-        synchronized (guarded) {
-            sessions = List.copyOf(guarded);
-        }
-        for (Cdp.Session session : sessions) {
-            session.send("Fetch.disable", Map.of());
+            page.session().call("Fetch.disable");
+            page.thread().run(() -> page.page().context().unroute(EVERY));
+        } catch (RuntimeException gone) {
+            // A closed tab takes both with it.
         }
     }
 
-    /** Judges the requests of {@code session}, a tab whose main frame is {@code targetId}. */
-    private void listen(Cdp.Session session, String targetId) {
-        synchronized (guarded) {
-            guarded.add(session);
-        }
-        session.on("Fetch.requestPaused", params -> {
-            boolean navigation = "Document".equals(params.path("resourceType").asText())
-                    && targetId.equals(params.path("frameId").asText());
-            if (!navigation) {
-                answer(session, params, false);
-                return;
-            }
-            try {
-                navigations.execute(() -> {
-                    boolean aborted = answer(session, params, true);
-                    // A popup the guard turned back would stay on about:blank: nothing is left to see in it.
-                    if (aborted && !targetId.equals(page.targetId())) {
-                        page.closeOpened(targetId);
-                    }
-                });
-            } catch (RejectedExecutionException closing) {
-                // Closing: no robots.txt fetch on the socket's thread; a navigation then is simply not made.
-                session.send("Fetch.failRequest", Map.of("requestId", params.path("requestId").asText(),
-                        "errorReason", "Aborted"));
-            }
-        });
-    }
-
-    /**
-     * A page the tab (or a page it opened) opened, paused before it runs: guarded as the tab, then let go. Sends only,
-     * on the socket's thread: they leave in order, so {@code Fetch} is on before the page runs.
-     */
-    private void attached(JsonNode params) {
-        Cdp.Session opened = page.session(params.path("sessionId").asText());
-        if (closed) {
-            opened.send("Runtime.runIfWaitingForDebugger", Map.of());
-            return;
-        }
-        String target = params.path("targetInfo").path("targetId").asText();
-        listen(opened, target);
-        page.onOpened(target, this::attached);
-        opened.send("Network.setUserAgentOverride", Map.of("userAgent", userAgent));
-        opened.send("Fetch.enable", Map.of("patterns", List.of(Map.of("urlPattern", "*", "requestStage", "Request"))));
-        opened.send("Runtime.runIfWaitingForDebugger", Map.of());
-    }
-
-    /** Lets the request go or fails it; whether it was failed. */
-    private boolean answer(Cdp.Session session, JsonNode params, boolean navigation) {
+    /** A document of the tab, paused in its {@code Fetch}: a navigation when it is the main frame's. */
+    private void paused(JsonNode params) {
         String id = params.path("requestId").asText();
         JsonNode request = params.path("request");
         String url = request.path("url").asText("");
         String method = request.path("method").asText("GET");
-        Optional<Kind> verdict;
-        try {
-            verdict = verdict(url, method, navigation);
-        } catch (RuntimeException e) {
-            // A judgement that could not be made lets nothing through.
-            verdict = Optional.of(navigation ? Kind.EXIT : Kind.WRITE);
-        }
+        boolean navigation = page.targetId().equals(params.path("frameId").asText());
+        Optional<Kind> verdict = closed ? Optional.empty() : judged(url, method, navigation);
         if (verdict.isEmpty()) {
-            session.send("Fetch.continueRequest", Map.of("requestId", id));
-            return false;
+            page.session().send("Fetch.continueRequest", Map.of("requestId", id));
+            return;
         }
-        synchronized (stopped) {
-            stopped.add(new Stopped(verdict.get(), url, method));
-        }
-        // Aborted, not blocked: an aborted navigation commits no error page, so the tab stays where it was.
-        session.send("Fetch.failRequest", Map.of("requestId", id,
+        stop(verdict.get(), url, method, navigation);
+        page.session().send("Fetch.failRequest", Map.of("requestId", id,
                 "errorReason", navigation ? "Aborted" : "BlockedByClient"));
+    }
+
+    /**
+     * A request of the tab's context, routed: the tab's own documents were judged in its {@code Fetch} and pass. A
+     * navigation of a page the tab opened never runs there, since Playwright tells of such a page only once its first
+     * navigation followed its redirects, which nothing could judge: it is aborted and the page closed; off the site it
+     * is an exit, on the site it is loaded in the tab instead, whose {@code Fetch} judges each redirect.
+     */
+    private void routed(Route route) {
+        try {
+            Request request = route.request();
+            boolean navigation = request.isNavigationRequest();
+            Page opened = null;
+            try {
+                Frame frame = request.frame();
+                navigation &= frame.parentFrame() == null;
+                opened = frame.page();
+            } catch (PlaywrightException noFrameYet) {
+                // A popup's first navigation, made before its frame exists; or a worker's request, never a navigation.
+            }
+            boolean tab = opened == page.page();
+            if (closed || tab && "Document".equalsIgnoreCase(request.resourceType())) {
+                route.resume();
+                return;
+            }
+            Optional<Kind> verdict = judged(request.url(), request.method(), navigation);
+            if (navigation && !tab) {
+                route.abort("aborted");
+                closeOpened(opened);
+                if (verdict.isEmpty()) {
+                    inTheTab(request.url());
+                } else {
+                    stop(verdict.get(), request.url(), request.method(), true);
+                }
+                return;
+            }
+            if (verdict.isEmpty()) {
+                route.resume();
+                return;
+            }
+            stop(verdict.get(), request.url(), request.method(), navigation);
+            route.abort(navigation ? "aborted" : "blockedbyclient");
+        } catch (PlaywrightException gone) {
+            // Its page closed while it was routed: nothing is left to let through or turn back.
+        }
+    }
+
+    /**
+     * Loads {@code url} in the tab, from a thread of its own: the call that pressed is still on the browser thread,
+     * and the load waits for it.
+     */
+    private void inTheTab(String url) {
+        Thread.ofVirtual().name("botmaker-guard").start(() -> {
+            try {
+                page.session().call("Page.navigate", Map.of("url", url));
+            } catch (RuntimeException gone) {
+                // The tab closed meanwhile.
+            }
+        });
+    }
+
+    /** Closes {@code opened}, or, for a popup turned back before its frame existed, each blank page the tab opened. */
+    private void closeOpened(Page opened) {
+        page.thread().submit(() -> {
+            for (Page p : page.page().context().pages()) {
+                if (p != page.page() && (p == opened || opened == null && "about:blank".equals(p.url()))) {
+                    p.close();
+                }
+            }
+            return null;
+        });
+    }
+
+    /** Records a request turned back; a navigation puts the cookies back as they were before the input. */
+    private void stop(Kind kind, String url, String method, boolean navigation) {
+        synchronized (stopped) {
+            stopped.add(new Stopped(kind, url, method));
+        }
         if (navigation) {
             // Once: a later load turned back is not this input's, and the jar may have changed since.
             restore(jar);
             jar = null;
         }
-        return true;
+    }
+
+    /** What judging a request fails it for; empty to let it go. A judgement that cannot be made lets nothing go. */
+    private Optional<Kind> judged(String url, String method, boolean navigation) {
+        try {
+            return verdict(url, method, navigation);
+        } catch (RuntimeException e) {
+            return Optional.of(navigation ? Kind.EXIT : Kind.WRITE);
+        }
     }
 
     /**
@@ -290,44 +328,15 @@ public final class Guard implements AutoCloseable {
      * redirect sets a cookie on its way off the site, a new one each press (an OAuth state), and the jar grows until
      * the site refuses every request as too large.
      */
-    private void restore(JsonNode cookies) {
-        if (cookies == null || !cookies.isArray()) {
+    private void restore(List<Cookie> cookies) {
+        if (cookies == null) {
             return;
         }
-        List<Map<String, Object>> params = new ArrayList<>();
-        for (JsonNode cookie : cookies) {
-            params.add(cookieParam(cookie));
-        }
         try {
-            page.session().call("Storage.clearCookies");
-            if (!params.isEmpty()) {
-                page.session().call("Storage.setCookies", Map.of("cookies", params));
-            }
+            page.cookies(cookies);
         } catch (RuntimeException e) {
             // A jar that cannot be put back is left as it is: the navigation was still turned back.
         }
-    }
-
-    /** {@code cookie}, as {@code Storage.getCookies} gave it, as {@code Storage.setCookies} takes one. */
-    private static Map<String, Object> cookieParam(JsonNode cookie) {
-        Map<String, Object> param = new LinkedHashMap<>();
-        for (String text : List.of("name", "value", "domain", "path", "sameSite", "priority", "sourceScheme")) {
-            if (cookie.hasNonNull(text)) {
-                param.put(text, cookie.path(text).asText());
-            }
-        }
-        param.put("secure", cookie.path("secure").asBoolean());
-        param.put("httpOnly", cookie.path("httpOnly").asBoolean());
-        if (!cookie.path("session").asBoolean() && cookie.has("expires")) {
-            param.put("expires", cookie.path("expires").asDouble());
-        }
-        if (cookie.has("sourcePort")) {
-            param.put("sourcePort", cookie.path("sourcePort").asInt());
-        }
-        if (cookie.has("partitionKey") && cookie.path("partitionKey").isObject()) {
-            param.put("partitionKey", cookie.path("partitionKey"));
-        }
-        return param;
     }
 
     private Optional<Kind> verdict(String url, String method, boolean navigation) {

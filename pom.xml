@@ -130,6 +130,19 @@
             <version>1.6</version>
         </dependency>
 
+        <!--
+          The web target's browser (com.botmaker.shared.web, spec docs/superpowers/specs/2026-11-21-playwright-web-design.md):
+          Playwright for Java and its own Chromium, installed into UserDirs.cache()/playwright. Apache-2.0. Its driver
+          bundle (a Node runtime per platform) starts only when a web target opens a browser.
+          ChromiumInstall links Playwright's internal com.microsoft.playwright.impl.driver.Driver (to run
+          `install chromium` with progress): check it still compiles on each upgrade.
+        -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>1.64.0</version>
+        </dependency>
+
         <!-- Tests: JUnit Jupiter (see CLAUDE.md). Used by the ipc telemetry round-trip/loopback tests. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

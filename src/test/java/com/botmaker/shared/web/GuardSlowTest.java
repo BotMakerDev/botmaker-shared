@@ -4,17 +4,17 @@
 package com.botmaker.shared.web;
 
 import com.botmaker.shared.tools.Downloads;
+import com.microsoft.playwright.options.Cookie;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.StreamSupport;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -39,9 +39,10 @@ class GuardSlowTest {
         String otherBase = "http://elsewhere.test:" + other.port();
         site.names(Map.of("OTHER", otherBase, "ACCOUNTS", "http://accounts.elsewhere.test:" + other.port(),
                 "ALIAS", "http://www.site.test:" + site.port()));
-        Path binary = ChromiumInstall.install(Downloads.Progress.IGNORED)
-                .orElseThrow(() -> new IllegalStateException("no Chromium for this platform, or its download failed"));
-        chromium = Chromium.start(binary, false, List.of("--host-resolver-rules=MAP site.test 127.0.0.1, "
+        if (!ChromiumInstall.install(Downloads.Progress.IGNORED)) {
+            throw new IllegalStateException("no Chromium for this platform, or its download failed");
+        }
+        chromium = Chromium.start(false, List.of("--host-resolver-rules=MAP site.test 127.0.0.1, "
                 + "MAP *.site.test 127.0.0.1, MAP elsewhere.test 127.0.0.1, MAP *.elsewhere.test 127.0.0.1"));
     }
 
@@ -140,8 +141,7 @@ class GuardSlowTest {
 
     /** The browser's open pages. */
     private static long pages() {
-        return StreamSupport.stream(chromium.cdp().browser().call("Target.getTargets").path("targetInfos")
-                .spliterator(), false).filter(t -> t.path("type").asText().equals("page")).count();
+        return chromium.pages();
     }
 
     @Test
@@ -159,6 +159,26 @@ class GuardSlowTest {
         }
     }
 
+    /** An on-site page the tab opens is loaded in the tab, where its redirect is judged; the new tab is closed. */
+    @Test
+    void aNewTabsRedirectOffTheSiteIsAnExitToo() throws Exception {
+        site.robots(null);
+        site.redirect("http://elsewhere.test:" + other.port() + "/careers");
+        try (WebPage page = chromium.newPage(); Guard guard = guard(page)) {
+            page.open(home());
+            long before = pages();
+            assertTrue(guard.press(link(page, "Careers in a new tab")).isEmpty());
+            List<Guard.Stopped> stopped = stopped(page, guard);
+            assertEquals(List.of(new Guard.Stopped(Guard.Kind.EXIT,
+                    "http://elsewhere.test:" + other.port() + "/careers", "GET")), stopped);
+            assertEquals(0, other.hits("/careers"));
+            for (int i = 0; i < 40 && pages() > before; i++) {
+                Thread.sleep(50);
+            }
+            assertEquals(before, pages(), "the tab turned back is closed");
+        }
+    }
+
     @Test
     void aRedirectTurnedBackLeavesNoCookieBehind() throws Exception {
         site.robots(null);
@@ -166,18 +186,22 @@ class GuardSlowTest {
         try (WebPage page = chromium.newPage(); Guard guard = guard(page)) {
             page.open(home());
             // The visitor's own cookie stays as it was.
-            page.session().call("Storage.setCookies", Map.of("cookies", List.of(Map.of("name", "kept", "value", "1",
-                    "domain", "site.test", "path", "/", "httpOnly", true))));
-            String before = page.session().call("Storage.getCookies").path("cookies").toString();
-            assertTrue(before.contains("\"kept\""), before);
+            page.cookies(List.of(new Cookie("kept", "1").setDomain("site.test").setPath("/").setHttpOnly(true)));
+            String before = jar(page);
+            assertTrue(before.contains("kept=1"), before);
             for (int i = 0; i < 3; i++) {
                 guard.press(link(page, "Careers"));
                 stopped(page, guard);
             }
             assertTrue(site.hits("/redirect-out") >= 3);
-            assertEquals(before, page.session().call("Storage.getCookies").path("cookies").toString(),
-                    "each sign-in's state cookie is undone with its turned-back redirect");
+            assertEquals(before, jar(page), "each sign-in's state cookie is undone with its turned-back redirect");
         }
+    }
+
+    /** The tab's cookies as {@code name=value@domain} lines, in order. */
+    private static String jar(WebPage page) {
+        return page.cookies().stream().map(c -> c.name + "=" + c.value + "@" + c.domain).sorted()
+                .collect(Collectors.joining("\n"));
     }
 
     @Test

@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -27,9 +26,10 @@ class FormProbeSlowTest {
     @BeforeAll
     static void start() throws Exception {
         site = new FixtureSite();
-        Path binary = ChromiumInstall.install(Downloads.Progress.IGNORED)
-                .orElseThrow(() -> new IllegalStateException("no Chromium for this platform, or its download failed"));
-        chromium = Chromium.start(binary, false, List.of());
+        if (!ChromiumInstall.install(Downloads.Progress.IGNORED)) {
+            throw new IllegalStateException("no Chromium for this platform, or its download failed");
+        }
+        chromium = Chromium.start(false, List.of());
     }
 
     @AfterAll
