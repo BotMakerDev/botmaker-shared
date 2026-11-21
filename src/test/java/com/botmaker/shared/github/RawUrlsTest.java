@@ -23,6 +23,8 @@ class RawUrlsTest {
     void theCatalogHasOneAddress() {
         assertEquals(List.of("https://raw.githubusercontent.com/BotMakerDev/botmaker-catalog/main/catalog.json"),
                 GitHubConfig.catalogRawUrls());
+        assertEquals(List.of("https://raw.githubusercontent.com/BotMakerDev/botmaker-catalog/main/catalog.signed.json"),
+                GitHubConfig.catalogSignedRawUrls());
     }
 
     @Test

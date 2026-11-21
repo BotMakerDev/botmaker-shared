@@ -76,6 +76,12 @@ public final class GitHubConfig {
      */
     public static final String CATALOG_PATH = "catalog.json";
 
+    /**
+     * {@link #CATALOG_PATH}'s bytes with their Ed25519 signature (2026-11-21), the file Studio reads since then:
+     * {@code {"payload", "key", "signature"}}, written beside it by the catalog's {@code index.yml}. Never moves.
+     */
+    public static final String CATALOG_SIGNED_PATH = "catalog.signed.json";
+
     public static final String API_BASE = "https://api.github.com";
     public static final String DEVICE_CODE_URL = "https://github.com/login/device/code";
     public static final String ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token";
@@ -91,6 +97,12 @@ public final class GitHubConfig {
     public static List<String> catalogRawUrls() {
         return List.of("https://raw.githubusercontent.com/" + CATALOG_OWNER + "/" + CATALOG_REPO + "/"
                 + CATALOG_BRANCH + "/" + CATALOG_PATH);
+    }
+
+    /** Raw (CDN) URL of {@link #CATALOG_SIGNED_PATH}, the signed catalog the core reads. */
+    public static List<String> catalogSignedRawUrls() {
+        return List.of("https://raw.githubusercontent.com/" + CATALOG_OWNER + "/" + CATALOG_REPO + "/"
+                + CATALOG_BRANCH + "/" + CATALOG_SIGNED_PATH);
     }
 
     /**
