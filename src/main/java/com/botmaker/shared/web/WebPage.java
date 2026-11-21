@@ -7,8 +7,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -311,28 +317,118 @@ public final class WebPage implements AutoCloseable {
     }
 
     /**
-     * The whole page from its top, as PNG, rendered by Chromium below the viewport too: a screen's shot, where a long
-     * page shows all it holds (the user's call, 2026-11-21). As wide as the viewport, or the page when it is wider, and
-     * at most {@link #WHOLE_HEIGHT} tall.
+     * The whole page from its top, as PNG: a screen's shot, where a long page shows all it holds (the user's call,
+     * 2026-11-21). The page is scrolled down a viewport at a time and each view shot, as a user sees it, then stitched
+     * into one: a section a site reveals only once scrolled to (nunu.ai's fade in) shows, which a render below the
+     * viewport left blank. A bar that stays on the screen (fixed or sticky) is drawn once, at the top. The page is
+     * scrolled back where it was after. As wide as a frame, at most {@link #WHOLE_HEIGHT} CSS pixels tall.
      */
     public byte[] whole() {
-        JsonNode metrics = session.call("Page.getLayoutMetrics");
-        JsonNode content = metrics.path("cssContentSize");
-        JsonNode view = metrics.path("cssLayoutViewport");
-        // The window's width, its scrollbar's strip with it, as a frame is: a layout viewport's leaves it out.
-        double inner = session.call("Runtime.evaluate", Map.of("expression", "window.innerWidth", "returnByValue", true))
-                .path("result").path("value").asDouble(view.path("clientWidth").asDouble(0));
-        double width = Math.max(inner, content.path("width").asDouble(0));
-        double height = Math.min(WHOLE_HEIGHT, Math.max(view.path("clientHeight").asDouble(0),
-                content.path("height").asDouble(0)));
-        Map<String, Object> clip = Map.of("x", 0, "y", 0, "width", width, "height", height, "scale", 1);
-        String data = session.call("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true,
-                "clip", clip)).path("data").asText("");
-        return Base64.getDecoder().decode(data);
+        double view = number("window.innerHeight");
+        double startX = number("window.scrollX");
+        double startY = number("window.scrollY");
+        BufferedImage page = null;
+        double scale = 1;
+        int bottom = 0;
+        try {
+            double at = 0;
+            for (int tile = 0; tile < WHOLE_HEIGHT / Math.max(100, view) + 2; tile++) {
+                evaluate("window.scrollTo(0, " + (long) at + ")");
+                rest(TILE_REST);
+                settled(QUIET, TILE_SETTLE);
+                double top = number("window.scrollY");
+                double tall = Math.min(WHOLE_HEIGHT, number("document.documentElement.scrollHeight"));
+                BufferedImage shot = png(session.call("Page.captureScreenshot", Map.of("format", "png"))
+                        .path("data").asText(""));
+                if (shot == null) break;
+                if (page == null) {
+                    scale = shot.getHeight() / Math.max(1, view);
+                    // The bars stay hidden for the tiles below: drawn once, where the page's top shows them.
+                    evaluate(HIDE_BARS);
+                }
+                int height = (int) Math.round(Math.max(tall, top + view) * scale);
+                page = grown(page, shot.getWidth(), height);
+                Graphics2D g = page.createGraphics();
+                g.drawImage(shot, 0, (int) Math.round(top * scale), null);
+                g.dispose();
+                bottom = Math.max(bottom, (int) Math.round((top + view) * scale));
+                if (top + view >= tall - 1 || top + view >= WHOLE_HEIGHT) break;
+                at = top + view;
+            }
+        } finally {
+            evaluate(SHOW_BARS);
+            evaluate("window.scrollTo(" + (long) startX + ", " + (long) startY + ")");
+        }
+        if (page == null) return new byte[0];
+        BufferedImage cut = page.getSubimage(0, 0, page.getWidth(), Math.min(page.getHeight(), Math.max(1, bottom)));
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            ImageIO.write(cut, "png", out);
+            return out.toByteArray();
+        } catch (IOException unwritten) {
+            return new byte[0];
+        }
     }
 
     /** The tallest {@link #whole} renders, in CSS pixels: Chromium's own limit on a texture. */
     public static final int WHOLE_HEIGHT = 16_384;
+
+    /** How long {@link #whole} rests at each view before it settles: what shows on a scroll starts in that time. */
+    private static final Duration TILE_REST = Duration.ofMillis(150);
+
+    /** The longest {@link #whole} waits for a view to settle: a page that never stops animating is shot anyway. */
+    private static final Duration TILE_SETTLE = Duration.ofMillis(1500);
+
+    /** Hides every fixed or sticky element, each marked to be shown again by {@link #SHOW_BARS}. */
+    private static final String HIDE_BARS = """
+            for (const e of document.querySelectorAll('body *')) {
+              const p = getComputedStyle(e).position;
+              if (p === 'fixed' || p === 'sticky') {
+                e.dataset.botmakerWhole = e.style.visibility;
+                e.style.visibility = 'hidden';
+              }
+            }""";
+
+    /** Shows again what {@link #HIDE_BARS} hid. */
+    private static final String SHOW_BARS = """
+            for (const e of document.querySelectorAll('[data-botmaker-whole]')) {
+              e.style.visibility = e.dataset.botmakerWhole;
+              delete e.dataset.botmakerWhole;
+            }""";
+
+    /** A JavaScript expression's number on the page, 0 when it has none. */
+    private double number(String expression) {
+        return session.call("Runtime.evaluate", Map.of("expression", expression, "returnByValue", true))
+                .path("result").path("value").asDouble(0);
+    }
+
+    /** {@code page}, or a blank one when null, at least {@code width} by {@code height}: its pixels kept at the top. */
+    private static BufferedImage grown(BufferedImage page, int width, int height) {
+        if (page != null && page.getWidth() >= width && page.getHeight() >= height) return page;
+        BufferedImage bigger = new BufferedImage(Math.max(width, page == null ? 0 : page.getWidth()),
+                Math.max(height, page == null ? 0 : page.getHeight()), BufferedImage.TYPE_INT_RGB);
+        if (page != null) {
+            Graphics2D g = bigger.createGraphics();
+            g.drawImage(page, 0, 0, null);
+            g.dispose();
+        }
+        return bigger;
+    }
+
+    private static BufferedImage png(String base64) {
+        try {
+            return ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(base64)));
+        } catch (IOException | IllegalArgumentException unreadable) {
+            return null;
+        }
+    }
+
+    private static void rest(Duration time) {
+        try {
+            Thread.sleep(time.toMillis());
+        } catch (InterruptedException stopped) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     /**
      * The HTTP status the tab's page was last loaded with, as its server answered (a 404, a 431 error page); 0 before

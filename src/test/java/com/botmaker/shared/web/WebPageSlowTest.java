@@ -123,6 +123,27 @@ class WebPageSlowTest {
         }
     }
 
+    /** nunu.ai: a section fades in once scrolled into view, so the whole shot scrolls down first, then back. */
+    @Test
+    void whatShowsOnlyOnceScrolledToIsShownOnTheWholePage() {
+        try (WebPage page = chromium.newPage()) {
+            page.open(site.url("/"));
+            page.session().call("Runtime.evaluate", Map.of("expression", """
+                    const low = Object.assign(document.createElement('div'), {id: 'low'});
+                    low.style.cssText = 'margin-top:3000px;height:200px';
+                    document.body.appendChild(low);
+                    new IntersectionObserver(seen => { if (seen[0].isIntersecting) low.dataset.seen = 'yes'; })
+                        .observe(low);
+                    """));
+            page.whole();
+            String seen = "document.getElementById('low').dataset.seen ?? 'no'";
+            assertEquals("yes", page.session().call("Runtime.evaluate", Map.of("expression", seen,
+                    "returnByValue", true)).path("result").path("value").asText());
+            assertEquals(0, page.session().call("Runtime.evaluate", Map.of("expression", "window.scrollY",
+                    "returnByValue", true)).path("result").path("value").asInt(), "back where it was");
+        }
+    }
+
     @Test
     void aPressChangesThePageAndTheChangeIsSettled() {
         try (WebPage page = chromium.newPage()) {
