@@ -9,6 +9,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -104,6 +107,19 @@ class WebPageSlowTest {
             assertTrue(frame.length > 1000);
             assertEquals((byte) 0xFF, frame[0]);
             assertEquals((byte) 0xD8, frame[1]);
+        }
+    }
+
+    @Test
+    void theWholePageIsRenderedBelowTheViewportToo() throws Exception {
+        try (WebPage page = chromium.newPage()) {
+            page.open(site.url("/"));
+            page.session().call("Runtime.evaluate", Map.of("expression",
+                    "document.body.appendChild(Object.assign(document.createElement('div'),{style:'height:3000px'}))"));
+            BufferedImage whole = ImageIO.read(new ByteArrayInputStream(page.whole()));
+            BufferedImage frame = ImageIO.read(new ByteArrayInputStream(page.frame()));
+            assertEquals(frame.getWidth(), whole.getWidth(), "as wide as the viewport");
+            assertTrue(whole.getHeight() > 3000, "as tall as the page: " + whole.getHeight());
         }
     }
 

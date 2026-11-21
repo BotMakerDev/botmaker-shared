@@ -19,6 +19,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - `GitHubConfig.CATALOG_SIGNED_PATH` and `catalogSignedRawUrls()`: the signed catalog the core reads (catalog trust,
   phase 4).
 
+- `WebPage.whole()`: the whole page from its top as PNG, rendered below the viewport too, at most 16384 px tall.
+
 - `WebPage.mark`, `unmark` and `inView`: parts of a page outlined with their labels for a person watching the browser,
   on a layer hidden from the accessibility tree that takes no press.
 

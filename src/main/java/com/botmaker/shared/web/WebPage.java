@@ -311,6 +311,30 @@ public final class WebPage implements AutoCloseable {
     }
 
     /**
+     * The whole page from its top, as PNG, rendered by Chromium below the viewport too: a screen's shot, where a long
+     * page shows all it holds (the user's call, 2026-11-21). As wide as the viewport, or the page when it is wider, and
+     * at most {@link #WHOLE_HEIGHT} tall.
+     */
+    public byte[] whole() {
+        JsonNode metrics = session.call("Page.getLayoutMetrics");
+        JsonNode content = metrics.path("cssContentSize");
+        JsonNode view = metrics.path("cssLayoutViewport");
+        // The window's width, its scrollbar's strip with it, as a frame is: a layout viewport's leaves it out.
+        double inner = session.call("Runtime.evaluate", Map.of("expression", "window.innerWidth", "returnByValue", true))
+                .path("result").path("value").asDouble(view.path("clientWidth").asDouble(0));
+        double width = Math.max(inner, content.path("width").asDouble(0));
+        double height = Math.min(WHOLE_HEIGHT, Math.max(view.path("clientHeight").asDouble(0),
+                content.path("height").asDouble(0)));
+        Map<String, Object> clip = Map.of("x", 0, "y", 0, "width", width, "height", height, "scale", 1);
+        String data = session.call("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true,
+                "clip", clip)).path("data").asText("");
+        return Base64.getDecoder().decode(data);
+    }
+
+    /** The tallest {@link #whole} renders, in CSS pixels: Chromium's own limit on a texture. */
+    public static final int WHOLE_HEIGHT = 16_384;
+
+    /**
      * The HTTP status the tab's page was last loaded with, as its server answered (a 404, a 431 error page); 0 before
      * any load. A page that changes its address in place keeps its load's.
      */
