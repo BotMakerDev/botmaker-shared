@@ -10,6 +10,7 @@ import com.microsoft.playwright.CDPSession;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.options.ServiceWorkerPolicy;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -74,10 +75,14 @@ public final class Chromium implements AutoCloseable {
         }
     }
 
-    /** Opens a new blank tab in a context of its own (its own cookies), at {@link #WIDTH}×{@link #HEIGHT}. */
+    /**
+     * Opens a new blank tab in a context of its own (its own cookies), at {@link #WIDTH}×{@link #HEIGHT}. Service
+     * workers are blocked: a Playwright route never sees what a worker fetches, so the guard could not judge it.
+     */
     public WebPage newPage() {
         return thread.call(() -> {
-            BrowserContext context = browser.newContext(new Browser.NewContextOptions().setViewportSize(WIDTH, HEIGHT));
+            BrowserContext context = browser.newContext(new Browser.NewContextOptions().setViewportSize(WIDTH, HEIGHT)
+                    .setServiceWorkers(ServiceWorkerPolicy.BLOCK));
             Page page = context.newPage();
             CDPSession session = context.newCDPSession(page);
             return new WebPage(thread, page, new PageCdp(thread, session));
