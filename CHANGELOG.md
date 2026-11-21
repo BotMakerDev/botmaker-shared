@@ -52,6 +52,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   visible, still and takes the press (2 s at most, then at its box's centre as before); `type` fills a field in place
   of its text; `key` takes Playwright's key names. Its requests, responses, console and page errors are heard
   through Playwright's events; the browser's own log lines (`Log.entryAdded`) are no longer read as console lines.
+- `WebPage.evaluate(expression)` gives a script's value on the page through Playwright (null once the page navigated
+  away), and the marks are drawn by it. `WebPage.session()` and `PageCdp` are package-private: nothing outside
+  `com.botmaker.shared.web` speaks DevTools. What stays on CDP is what Playwright has no call for: the accessibility
+  tree and what is done by its nodes' backend ids, the guard's `Fetch` (it sees each redirect) and the user agent of
+  a tab already open. An on-site page the site opens in a new tab is loaded in the run's tab through Playwright.
 
 ### Fixed
 

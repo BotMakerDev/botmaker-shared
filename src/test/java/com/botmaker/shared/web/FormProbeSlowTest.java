@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -59,9 +58,7 @@ class FormProbeSlowTest {
                     result.rules().stream().map(FormRule::line).toList(),
                     String.join("\n", result.tries().stream().map(FormRule.Try::line).toList()));
             assertTrue(guard.stopped().isEmpty(), "the page tried no write");
-            assertEquals("", page.session().call("Runtime.evaluate", Map.of("expression",
-                    "document.getElementById('email').value", "returnByValue", true)).path("result").path("value")
-                    .asText(), "left empty");
+            assertEquals("", page.evaluate("document.getElementById('email').value"), "left empty");
         }
         assertEquals(0, site.writes(), "no request left on any try");
     }

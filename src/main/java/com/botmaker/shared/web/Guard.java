@@ -11,6 +11,7 @@ import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.Request;
 import com.microsoft.playwright.Route;
 import com.microsoft.playwright.options.Cookie;
+import com.microsoft.playwright.options.WaitUntilState;
 
 import java.awt.Point;
 import java.net.URI;
@@ -18,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -119,7 +121,7 @@ public final class Guard implements AutoCloseable {
      */
     public static Guard on(WebPage page, Scope scope, Robots robots) {
         PageCdp session = page.session();
-        String browser = session.call("Browser.getVersion").path("userAgent").asText("");
+        String browser = Objects.toString(page.evaluate("navigator.userAgent"), "");
         Guard guard = new Guard(page, scope, robots, (browser.isEmpty() ? "" : browser + " ") + robots.userAgent());
         session.call("Network.setUserAgentOverride", Map.of("userAgent", guard.userAgent));
         session.on("Fetch.requestPaused", guard::paused);
@@ -283,9 +285,11 @@ public final class Guard implements AutoCloseable {
     private void inTheTab(String url) {
         Thread.ofVirtual().name("botmaker-guard").start(() -> {
             try {
-                page.session().call("Page.navigate", Map.of("url", url));
+                // Only until it is under way: the settle that follows the press waits for the rest.
+                page.thread().run(() -> page.page().navigate(url, new Page.NavigateOptions()
+                        .setWaitUntil(WaitUntilState.COMMIT)));
             } catch (RuntimeException gone) {
-                // The tab closed meanwhile.
+                // The tab closed meanwhile, or the navigation was turned back.
             }
         });
     }

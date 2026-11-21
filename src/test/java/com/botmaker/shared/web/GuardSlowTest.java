@@ -144,6 +144,25 @@ class GuardSlowTest {
         return chromium.pages();
     }
 
+    /** An on-site page the site opens in a new tab: loaded in the run's tab, the new one closed, nothing stopped. */
+    @Test
+    void aPopupTheSiteOpensIsClosedAndTheRunStays() throws Exception {
+        site.robots(null);
+        try (WebPage page = chromium.newPage(); Guard guard = guard(page)) {
+            page.open(home());
+            long before = pages();
+            assertTrue(guard.press(link(page, "Case studies in a new tab")).isEmpty());
+            String cases = "http://site.test:" + site.port() + "/case-studies";
+            for (int i = 0; i < 40 && !(cases.equals(page.url()) && pages() == before); i++) {
+                Thread.sleep(50);
+            }
+            page.settled();
+            assertEquals(List.of(), guard.stopped());
+            assertEquals(cases, page.url(), "the run's tab went there");
+            assertEquals(before, pages(), "the new tab is closed");
+        }
+    }
+
     @Test
     void aRedirectOffTheSiteIsAnExitWhereItLands() throws Exception {
         site.robots(null);
@@ -213,8 +232,7 @@ class GuardSlowTest {
             page.settled();
             assertEquals(List.of(), guard.stopped());
             assertEquals("http://www.site.test:" + site.port() + "/case-studies", page.url());
-            String agent = page.session().call("Runtime.evaluate", Map.of("expression", "navigator.userAgent",
-                    "returnByValue", true)).path("result").path("value").asText();
+            String agent = (String) page.evaluate("navigator.userAgent");
             assertTrue(agent.endsWith(guard.robots().userAgent()), "the page's script sees the agent too: " + agent);
         }
     }
@@ -229,9 +247,8 @@ class GuardSlowTest {
             assertEquals(Presses.Reason.WORD, guard.press(button(page, "Subscribe")).orElseThrow().reason());
             assertTrue(guard.press(button(page, "Show more")).isEmpty());
             page.settled();
-            assertEquals("Shown", page.session().call("Runtime.evaluate", Map.of("expression",
-                    "document.getElementById('said').textContent", "returnByValue", true))
-                    .path("result").path("value").asText(), "only the harmless press was made");
+            assertEquals("Shown", page.evaluate("document.getElementById('said').textContent"),
+                    "only the harmless press was made");
 
             int writes = site.writes();
             page.click(button(page, "Save draft"));

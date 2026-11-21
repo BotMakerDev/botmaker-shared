@@ -14,7 +14,6 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -71,8 +70,7 @@ class WebPageSlowTest {
         try (WebPage page = chromium.newPage()) {
             for (int i = 0; i < 6; i++) {
                 assertTrue(page.open(site.url("/crowded")).ok());
-                assertEquals("Crowded", page.session().call("Runtime.evaluate", Map.of("expression", "document.title",
-                        "returnByValue", true)).path("result").path("value").asText(), "load " + i);
+                assertEquals("Crowded", page.evaluate("document.title"), "load " + i);
             }
             assertTrue(site.crowdedRefusals() > 0, "the site did refuse the grown jar");
         }
@@ -87,15 +85,13 @@ class WebPageSlowTest {
             page.mark(before.interactive().stream().filter(WebNode::laidOut)
                     .map(n -> new WebPage.Mark(n.box(), n.name(), n.backendId() == start.backendId())).toList());
             String drawn = "document.getElementById('__botmaker_marks')?.childElementCount ?? 0";
-            assertTrue(page.session().call("Runtime.evaluate", Map.of("expression", drawn, "returnByValue", true))
-                    .path("result").path("value").asInt() > 1);
+            assertTrue(((Number) page.evaluate(drawn)).intValue() > 1);
             assertEquals(before.outline(), page.tree().outline(), "the marks are hidden from the tree");
             page.click(start);
             assertTrue(page.settled());
             assertTrue(page.tree().nodes().stream().anyMatch(n -> n.name().equals("Started")), "a press goes through");
             page.unmark();
-            assertEquals(0, page.session().call("Runtime.evaluate", Map.of("expression", drawn, "returnByValue", true))
-                    .path("result").path("value").asInt());
+            assertEquals(0, ((Number) page.evaluate(drawn)).intValue());
         }
     }
 
@@ -114,8 +110,8 @@ class WebPageSlowTest {
     void theWholePageIsRenderedBelowTheViewportToo() throws Exception {
         try (WebPage page = chromium.newPage()) {
             page.open(site.url("/"));
-            page.session().call("Runtime.evaluate", Map.of("expression",
-                    "document.body.appendChild(Object.assign(document.createElement('div'),{style:'height:3000px'}))"));
+            page.evaluate("void document.body.appendChild(Object.assign(document.createElement('div'),"
+                    + "{style:'height:3000px'}))");
             BufferedImage whole = ImageIO.read(new ByteArrayInputStream(page.whole()));
             BufferedImage frame = ImageIO.read(new ByteArrayInputStream(page.frame()));
             assertEquals(frame.getWidth(), whole.getWidth(), "as wide as the viewport");
@@ -128,19 +124,17 @@ class WebPageSlowTest {
     void whatShowsOnlyOnceScrolledToIsShownOnTheWholePage() {
         try (WebPage page = chromium.newPage()) {
             page.open(site.url("/"));
-            page.session().call("Runtime.evaluate", Map.of("expression", """
-                    const low = Object.assign(document.createElement('div'), {id: 'low'});
-                    low.style.cssText = 'margin-top:3000px;height:200px';
-                    document.body.appendChild(low);
-                    new IntersectionObserver(seen => { if (seen[0].isIntersecting) low.dataset.seen = 'yes'; })
-                        .observe(low);
-                    """));
+            page.evaluate("""
+                    () => {
+                      const low = Object.assign(document.createElement('div'), {id: 'low'});
+                      low.style.cssText = 'margin-top:3000px;height:200px';
+                      document.body.appendChild(low);
+                      new IntersectionObserver(seen => { if (seen[0].isIntersecting) low.dataset.seen = 'yes'; })
+                          .observe(low);
+                    }""");
             page.whole();
-            String seen = "document.getElementById('low').dataset.seen ?? 'no'";
-            assertEquals("yes", page.session().call("Runtime.evaluate", Map.of("expression", seen,
-                    "returnByValue", true)).path("result").path("value").asText());
-            assertEquals(0, page.session().call("Runtime.evaluate", Map.of("expression", "window.scrollY",
-                    "returnByValue", true)).path("result").path("value").asInt(), "back where it was");
+            assertEquals("yes", page.evaluate("document.getElementById('low').dataset.seen ?? 'no'"));
+            assertEquals(0, ((Number) page.evaluate("window.scrollY")).intValue(), "back where it was");
         }
     }
 

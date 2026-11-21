@@ -17,11 +17,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
- * <b>A page's DevTools commands and events</b>, for what Playwright has no call of its own for (the accessibility
- * tree, a node's box): Playwright's {@link CDPSession} on the page, Jackson in and out, every call made on the
- * {@link BrowserThread}.
+ * <b>A page's DevTools commands and events</b>, for what Playwright has no call of its own for: the accessibility
+ * tree and what is done by its nodes' backend ids (a box, a scroll, a function on the element, a form's fields), the
+ * guard's {@code Fetch} pause, which sees each redirect where a Playwright route sees a chain's first request only, and
+ * the user agent changed on a tab already open. Playwright's {@link CDPSession} on the page, Jackson in and out, every
+ * call made on the {@link BrowserThread}; package-private, so nothing outside this package speaks DevTools.
  */
-public final class PageCdp {
+final class PageCdp {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     /** How long a command may go unanswered. */

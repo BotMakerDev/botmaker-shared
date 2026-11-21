@@ -3,9 +3,7 @@
 
 package com.botmaker.shared.web;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.ElementHandle;
 import com.microsoft.playwright.Page;
@@ -429,7 +427,7 @@ public final class WebPage implements AutoCloseable {
         try {
             double at = 0;
             for (int tile = 0; tile < WHOLE_HEIGHT / Math.max(100, view) + 2; tile++) {
-                evaluate("window.scrollTo(0, " + (long) at + ")");
+                run("window.scrollTo(0, " + (long) at + ")");
                 rest(TILE_REST);
                 settled(QUIET, TILE_SETTLE);
                 double top = number("window.scrollY");
@@ -440,7 +438,7 @@ public final class WebPage implements AutoCloseable {
                 if (page == null) {
                     scale = shot.getHeight() / Math.max(1, view);
                     // The bars stay hidden for the tiles below: drawn once, where the page's top shows them.
-                    evaluate(HIDE_BARS);
+                    run(HIDE_BARS);
                 }
                 int height = (int) Math.round(Math.max(tall, top + view) * scale);
                 page = grown(page, shot.getWidth(), height);
@@ -452,8 +450,8 @@ public final class WebPage implements AutoCloseable {
                 at = top + view;
             }
         } finally {
-            evaluate(SHOW_BARS);
-            evaluate("window.scrollTo(" + (long) startX + ", " + (long) startY + ")");
+            run(SHOW_BARS);
+            run("window.scrollTo(" + (long) startX + ", " + (long) startY + ")");
         }
         if (page == null) return new byte[0];
         BufferedImage cut = page.getSubimage(0, 0, page.getWidth(), Math.min(page.getHeight(), Math.max(1, bottom)));
@@ -741,16 +739,29 @@ public final class WebPage implements AutoCloseable {
             drawn.add(Map.of("x", b.x, "y", b.y, "w", b.width, "h", b.height, "t", mark.label(),
                     "c", mark.pressed() ? "#dc2626" : "#2563eb"));
         }
-        try {
-            evaluate("(" + MARK + ")(" + JSON.writeValueAsString(drawn) + ")");
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("marks not written", e);
-        }
+        evaluate(MARK, drawn);
     }
 
     /** Takes off what {@link #mark} outlined; nothing when nothing is. */
     public void unmark() {
         evaluate("document.getElementById('" + MARKS_ID + "')?.remove()");
+    }
+
+    /**
+     * {@code expression}'s value on the page, by value (a string, number, boolean, list or map); null when it has none,
+     * when it threw, or when the page navigated away or closed meanwhile. A function is called with no argument.
+     */
+    public Object evaluate(String expression) {
+        return evaluate(expression, null);
+    }
+
+    /** {@code script} on the page, a function given {@code arg} or an expression; null as {@link #evaluate(String)}. */
+    private Object evaluate(String script, Object arg) {
+        try {
+            return thread.call(() -> page.evaluate(script, arg));
+        } catch (PlaywrightException gone) {
+            return null;
+        }
     }
 
     /** {@code node}'s box once scrolled into view, empty when it has no DOM node or is not laid out. */
@@ -765,15 +776,15 @@ public final class WebPage implements AutoCloseable {
         }
     }
 
-    private void evaluate(String expression) {
+    /** Runs {@code statements} on the page, the whole shot's; nothing when the page navigated away. */
+    private void run(String statements) {
         try {
-            session.call("Runtime.evaluate", Map.of("expression", expression));
+            session.call("Runtime.evaluate", Map.of("expression", statements));
         } catch (PageCdp.CdpException gone) {
-            // A page navigating away takes its marks with it.
+            // A page navigating away takes what the statements changed with it.
         }
     }
 
-    private static final ObjectMapper JSON = new ObjectMapper();
     private static final String MARKS_ID = "__botmaker_marks";
     /** Draws each mark as an outlined box with its label above, on one fixed layer over the whole viewport. */
     private static final String MARK = """
@@ -798,8 +809,8 @@ public final class WebPage implements AutoCloseable {
               document.documentElement.appendChild(layer);
             }""".formatted(MARKS_ID);
 
-    /** The tab's own commands and events, for what this class does not say yet. */
-    public PageCdp session() {
+    /** The tab's own DevTools commands and events, for what Playwright has no call of (the guard's, the tree's). */
+    PageCdp session() {
         return session;
     }
 
