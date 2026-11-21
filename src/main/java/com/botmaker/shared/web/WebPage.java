@@ -7,8 +7,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.ElementHandle;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.Request;
+import com.microsoft.playwright.Response;
+import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.Cookie;
+import com.microsoft.playwright.options.LoadState;
+import com.microsoft.playwright.options.WaitUntilState;
 
 import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
@@ -32,26 +39,40 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * <b>One tab of a {@link Chromium}</b>: it opens a URL, waits for the page to settle, reads the page's tree, a frame,
- * its console and its failed requests, and presses or types into a node at its box's centre through CDP's
- * {@code Input}, which goes into the renderer, never the user's cursor.
+ * <b>One tab of a {@link Chromium}</b>: it opens a URL, waits for the page to load and settle, reads the page's tree,
+ * a frame, its console and its failed requests, and presses or types into a node through Playwright's input, which
+ * goes into the renderer, never the user's cursor.
  *
- * <p>Settled is the page doing nothing: no request in flight and no DOM mutation for a quiet while. Mutations reach
- * BotMaker through a binding a small observer calls, at most once per 50 ms; the observer draws nothing.
+ * <p>Settled is the page doing nothing: no request in flight (an image or a script for at most {@link #LOAD_CAP}) and
+ * no DOM mutation for
+ * a short quiet while. Mutations reach BotMaker through a function a small observer calls, at most once per 50 ms; the
+ * observer draws nothing.
  */
 public final class WebPage implements AutoCloseable {
 
-    /** How long nothing must happen before a page counts as settled. */
+    /** A longer quiet, for a caller that waits out a page's late answer. */
     public static final Duration QUIET = Duration.ofMillis(500);
+    /** How long nothing must happen before a page counts as settled, by {@link #settled()}. */
+    public static final Duration SHORT_QUIET = Duration.ofMillis(200);
     /** How long a settle waits at most. */
     public static final Duration SETTLE_MAX = Duration.ofSeconds(10);
+    /**
+     * How long a load waits for the page's {@code load} event once its document is in, and how long a request may stay
+     * in flight before a settle stops waiting for it: an image or a script that hangs holds neither for longer.
+     */
+    static final Duration LOAD_CAP = Duration.ofSeconds(3);
+    /** How long Playwright waits for an element to take a press or a text before the press is made at its centre. */
+    private static final Duration ACTIONABLE = Duration.ofSeconds(2);
+    /** The attribute a press marks its element with, for Playwright to find what the tree names by backend id. */
+    private static final String PRESSED = "data-botmaker-press";
 
     private static final String BINDING = "__botmakerMutation";
     /**
@@ -121,9 +142,9 @@ public final class WebPage implements AutoCloseable {
 
     /**
      * Requests that stay open by design and would keep a page from ever settling: a video or sound streams as it plays
-     * (nunu.ai's landing video, 2026-11-20).
+     * (nunu.ai's landing video, 2026-11-20). Playwright's resource types.
      */
-    private static final Set<String> LONG_LIVED = Set.of("EventSource", "WebSocket", "Media");
+    private static final Set<String> LONG_LIVED = Set.of("eventsource", "websocket", "media");
     /** A page refused for its request's headers: 431, and 494 as nginx and Vercel answer. */
     private static final Set<Integer> TOO_LARGE = Set.of(431, 494);
 
@@ -134,8 +155,15 @@ public final class WebPage implements AutoCloseable {
     private final Page page;
     private final String targetId;
     private final PageCdp session;
-    private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
-    private final Map<String, String> urls = new ConcurrentHashMap<>();
+    /** Each request waited for, with when a settle stops waiting for it ({@link System#nanoTime()}). */
+    private final Map<Request, Long> inFlight = new ConcurrentHashMap<>();
+    /**
+     * What a page loads beside its answer, which a settle waits for {@link #LOAD_CAP} at most: an image or a script
+     * that hangs. A document, an XHR or a fetch may be the answer itself (a sign-in's POST), so it is waited for as long
+     * as a settle lasts, and let go after {@link #FORGOTTEN} only so the map does not grow for the tab's life.
+     */
+    private static final Set<String> CAPPED = Set.of("image", "font", "stylesheet", "script", "texttrack", "manifest");
+    private static final Duration FORGOTTEN = Duration.ofMinutes(1);
     /** The host that refused the tab's page as sending too many headers, waiting for {@link #settled}; else empty. */
     private final AtomicReference<String> crowded = new AtomicReference<>("");
     /** The HTTP status the tab's page was last loaded with; 0 before any load. */
@@ -143,10 +171,13 @@ public final class WebPage implements AutoCloseable {
     private final AtomicLong lastActivity = new AtomicLong(System.nanoTime());
     private final List<ConsoleMessage> console = new ArrayList<>();
     private final List<RequestFailure> failures = new ArrayList<>();
-    /** Each document's load, by the loader that brought it; emptied at each {@link #open}. */
-    private final Map<String, CompletableFuture<Void>> loads = new ConcurrentHashMap<>();
+    /** The token of the next element a press marks with {@link #PRESSED}. */
+    private final AtomicLong presses = new AtomicLong();
 
-    /** Made on the {@link BrowserThread}, which every Playwright call of {@code page} goes through. */
+    /**
+     * Made on the {@link BrowserThread}, which every Playwright call of {@code page} goes through. The page's network,
+     * console and changes are heard through Playwright; the tree, frames and node boxes are still read through CDP.
+     */
     WebPage(BrowserThread thread, Page page, PageCdp session) {
         this.thread = thread;
         this.page = page;
@@ -154,17 +185,13 @@ public final class WebPage implements AutoCloseable {
         // The tab's target id, which is its main frame's id too.
         this.targetId = session.call("Target.getTargetInfo").path("targetInfo").path("targetId").asText();
         listen();
-        session.call("Page.enable");
-        session.call("Page.setLifecycleEventsEnabled", Map.of("enabled", true));
-        session.call("Network.enable");
-        session.call("Runtime.enable");
-        session.call("Log.enable");
         session.call("DOM.enable");
         session.call("Accessibility.enable");
-        session.call("Emulation.setDeviceMetricsOverride", Map.of("width", Chromium.WIDTH, "height", Chromium.HEIGHT,
-                "deviceScaleFactor", 1, "mobile", false));
-        session.call("Runtime.addBinding", Map.of("name", BINDING));
-        session.call("Page.addScriptToEvaluateOnNewDocument", Map.of("source", OBSERVER));
+        page.exposeFunction(BINDING, args -> {
+            touch();
+            return null;
+        });
+        page.addInitScript(OBSERVER);
     }
 
     /** What opening a URL gave. */
@@ -181,43 +208,63 @@ public final class WebPage implements AutoCloseable {
     }
 
     /**
-     * Opens {@code url} in this tab, waits for the load of the document it brings (none for a move within the same
-     * document, such as a {@code #part}), then for it to settle.
+     * Opens {@code url} in this tab: once its document is in, the page's {@code load} is waited for at most
+     * {@link #LOAD_CAP} (none for a move within the same document, such as a {@code #part}), then a settle of
+     * {@link #SHORT_QUIET}. A page whose load never comes is still read.
      */
     public Opened open(String url) {
-        // The earlier documents' loads are of no use now: only the loader this navigation names is waited for.
-        loads.clear();
         long start = System.nanoTime();
-        JsonNode answer = session.call("Page.navigate", Map.of("url", url));
-        String error = answer.path("errorText").asText("");
+        String error = thread.call(() -> {
+            try {
+                page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                        .setTimeout(SETTLE_MAX.toMillis()));
+            } catch (TimeoutError slow) {
+                // Its document still coming after the longest settle: what is there is read.
+            } catch (PlaywrightException failed) {
+                return reason(failed);
+            }
+            loaded();
+            return "";
+        });
         if (!error.isEmpty()) {
             return new Opened(error, false);
         }
-        String loader = answer.path("loaderId").asText("");
-        if (!loader.isEmpty()) {
-            try {
-                load(loader).get(SETTLE_MAX.toMillis(), TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return new Opened("", false);
-            } catch (ExecutionException | TimeoutException timedOut) {
-                // A page whose load event never comes is still read: the settle below decides.
-            }
-            loads.remove(loader);
-        }
         Duration left = SETTLE_MAX.minusNanos(System.nanoTime() - start);
-        return new Opened("", settled(QUIET, left.isNegative() ? Duration.ZERO : left));
+        return new Opened("", settled(SHORT_QUIET, left.isNegative() ? Duration.ZERO : left));
     }
 
-    /** Waits for the page to settle: {@link #QUIET} of nothing, at most {@link #SETTLE_MAX}. */
+    /** Waits on the browser thread for the page's {@code load}, at most {@link #LOAD_CAP}. */
+    private void loaded() {
+        try {
+            page.waitForLoadState(LoadState.LOAD, new Page.WaitForLoadStateOptions().setTimeout(LOAD_CAP.toMillis()));
+        } catch (PlaywrightException hungOrGone) {
+            // A load that never comes (an image that hangs), or a page closed meanwhile: the settle decides.
+        }
+    }
+
+    /** A navigation's failure as Chromium names it ({@code net::ERR_ABORTED}), else the message's first line. */
+    private static String reason(PlaywrightException failed) {
+        String message = failed.getMessage() == null ? "" : failed.getMessage();
+        Matcher net = NET_ERROR.matcher(message);
+        if (net.find()) {
+            return net.group();
+        }
+        String line = message.lines().findFirst().orElse("").strip();
+        return line.isEmpty() ? "the page did not load" : line;
+    }
+
+    private static final Pattern NET_ERROR = Pattern.compile("net::ERR_[A-Z_]+");
+
+    /** Waits for the page to settle: {@link #SHORT_QUIET} of nothing, at most {@link #SETTLE_MAX}. */
     public boolean settled() {
-        return settled(QUIET, SETTLE_MAX);
+        return settled(SHORT_QUIET, SETTLE_MAX);
     }
 
     /**
-     * Waits until no request is in flight and nothing changed for {@code quiet}, or {@code max} passed. A page the
-     * site refused as sending too many headers is loaded again once, with that site's cookies cleared: a site that
-     * sets a new cookie on each page (a sign-in's verifier) refuses a visitor who reads many pages fast.
+     * Waits until no request is in flight and nothing changed for {@code quiet}, or {@code max} passed; an image, a
+     * script or a font in flight longer than {@link #LOAD_CAP} is no longer waited for. A page the site refused as sending too many headers
+     * is loaded again once, with that site's cookies cleared: a site that sets a new cookie on each page (a sign-in's
+     * verifier) refuses a visitor who reads many pages fast.
      */
     public boolean settled(Duration quiet, Duration max) {
         boolean settled = settledOnce(quiet, max);
@@ -226,10 +273,17 @@ public final class WebPage implements AutoCloseable {
             return settled;
         }
         clearCookies(host);
-        loads.clear();
         // The reload is activity itself: its first request may be heard only after the settle below starts.
         touch();
-        session.call("Page.reload", Map.of("ignoreCache", false));
+        thread.run(() -> {
+            try {
+                page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                        .setTimeout(SETTLE_MAX.toMillis()));
+            } catch (PlaywrightException slowOrFailed) {
+                // What the reload brought, or did not, is settled below all the same.
+            }
+            loaded();
+        });
         return settledOnce(quiet, max);
     }
 
@@ -284,6 +338,8 @@ public final class WebPage implements AutoCloseable {
         long deadline = System.nanoTime() + max.toNanos();
         while (true) {
             long now = System.nanoTime();
+            // A request past its wait is let go: an image or a script that hangs, after the cap.
+            inFlight.values().removeIf(until -> now - until >= 0);
             if (inFlight.isEmpty() && now - lastActivity.get() >= quiet.toNanos()) {
                 return true;
             }
@@ -301,8 +357,7 @@ public final class WebPage implements AutoCloseable {
 
     /** Where the tab is now. */
     public String url() {
-        return session.call("Runtime.evaluate", Map.of("expression", "location.href", "returnByValue", true))
-                .path("result").path("value").asText("");
+        return thread.call(page::url);
     }
 
     /**
@@ -498,15 +553,89 @@ public final class WebPage implements AutoCloseable {
     }
 
     /**
-     * Presses {@code node} with the left button at its box's centre, scrolled into view first. A link to another
-     * app ({@link #handedOff}) is not pressed: Chromium would hand it to the desktop, which opened the user's mail
-     * app at each of nunu.ai's {@code mailto:} links (2026-11-21).
+     * Presses {@code node} with the left button: its element, found by the node's backend id, is pressed by Playwright
+     * once it is visible, still and takes the press; an element that does not within {@link #ACTIONABLE} (an overlay
+     * over it, a frame's element) is pressed at its box's centre, scrolled into view first. A link to another app
+     * ({@link #handedOff}) is not pressed: Chromium would hand it to the desktop, which opened the user's mail app at
+     * each of nunu.ai's {@code mailto:} links (2026-11-21).
      *
      * @throws IllegalStateException when it has no box to press
      */
     public void click(WebNode node) {
         if (handedOff(node.href())) return;
-        clickAt(centre(node));
+        boolean pressed = onElement(node, e -> {
+            // A trial waits until the element takes the press and presses nothing: a press that then fails or waits
+            // too long is never made twice by the fallback.
+            e.click(new ElementHandle.ClickOptions().setTrial(true).setTimeout(ACTIONABLE.toMillis()));
+            try {
+                e.click(new ElementHandle.ClickOptions().setNoWaitAfter(true).setTimeout(ACTIONABLE.toMillis()));
+            } catch (PlaywrightException madeOrGone) {
+                // Pressed, then its page moved on; or gone at once. Either way it is not pressed again.
+            }
+        });
+        if (!pressed) {
+            clickAt(centre(node));
+        }
+        touch();
+    }
+
+    /**
+     * Runs {@code work} on {@code node}'s element in Playwright, on the browser thread: the element is marked with
+     * {@link #PRESSED} through CDP, found by it, and unmarked after. False when it has no element of the tab's own
+     * document or {@code work} failed or timed out, so the caller does it another way.
+     */
+    private boolean onElement(WebNode node, Consumer<ElementHandle> work) {
+        if (node.backendId() == 0) {
+            return false;
+        }
+        String token = String.valueOf(presses.incrementAndGet());
+        return thread.call(() -> {
+            if (!marked(node, token)) {
+                return false;
+            }
+            ElementHandle element = null;
+            try {
+                element = page.querySelector("[" + PRESSED + "='" + token + "']");
+                if (element == null) {
+                    return false;
+                }
+                work.accept(element);
+                return true;
+            } catch (PlaywrightException notActionable) {
+                return false;
+            } finally {
+                if (element == null) {
+                    // Marked but not found (a frame's element): the mark comes off through CDP.
+                    marked(node, null);
+                } else {
+                    try {
+                        element.evaluate("e => e.removeAttribute('" + PRESSED + "')");
+                        element.dispose();
+                    } catch (PlaywrightException goneWithItsPage) {
+                        // A press that navigated took the element and its mark with it.
+                    }
+                }
+            }
+        });
+    }
+
+    /** Marks {@code node}'s element with {@link #PRESSED}{@code =token}, unmarks it for null; false for no element. */
+    private boolean marked(WebNode node, String token) {
+        try {
+            String object = session.call("DOM.resolveNode", Map.of("backendNodeId", node.backendId()))
+                    .path("object").path("objectId").asText("");
+            if (object.isEmpty()) {
+                return false;
+            }
+            JsonNode answer = session.call("Runtime.callFunctionOn", Map.of("objectId", object, "returnByValue", true,
+                    "functionDeclaration", "function() { if (this.nodeType !== 1) return false; "
+                            + (token == null ? "this.removeAttribute('" + PRESSED + "')"
+                                    : "this.setAttribute('" + PRESSED + "', '" + token + "')") + "; return true; }"));
+            session.send("Runtime.releaseObject", Map.of("objectId", object));
+            return answer.path("result").path("value").asBoolean(false);
+        } catch (PageCdp.CdpException goneOrDetached) {
+            return false;
+        }
     }
 
     /** Whether {@code href} names no page but another app's address, such as {@code mailto:} or {@code tel:}. */
@@ -521,82 +650,51 @@ public final class WebPage implements AutoCloseable {
     private static final Set<String> WEB_SCHEMES = Set.of("http", "https", "about", "blob", "data", "file",
             "javascript");
 
-    /** Focuses {@code node} and types {@code text} into it as one insertion. */
+    /**
+     * Puts {@code text} in {@code node} in place of what it held, as Playwright fills a field once it is editable; an
+     * element it cannot fill (no field, a frame's) is focused and {@code text} typed where its caret is.
+     */
     public void type(WebNode node, String text) {
-        session.call("DOM.focus", Map.of("backendNodeId", node.backendId()));
-        insert(text);
+        if (!onElement(node, e -> e.fill(text, new ElementHandle.FillOptions().setTimeout(ACTIONABLE.toMillis())))) {
+            session.call("DOM.focus", Map.of("backendNodeId", node.backendId()));
+            insert(text);
+        }
+        touch();
     }
 
     /**
      * Presses the left button at {@code at}, in viewport CSS pixels: a press no node of the tree names.
      *
-     * <p>Every input counts as activity, so a settle after it waits at least {@link #QUIET}: an answer the page shows
-     * a moment later, or a change whose report is still on its way, is not missed.
+     * <p>Every input counts as activity, so a settle after it waits at least its quiet: an answer the page shows a
+     * moment later, or a change whose report is still on its way, is not missed.
      */
     public void clickAt(Point at) {
-        for (String type : List.of("mouseMoved", "mousePressed", "mouseReleased")) {
-            session.call("Input.dispatchMouseEvent", Map.of("type", type, "x", at.x, "y", at.y,
-                    "button", type.equals("mouseMoved") ? "none" : "left", "clickCount", 1));
-        }
+        thread.run(() -> page.mouse().click(at.x, at.y));
         touch();
     }
 
     /** Turns the wheel at {@code at} by {@code dx}, {@code dy} CSS pixels: positive scrolls right and down. */
     public void wheel(Point at, int dx, int dy) {
-        session.call("Input.dispatchMouseEvent", Map.of("type", "mouseWheel", "x", at.x, "y", at.y,
-                "deltaX", dx, "deltaY", dy));
+        thread.run(() -> {
+            page.mouse().move(at.x, at.y);
+            page.mouse().wheel(dx, dy);
+        });
         touch();
     }
 
     /** Types {@code text} into whatever has the focus, as one insertion. */
     public void insert(String text) {
-        session.call("Input.insertText", Map.of("text", text));
+        thread.run(() -> page.keyboard().insertText(text));
         touch();
     }
 
     /**
      * Presses and releases the key {@code key}, a DOM key name ({@code Enter}, {@code Escape}, {@code Tab},
-     * {@code ArrowDown}, {@code a}).
+     * {@code ArrowDown}, {@code a}, {@code " "}), as Playwright's keyboard does: a letter types, Enter submits.
      */
     public void key(String key) {
-        char c = key.length() == 1 ? key.charAt(0) : 0;
-        String code = Character.isLetter(c) ? "Key" + key.toUpperCase(Locale.ROOT)
-                : Character.isDigit(c) ? "Digit" + key : c == ' ' ? "Space" : key;
-        // A key that types carries its text on keyDown, as Chrome's own input does: without it a letter types
-        // nothing and Enter neither submits nor follows a focused link. Any other key goes down raw.
-        String text = key.equals("Enter") ? "\r" : key.length() == 1 ? key : null;
-        Map<String, Object> down = new HashMap<>(Map.of("type", text == null ? "rawKeyDown" : "keyDown", "key", key,
-                "code", code, "windowsVirtualKeyCode", virtualKey(key)));
-        if (text != null) {
-            down.put("text", text);
-            down.put("unmodifiedText", text);
-        }
-        session.call("Input.dispatchKeyEvent", down);
-        session.call("Input.dispatchKeyEvent", Map.of("type", "keyUp", "key", key, "code", code,
-                "windowsVirtualKeyCode", virtualKey(key)));
+        thread.run(() -> page.keyboard().press(" ".equals(key) ? "Space" : key));
         touch();
-    }
-
-    /** The Windows virtual key code CDP needs for a key's default action (Enter submitting, Tab moving focus). */
-    private static int virtualKey(String key) {
-        return switch (key) {
-            case "Enter" -> 13;
-            case "Escape" -> 27;
-            case "Tab" -> 9;
-            case "Backspace" -> 8;
-            case " " -> 32;
-            case "ArrowLeft" -> 37;
-            case "ArrowUp" -> 38;
-            case "ArrowRight" -> 39;
-            case "ArrowDown" -> 40;
-            case "PageUp" -> 33;
-            case "PageDown" -> 34;
-            case "Home" -> 36;
-            case "End" -> 35;
-            case "Delete" -> 46;
-            default -> key.length() == 1 ? Character.toUpperCase(key.charAt(0))
-                    : key.matches("F([1-9]|1[0-2])") ? 111 + Integer.parseInt(key.substring(1)) : 0;
-        };
     }
 
     /**
@@ -730,10 +828,6 @@ public final class WebPage implements AutoCloseable {
         return thread;
     }
 
-    private CompletableFuture<Void> load(String loader) {
-        return loads.computeIfAbsent(loader, k -> new CompletableFuture<>());
-    }
-
     private Point centre(WebNode node) {
         if (node.backendId() == 0) {
             throw new IllegalStateException("no DOM node to press: " + node.line());
@@ -746,91 +840,78 @@ public final class WebPage implements AutoCloseable {
         return new Point(r.x + r.width / 2, r.y + r.height / 2);
     }
 
+    /** Hears the page through Playwright, on the browser thread: its requests, responses, console and errors. */
     private void listen() {
-        session.on("Page.loadEventFired", params -> touch());
-        session.on("Page.lifecycleEvent", params -> {
-            // Only the main frame's: a frame's own frameId is its target's id.
-            if ("load".equals(params.path("name").asText()) && targetId.equals(params.path("frameId").asText())) {
-                load(params.path("loaderId").asText("")).complete(null);
-            }
-        });
-        session.on("Runtime.bindingCalled", params -> {
-            if (BINDING.equals(params.path("name").asText())) {
-                touch();
-            }
-        });
-        session.on("Network.requestWillBeSent", params -> {
-            String id = params.path("requestId").asText();
-            // Only a request waited for is kept: one never finishing here would stay in urls for the tab's life.
-            if (!LONG_LIVED.contains(params.path("type").asText()) && !workerScript(params)) {
-                urls.put(id, params.path("request").path("url").asText(""));
-                inFlight.add(id);
+        page.onLoad(p -> touch());
+        page.onRequest(request -> {
+            // Only a request waited for is kept: one that stays open by design would hold every settle.
+            if (!LONG_LIVED.contains(request.resourceType()) && ofAFrame(request)) {
+                inFlight.put(request, System.nanoTime()
+                        + (CAPPED.contains(request.resourceType()) ? LOAD_CAP : FORGOTTEN).toNanos());
             }
             touch();
         });
-        session.on("Network.responseReceived", params -> {
-            int status = params.path("response").path("status").asInt(0);
-            boolean page = "Document".equals(params.path("type").asText())
-                    && targetId.equals(params.path("frameId").asText());
-            if (page) documentStatus = status;
-            if (TOO_LARGE.contains(status) && page) {
+        page.onResponse(this::answered);
+        page.onRequestFinished(this::done);
+        page.onRequestFailed(request -> {
+            String failure = request.failure();
+            // A request the page or a navigation let go of is no failure of the site's.
+            if (failure != null && !failure.contains("ERR_ABORTED")) {
+                addFailure(new RequestFailure(request.url(), 0, failure));
+            }
+            done(request);
+        });
+        page.onConsoleMessage(message -> addConsole(new ConsoleMessage(ConsoleMessage.Level.fromId(message.type()),
+                message.text(), where(message.location()))));
+        page.onPageError(error -> addConsole(new ConsoleMessage(ConsoleMessage.Level.ERROR, error, "")));
+    }
+
+    /**
+     * Whether a frame of the page made {@code request}: a worker's script and what a worker fetches have none, and
+     * are not waited for. Waiting for a worker's script held every settle of nunu.ai, whose worker comes from a
+     * {@code blob:} URL, to {@link #SETTLE_MAX} (2026-11-20).
+     */
+    private static boolean ofAFrame(Request request) {
+        try {
+            return request.frame() != null;
+        } catch (PlaywrightException aWorkers) {
+            return false;
+        }
+    }
+
+    /** A response: the tab's own document gives {@link #documentStatus}, and a 431 the reload {@link #settled} makes. */
+    private void answered(Response response) {
+        int status = response.status();
+        boolean document = false;
+        try {
+            document = response.request().isNavigationRequest() && response.frame() == page.mainFrame();
+        } catch (PlaywrightException aWorkers) {
+            // No frame: not the tab's document.
+        }
+        if (document) {
+            documentStatus = status;
+            if (TOO_LARGE.contains(status)) {
                 try {
-                    String host = URI.create(params.path("response").path("url").asText("")).getHost();
+                    String host = URI.create(response.url()).getHost();
                     crowded.set(host == null ? "" : host);
                 } catch (IllegalArgumentException odd) {
                     // A URL that does not parse names no host to clear.
                 }
             }
-            if (status >= 400) {
-                addFailure(new RequestFailure(params.path("response").path("url").asText(""), status, ""));
-            }
-            touch();
-        });
-        session.on("Network.loadingFinished", params -> {
-            done(params.path("requestId").asText());
-            urls.remove(params.path("requestId").asText());
-        });
-        session.on("Network.loadingFailed", params -> {
-            String id = params.path("requestId").asText();
-            if (!params.path("canceled").asBoolean(false)) {
-                addFailure(new RequestFailure(urls.getOrDefault(id, ""), 0, params.path("errorText").asText("")));
-            }
-            done(id);
-            urls.remove(id);
-        });
-        session.on("Runtime.consoleAPICalled", params -> {
-            List<String> parts = new ArrayList<>();
-            for (JsonNode arg : params.path("args")) {
-                parts.add(arg.has("value") ? arg.path("value").asText() : arg.path("description").asText(""));
-            }
-            JsonNode frames = params.path("stackTrace").path("callFrames");
-            addConsole(new ConsoleMessage(ConsoleMessage.Level.fromId(params.path("type").asText()),
-                    String.join(" ", parts), frames.isEmpty() ? "" : frames.get(0).path("url").asText("")));
-        });
-        session.on("Runtime.exceptionThrown", params -> {
-            JsonNode details = params.path("exceptionDetails");
-            String text = details.path("exception").path("description").asText(details.path("text").asText(""));
-            addConsole(new ConsoleMessage(ConsoleMessage.Level.ERROR, text, details.path("url").asText("")));
-        });
-        session.on("Log.entryAdded", params -> {
-            JsonNode entry = params.path("entry");
-            addConsole(new ConsoleMessage(ConsoleMessage.Level.fromId(entry.path("level").asText()),
-                    entry.path("text").asText(""), entry.path("url").asText("")));
-        });
+        }
+        if (status >= 400) {
+            addFailure(new RequestFailure(response.url(), status, ""));
+        }
+        touch();
     }
 
-    /**
-     * A worker's own script: a script no parser or script of the page asked for, its initiator {@code other}. The
-     * worker loads it in its own target, so this tab never hears that it finished; waiting for it held every settle
-     * of nunu.ai, whose worker comes from a {@code blob:} URL, to {@link #SETTLE_MAX} (2026-11-20).
-     */
-    private static boolean workerScript(JsonNode request) {
-        return "Script".equals(request.path("type").asText())
-                && "other".equals(request.path("initiator").path("type").asText());
+    /** A console message's script, out of Playwright's {@code url:line:column}. */
+    private static String where(String location) {
+        return location == null ? "" : location.replaceFirst(":\\d+:\\d+$", "");
     }
 
-    private void done(String requestId) {
-        inFlight.remove(requestId);
+    private void done(Request request) {
+        inFlight.remove(request);
         touch();
     }
 

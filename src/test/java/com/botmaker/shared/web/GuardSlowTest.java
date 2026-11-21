@@ -213,6 +213,9 @@ class GuardSlowTest {
             page.settled();
             assertEquals(List.of(), guard.stopped());
             assertEquals("http://www.site.test:" + site.port() + "/case-studies", page.url());
+            String agent = page.session().call("Runtime.evaluate", Map.of("expression", "navigator.userAgent",
+                    "returnByValue", true)).path("result").path("value").asText();
+            assertTrue(agent.endsWith(guard.robots().userAgent()), "the page's script sees the agent too: " + agent);
         }
     }
 

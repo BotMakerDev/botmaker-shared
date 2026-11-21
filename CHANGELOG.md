@@ -44,6 +44,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - `PageCdp.call` gives up after 30 s (`CdpException`), and a browser that closes refuses calls made meanwhile, so
   neither hangs its caller; `ChromiumInstall.install`'s 15-minute cap now holds while a download stalls, and starting
   the browser downloads nothing (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`).
+- A page loads without waiting out a quiet window: `WebPage.open` waits for its document, then for its `load` at most
+  3 s (`LOAD_CAP`), then a settle; a page whose load never comes (an image that hangs) is read after the cap, not after
+  `SETTLE_MAX`. `settled()` waits `SHORT_QUIET` (200 ms) instead of `QUIET` (500 ms, kept for callers that pass it),
+  and a request in flight longer than `LOAD_CAP` is no longer waited for.
+- `WebPage`'s presses, typing, keys and wheel go through Playwright: `click` presses the node's element once it is
+  visible, still and takes the press (2 s at most, then at its box's centre as before); `type` fills a field in place
+  of its text; `key` takes Playwright's key names. Its requests, responses, console and page errors are heard
+  through Playwright's events; the browser's own log lines (`Log.entryAdded`) are no longer read as console lines.
 
 ### Fixed
 

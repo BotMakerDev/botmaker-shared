@@ -167,15 +167,66 @@ class WebPageSlowTest {
     }
 
     @Test
-    void aPageLikeNunuAiSettlesSoonAfterAPressAndWaitsForItsLateAnswer() {
+    void aPageLikeNunuAiSettlesSoonAfterAPressAndWaitsForItsLateAnswer() throws Exception {
         try (WebPage page = chromium.newPage()) {
             assertTrue(page.open(site.url("/typed")).settled(),
                     "a streaming video, workers' scripts and a staggered reveal are not waited for");
             page.click(page.tree().find(Role.BUTTON, "Ask").getFirst());
-            // The answer shows 700 ms after the press; the typewriter's rests leave a quiet half second soon after.
+            // The typewriter's rests leave a quiet half second soon after the press.
             assertTrue(page.settled(WebPage.QUIET, Duration.ofSeconds(3)), "a typewriter rests between words");
+            // The answer shows 700 ms after the press: whether a settle outlasts it depends on where in the
+            // typewriter's round the press fell, so it is read once it shows, as a caller waiting for it does.
+            long start = System.nanoTime();
+            while (page.tree().nodes().stream().noneMatch(n -> n.name().equals("Answered"))
+                    && System.nanoTime() - start < Duration.ofSeconds(2).toNanos()) {
+                Thread.sleep(50);
+            }
             assertTrue(page.tree().nodes().stream().anyMatch(n -> n.name().equals("Answered")),
                     page.tree().outline());
+        }
+    }
+
+    /** A page whose load event never comes (an image that hangs) is read once the load wait's cap passed. */
+    @Test
+    void aPageWhoseLoadNeverEndsIsReadAfterTheCap() {
+        try (WebPage page = chromium.newPage()) {
+            long start = System.nanoTime();
+            assertTrue(page.open(site.url("/hung")).ok());
+            long took = Duration.ofNanos(System.nanoTime() - start).toMillis();
+            assertTrue(took < WebPage.LOAD_CAP.plusSeconds(2).toMillis(), "open took " + took + " ms");
+            assertEquals(1, page.tree().find(Role.HEADING, "Hung").size(), page.tree().outline());
+        }
+    }
+
+    /** A settle after a press waits a short quiet, not the half second it did: the late answer is still read. */
+    @Test
+    void aPressOnTheTypedPageIsAnsweredFasterThanBefore() throws Exception {
+        try (WebPage page = chromium.newPage()) {
+            page.open(site.url("/typed"));
+            long start = System.nanoTime();
+            page.click(page.tree().find(Role.BUTTON, "Ask").getFirst());
+            page.settled();
+            long settled = Duration.ofNanos(System.nanoTime() - start).toMillis();
+            assertTrue(settled < 1500, "settled after " + settled + " ms");
+            while (page.tree().nodes().stream().noneMatch(n -> n.name().equals("Answered"))
+                    && System.nanoTime() - start < Duration.ofSeconds(2).toNanos()) {
+                Thread.sleep(50);
+            }
+            assertTrue(page.tree().nodes().stream().anyMatch(n -> n.name().equals("Answered")),
+                    "answered within 2 s: " + page.tree().outline());
+        }
+    }
+
+    /** Two links of one name: the second one pressed is the second one, not its twin in the nav. */
+    @Test
+    void anIndexedElementIsPressedNotItsTwin() {
+        try (WebPage page = chromium.newPage()) {
+            page.open(site.url("/"));
+            List<WebNode> cases = page.tree().find(Role.LINK, "Case studies");
+            assertEquals(2, cases.size(), page.tree().outline());
+            page.click(cases.get(1));
+            page.settled();
+            assertEquals(site.url("/case-studies?from=footer"), page.url());
         }
     }
 

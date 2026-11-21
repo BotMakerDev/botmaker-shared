@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fixture hung</title></head>
+<body>
+<main>
+  <h1>Hung</h1>
+  <p>An image its server never finishes: the page's load event never comes.</p>
+</main>
+<script>
+  // As a third-party script that hangs: what it loads holds the page's load for good.
+  document.querySelector('main').appendChild(Object.assign(new Image(), {src: '/hang.png', alt: ''}));
+</script>
+</body>
+</html>

@@ -66,7 +66,7 @@ final class FixtureSite implements AutoCloseable {
                 crowded(exchange, byPath.get(path).get());
                 return;
             }
-            if (path.equals("/stream.mp4")) {
+            if (path.equals("/stream.mp4") || path.equals("/hang.png")) {
                 stream(exchange);
                 return;
             }
@@ -124,9 +124,13 @@ final class FixtureSite implements AutoCloseable {
         return crowdedRefusals.get();
     }
 
-    /** A video that streams as it plays: its headers, then nothing for {@link #STREAM_HOLD}, as a slow CDN gives. */
+    /**
+     * A video that streams as it plays, or an image that hangs ({@code /hang.png}): its headers, then nothing for
+     * {@link #STREAM_HOLD}, as a slow CDN gives.
+     */
     private static void stream(HttpExchange exchange) throws IOException {
-        exchange.getResponseHeaders().set("Content-Type", "video/mp4");
+        exchange.getResponseHeaders().set("Content-Type",
+                exchange.getRequestURI().getPath().endsWith(".png") ? "image/png" : "video/mp4");
         exchange.sendResponseHeaders(200, 0);
         try (OutputStream out = exchange.getResponseBody()) {
             out.flush();
