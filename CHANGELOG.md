@@ -25,6 +25,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - `Os.id()` and `Os.fromId(String)`: a stable id per system (`windows`, `linux`, `macos`, `unknown`), the same as
   the catalog's platform ids a bot's pom lists in `botmaker.platforms`, so the core can say whether a bot runs here.
 
+### Fixed
+
+- `WebPage.click` no longer presses a link to another app (`mailto:`, `tel:`, any scheme but a page's): Chromium
+  handed it to the desktop, and exploring nunu.ai opened the user's mail app at each contact link.
+  `WebPage.handedOff` tells one.
+
 ## [0.10.0] — 2026-11-21
 
 ### Added

@@ -337,13 +337,28 @@ public final class WebPage implements AutoCloseable {
     }
 
     /**
-     * Presses {@code node} with the left button at its box's centre, scrolled into view first.
+     * Presses {@code node} with the left button at its box's centre, scrolled into view first. A link to another
+     * app ({@link #handedOff}) is not pressed: Chromium would hand it to the desktop, which opened the user's mail
+     * app at each of nunu.ai's {@code mailto:} links (2026-11-21).
      *
      * @throws IllegalStateException when it has no box to press
      */
     public void click(WebNode node) {
+        if (handedOff(node.href())) return;
         clickAt(centre(node));
     }
+
+    /** Whether {@code href} names no page but another app's address, such as {@code mailto:} or {@code tel:}. */
+    public static boolean handedOff(String href) {
+        int colon = href.indexOf(':');
+        if (href.isEmpty() || colon < 0) return false;
+        String scheme = href.substring(0, colon).toLowerCase(Locale.ROOT);
+        return !WEB_SCHEMES.contains(scheme);
+    }
+
+    /** The schemes a page is at; any other a link names is handed to another app. */
+    private static final Set<String> WEB_SCHEMES = Set.of("http", "https", "about", "blob", "data", "file",
+            "javascript");
 
     /** Focuses {@code node} and types {@code text} into it as one insertion. */
     public void type(WebNode node, String text) {
