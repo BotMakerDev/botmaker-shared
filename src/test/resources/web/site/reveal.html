@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Reveal</title>
+  <style>
+    body { margin: 0; background: #ffffff; font-family: sans-serif; }
+    header { position: sticky; top: 0; height: 60px; background: #203040; color: #ffffff; }
+    #low { margin-top: 3000px; height: 400px; background: #c02020; color: #ffffff; opacity: 0; }
+    #low.seen { opacity: 1; }
+  </style>
+</head>
+<body>
+<header><h1>Reveal</h1></header>
+<!-- Like nunu.ai's sections: shown only once scrolled into view. -->
+<section id="low"><h2>Shown once scrolled to</h2></section>
+<div style="height: 600px"></div>
+<script>
+  const low = document.getElementById('low');
+  new IntersectionObserver(seen => {
+    if (seen[0].isIntersecting) low.classList.add('seen');
+  }).observe(low);
+</script>
+</body>
+</html>

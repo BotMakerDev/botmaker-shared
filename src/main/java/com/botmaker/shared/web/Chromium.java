@@ -13,6 +13,7 @@ import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.options.ServiceWorkerPolicy;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -80,9 +81,19 @@ public final class Chromium implements AutoCloseable {
      * workers are blocked: a Playwright route never sees what a worker fetches, so the guard could not judge it.
      */
     public WebPage newPage() {
+        return newPage(null);
+    }
+
+    /**
+     * {@link #newPage()}, recorded: the tab's video, at {@link #WIDTH}×{@link #HEIGHT}, is saved into {@code recordTo}
+     * as a {@code .webm} when the tab closes ({@link WebPage#video()}). A null {@code recordTo} records nothing.
+     */
+    public WebPage newPage(Path recordTo) {
         return thread.call(() -> {
-            BrowserContext context = browser.newContext(new Browser.NewContextOptions().setViewportSize(WIDTH, HEIGHT)
-                    .setServiceWorkers(ServiceWorkerPolicy.BLOCK));
+            Browser.NewContextOptions options = new Browser.NewContextOptions().setViewportSize(WIDTH, HEIGHT)
+                    .setServiceWorkers(ServiceWorkerPolicy.BLOCK);
+            if (recordTo != null) options.setRecordVideoDir(recordTo).setRecordVideoSize(WIDTH, HEIGHT);
+            BrowserContext context = browser.newContext(options);
             Page page = context.newPage();
             CDPSession session = context.newCDPSession(page);
             return new WebPage(thread, page, new PageCdp(thread, session));

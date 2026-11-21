@@ -11,22 +11,18 @@ import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.Request;
 import com.microsoft.playwright.Response;
 import com.microsoft.playwright.TimeoutError;
+import com.microsoft.playwright.Video;
 import com.microsoft.playwright.options.Cookie;
 import com.microsoft.playwright.options.LoadState;
+import com.microsoft.playwright.options.ScreenshotType;
 import com.microsoft.playwright.options.WaitUntilState;
 
-import javax.imageio.ImageIO;
-import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -166,6 +162,8 @@ public final class WebPage implements AutoCloseable {
     private final AtomicReference<String> crowded = new AtomicReference<>("");
     /** The HTTP status the tab's page was last loaded with; 0 before any load. */
     private volatile int documentStatus;
+    /** The video a recorded tab saved on its close; null before, or when not recorded. */
+    private volatile Path video;
     private final AtomicLong lastActivity = new AtomicLong(System.nanoTime());
     private final List<ConsoleMessage> console = new ArrayList<>();
     private final List<RequestFailure> failures = new ArrayList<>();
@@ -390,138 +388,96 @@ public final class WebPage implements AutoCloseable {
         return WebTree.from(ax, extras);
     }
 
-    /** What the viewport shows, as JPEG. */
+    /**
+     * What the viewport shows, as JPEG.
+     *
+     * @throws IllegalStateException when the page went, or did not render within {@link #SHOT_TIMEOUT} (a webfont
+     *                               that never loads holds Playwright's shot)
+     */
     public byte[] frame() {
-        String data = session.call("Page.captureScreenshot", Map.of("format", "jpeg", "quality", 80))
-                .path("data").asText("");
-        return Base64.getDecoder().decode(data);
+        try {
+            return thread.call(() -> page.screenshot(new Page.ScreenshotOptions().setType(ScreenshotType.JPEG)
+                    .setQuality(80).setTimeout(SHOT_TIMEOUT.toMillis())));
+        } catch (PlaywrightException e) {
+            throw new IllegalStateException("no frame of the page: " + e.getMessage(), e);
+        }
     }
 
     /**
      * The page's part inside {@code box}, as PNG, rendered by Chromium even where the viewport does not reach: a
      * tree's box ({@link #tree}) is the viewport's, so the page's scroll is added to clip it from the whole page.
+     * Empty when the box lies outside the page.
      */
     public byte[] picture(Rectangle box) {
-        JsonNode view = session.call("Page.getLayoutMetrics").path("cssVisualViewport");
-        Map<String, Object> clip = Map.of("x", box.x + view.path("pageX").asDouble(0),
-                "y", box.y + view.path("pageY").asDouble(0), "width", box.width, "height", box.height, "scale", 1);
-        String data = session.call("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true,
-                "clip", clip)).path("data").asText("");
-        return Base64.getDecoder().decode(data);
+        if (!(evaluate("[window.scrollX, window.scrollY]") instanceof List<?> scroll) || scroll.size() != 2) {
+            return new byte[0];
+        }
+        // Full page, so the clip is the page's and reaches below the viewport.
+        return shot(new Page.ScreenshotOptions().setType(ScreenshotType.PNG).setFullPage(true).setClip(
+                box.x + number(scroll.get(0)), box.y + number(scroll.get(1)), box.width, box.height));
     }
 
     /**
      * The whole page from its top, as PNG: a screen's shot, where a long page shows all it holds (the user's call,
-     * 2026-11-21). The page is scrolled down a viewport at a time and each view shot, as a user sees it, then stitched
-     * into one: a section a site reveals only once scrolled to (nunu.ai's fade in) shows, which a render below the
-     * viewport left blank. A bar that stays on the screen (fixed or sticky) is drawn once, at the top. The page is
-     * scrolled back where it was after. As wide as a frame, at most {@link #WHOLE_HEIGHT} CSS pixels tall.
+     * 2026-11-21). The page is first scrolled down a viewport at a time, resting {@link #VIEW_REST} at each, and back
+     * where it was ({@link #SCROLL_PASS}), then settled for {@link #WHOLE_SETTLE} at most: a section a site reveals
+     * once scrolled to (nunu.ai's fade in) and the lazy images the pass started show, which a render below the
+     * viewport left blank. A section hidden again once scrolled away from does not. Then Playwright shoots the full
+     * page, a bar that stays on the screen (fixed or sticky) drawn once, at the top. As wide as a frame, at most
+     * {@link #WHOLE_HEIGHT} CSS pixels tall; empty when the page went meanwhile.
      */
     public byte[] whole() {
-        double view = number("window.innerHeight");
-        double startX = number("window.scrollX");
-        double startY = number("window.scrollY");
-        BufferedImage page = null;
-        double scale = 1;
-        int bottom = 0;
-        try {
-            double at = 0;
-            for (int tile = 0; tile < WHOLE_HEIGHT / Math.max(100, view) + 2; tile++) {
-                run("window.scrollTo(0, " + (long) at + ")");
-                rest(TILE_REST);
-                settled(QUIET, TILE_SETTLE);
-                double top = number("window.scrollY");
-                double tall = Math.min(WHOLE_HEIGHT, number("document.documentElement.scrollHeight"));
-                BufferedImage shot = png(session.call("Page.captureScreenshot", Map.of("format", "png"))
-                        .path("data").asText(""));
-                if (shot == null) break;
-                if (page == null) {
-                    scale = shot.getHeight() / Math.max(1, view);
-                    // The bars stay hidden for the tiles below: drawn once, where the page's top shows them.
-                    run(HIDE_BARS);
-                }
-                int height = (int) Math.round(Math.max(tall, top + view) * scale);
-                page = grown(page, shot.getWidth(), height);
-                Graphics2D g = page.createGraphics();
-                g.drawImage(shot, 0, (int) Math.round(top * scale), null);
-                g.dispose();
-                bottom = Math.max(bottom, (int) Math.round((top + view) * scale));
-                if (top + view >= tall - 1 || top + view >= WHOLE_HEIGHT) break;
-                at = top + view;
-            }
-        } finally {
-            run(SHOW_BARS);
-            run("window.scrollTo(" + (long) startX + ", " + (long) startY + ")");
-        }
-        if (page == null) return new byte[0];
-        BufferedImage cut = page.getSubimage(0, 0, page.getWidth(), Math.min(page.getHeight(), Math.max(1, bottom)));
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            ImageIO.write(cut, "png", out);
-            return out.toByteArray();
-        } catch (IOException unwritten) {
+        // An int each: Playwright passes no long.
+        if (!(evaluate(SCROLL_PASS, List.of((int) VIEW_REST.toMillis(), WHOLE_HEIGHT)) instanceof Number width)) {
             return new byte[0];
         }
+        settled(SHORT_QUIET, WHOLE_SETTLE);
+        // Measured once settled: an image the pass started may have grown the page.
+        double tall = number(evaluate("Math.min(" + WHOLE_HEIGHT + ", document.documentElement.scrollHeight)"));
+        if (width.doubleValue() < 1 || tall < 1) return new byte[0];
+        return shot(new Page.ScreenshotOptions().setType(ScreenshotType.PNG).setFullPage(true)
+                .setClip(0, 0, width.doubleValue(), tall));
     }
 
     /** The tallest {@link #whole} renders, in CSS pixels: Chromium's own limit on a texture. */
     public static final int WHOLE_HEIGHT = 16_384;
 
-    /** How long {@link #whole} rests at each view before it settles: what shows on a scroll starts in that time. */
-    private static final Duration TILE_REST = Duration.ofMillis(150);
+    /** How long {@link #whole}'s scroll pass rests at each view: what shows on a scroll starts in that time. */
+    private static final Duration VIEW_REST = Duration.ofMillis(150);
 
-    /** The longest {@link #whole} waits for a view to settle: a page that never stops animating is shot anyway. */
-    private static final Duration TILE_SETTLE = Duration.ofMillis(1500);
+    /** The longest {@link #whole} waits for the page to settle after its scroll pass: an animation does not hold it. */
+    private static final Duration WHOLE_SETTLE = Duration.ofMillis(1500);
 
-    /** Hides every fixed or sticky element, each marked to be shown again by {@link #SHOW_BARS}. */
-    private static final String HIDE_BARS = """
-            for (const e of document.querySelectorAll('body *')) {
-              const p = getComputedStyle(e).position;
-              if (p === 'fixed' || p === 'sticky') {
-                e.dataset.botmakerWhole = e.style.visibility;
-                e.style.visibility = 'hidden';
+    /** The longest a shot waits for the page to render: Playwright waits for its webfonts, which may hang. */
+    private static final Duration SHOT_TIMEOUT = Duration.ofSeconds(5);
+
+    /**
+     * Scrolls the page down a viewport at a time to its end or the cap, resting at each view, then back where it was;
+     * answers the viewport's width.
+     */
+    private static final String SCROLL_PASS = """
+            async ([rest, cap]) => {
+              const x = window.scrollX, y = window.scrollY, view = Math.max(100, window.innerHeight);
+              const tall = () => Math.min(cap, document.documentElement.scrollHeight);
+              for (let at = 0; at < tall(); at += view) {
+                window.scrollTo(0, at);
+                await new Promise(done => setTimeout(done, rest));
               }
+              window.scrollTo(x, y);
+              return document.documentElement.clientWidth;
             }""";
 
-    /** Shows again what {@link #HIDE_BARS} hid. */
-    private static final String SHOW_BARS = """
-            for (const e of document.querySelectorAll('[data-botmaker-whole]')) {
-              e.style.visibility = e.dataset.botmakerWhole;
-              delete e.dataset.botmakerWhole;
-            }""";
-
-    /** A JavaScript expression's number on the page, 0 when it has none. */
-    private double number(String expression) {
-        return session.call("Runtime.evaluate", Map.of("expression", expression, "returnByValue", true))
-                .path("result").path("value").asDouble(0);
-    }
-
-    /** {@code page}, or a blank one when null, at least {@code width} by {@code height}: its pixels kept at the top. */
-    private static BufferedImage grown(BufferedImage page, int width, int height) {
-        if (page != null && page.getWidth() >= width && page.getHeight() >= height) return page;
-        BufferedImage bigger = new BufferedImage(Math.max(width, page == null ? 0 : page.getWidth()),
-                Math.max(height, page == null ? 0 : page.getHeight()), BufferedImage.TYPE_INT_RGB);
-        if (page != null) {
-            Graphics2D g = bigger.createGraphics();
-            g.drawImage(page, 0, 0, null);
-            g.dispose();
-        }
-        return bigger;
-    }
-
-    private static BufferedImage png(String base64) {
+    /** A screenshot by {@code options}, empty when the page went, the clip lay outside it or it timed out. */
+    private byte[] shot(Page.ScreenshotOptions options) {
         try {
-            return ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(base64)));
-        } catch (IOException | IllegalArgumentException unreadable) {
-            return null;
+            return thread.call(() -> page.screenshot(options.setTimeout(SHOT_TIMEOUT.toMillis())));
+        } catch (PlaywrightException goneOrOutside) {
+            return new byte[0];
         }
     }
 
-    private static void rest(Duration time) {
-        try {
-            Thread.sleep(time.toMillis());
-        } catch (InterruptedException stopped) {
-            Thread.currentThread().interrupt();
-        }
+    private static double number(Object value) {
+        return value instanceof Number n ? n.doubleValue() : 0;
     }
 
     /**
@@ -776,15 +732,6 @@ public final class WebPage implements AutoCloseable {
         }
     }
 
-    /** Runs {@code statements} on the page, the whole shot's; nothing when the page navigated away. */
-    private void run(String statements) {
-        try {
-            session.call("Runtime.evaluate", Map.of("expression", statements));
-        } catch (PageCdp.CdpException gone) {
-            // A page navigating away takes what the statements changed with it.
-        }
-    }
-
     private static final String MARKS_ID = "__botmaker_marks";
     /** Draws each mark as an outlined box with its label above, on one fixed layer over the whole viewport. */
     private static final String MARK = """
@@ -814,14 +761,26 @@ public final class WebPage implements AutoCloseable {
         return session;
     }
 
-    /** Closes the tab with its context, and what it opened. */
+    /**
+     * Closes the tab with its context, and what it opened; a recorded tab ({@link Chromium#newPage(Path)}) saves its
+     * video, which {@link #video()} then names.
+     */
     @Override
     public void close() {
         try {
-            thread.run(() -> page.context().close());
+            thread.run(() -> {
+                Video recording = page.video();
+                page.context().close();
+                if (recording != null) video = recording.path();
+            });
         } catch (RuntimeException ignored) {
-            // A closed browser closed its tabs.
+            // A closed browser closed its tabs, and lost a video it had not saved.
         }
+    }
+
+    /** The tab's video, once a recorded tab is closed; empty before, or for a tab not recorded. */
+    public Optional<Path> video() {
+        return Optional.ofNullable(video);
     }
 
     /** The Playwright page, called on {@link #thread()} only. */

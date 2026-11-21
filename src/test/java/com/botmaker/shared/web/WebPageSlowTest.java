@@ -8,10 +8,13 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
@@ -121,21 +124,29 @@ class WebPageSlowTest {
 
     /** nunu.ai: a section fades in once scrolled into view, so the whole shot scrolls down first, then back. */
     @Test
-    void whatShowsOnlyOnceScrolledToIsShownOnTheWholePage() {
+    void whatShowsOnlyOnceScrolledToIsShownOnTheWholePage() throws Exception {
         try (WebPage page = chromium.newPage()) {
-            page.open(site.url("/"));
-            page.evaluate("""
-                    () => {
-                      const low = Object.assign(document.createElement('div'), {id: 'low'});
-                      low.style.cssText = 'margin-top:3000px;height:200px';
-                      document.body.appendChild(low);
-                      new IntersectionObserver(seen => { if (seen[0].isIntersecting) low.dataset.seen = 'yes'; })
-                          .observe(low);
-                    }""");
-            page.whole();
-            assertEquals("yes", page.evaluate("document.getElementById('low').dataset.seen ?? 'no'"));
+            page.open(site.url("/reveal"));
+            BufferedImage whole = ImageIO.read(new ByteArrayInputStream(page.whole()));
+            // #low starts 60 px of header and 3000 px of margin down, 400 px tall, red once seen.
+            int shown = whole.getRGB(100, 3060 + 200) & 0xFFFFFF;
+            assertTrue(shown != 0xFFFFFF, "the section shows, not the page's white: " + Integer.toHexString(shown));
             assertEquals(0, ((Number) page.evaluate("window.scrollY")).intValue(), "back where it was");
         }
+    }
+
+    @Test
+    void aRecordedPageLeavesAVideo(@TempDir Path dir) throws Exception {
+        WebPage page = chromium.newPage(dir);
+        try (page) {
+            page.open(site.url("/"));
+            page.click(page.tree().find(Role.BUTTON, "Get started").getFirst());
+            page.settled();
+        }
+        Path video = page.video().orElseThrow();
+        assertEquals(dir, video.getParent());
+        assertTrue(video.toString().endsWith(".webm"), video.toString());
+        assertTrue(Files.size(video) > 10_000, "size " + Files.size(video));
     }
 
     @Test

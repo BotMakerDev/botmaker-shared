@@ -19,9 +19,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - `GitHubConfig.CATALOG_SIGNED_PATH` and `catalogSignedRawUrls()`: the signed catalog the core reads (catalog trust,
   phase 4).
 
-- `WebPage.whole()`: the whole page from its top as PNG, at most 16384 px tall: scrolled down a viewport at a time,
-  each view shot and stitched into one, so a section a site reveals only once scrolled to shows; a fixed or sticky
-  bar is drawn once, at the top; the page is scrolled back where it was after.
+- `WebPage.whole()`: the whole page from its top as PNG, at most 16384 px tall: scrolled down a viewport at a time
+  (150 ms at each) and back where it was, then settled (1.5 s at most), so a section a site reveals once scrolled to
+  shows, then shot whole by Playwright; a fixed or sticky bar is drawn once, at the top. A shot waits 5 s at most for
+  the page to render; `frame()` throws when it gets none.
+
+- `Chromium.newPage(Path)` and `WebPage.video()`: a tab recorded at 1440×900, its `.webm` saved into the folder when
+  the tab closes.
 
 - `WebPage.mark`, `unmark` and `inView`: parts of a page outlined with their labels for a person watching the browser,
   on a layer hidden from the accessibility tree that takes no press.
