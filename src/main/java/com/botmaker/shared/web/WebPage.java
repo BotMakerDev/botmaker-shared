@@ -420,23 +420,45 @@ public final class WebPage implements AutoCloseable {
     /**
      * The whole page from its top, as PNG: a screen's shot, where a long page shows all it holds (the user's call,
      * 2026-11-21). The page is first scrolled down a viewport at a time, resting {@link #VIEW_REST} at each, and back
-     * where it was ({@link #SCROLL_PASS}), then settled for {@link #WHOLE_SETTLE} at most: a section a site reveals
+     * where it was, each step bounded in Java, then settled for {@link #WHOLE_SETTLE} at most: a section a site reveals
      * once scrolled to (nunu.ai's fade in) and the lazy images the pass started show, which a render below the
      * viewport left blank. A section hidden again once scrolled away from does not. Then Playwright shoots the full
      * page, a bar that stays on the screen (fixed or sticky) drawn once, at the top. As wide as a frame, at most
      * {@link #WHOLE_HEIGHT} CSS pixels tall; empty when the page went meanwhile.
      */
     public byte[] whole() {
-        // An int each: Playwright passes no long.
-        if (!(evaluate(SCROLL_PASS, List.of((int) VIEW_REST.toMillis(), WHOLE_HEIGHT)) instanceof Number width)) {
-            return new byte[0];
+        if (!(evaluate(VIEW) instanceof List<?> at) || at.size() != 4) return new byte[0];
+        // Every bound is Java's: the page's own scripts may have replaced what a bound in its JavaScript would call.
+        double width = Math.min(Chromium.WIDTH, number(at.get(0)));
+        double view = Math.max(100, number(at.get(1)));
+        try {
+            for (int tile = 0; tile <= WHOLE_HEIGHT / view && tile * view < height(); tile++) {
+                // An int: Playwright passes no long.
+                evaluate("y => window.scrollTo(0, y)", (int) (tile * view));
+                rest(VIEW_REST);
+            }
+        } finally {
+            evaluate("([x, y]) => window.scrollTo(x, y)", List.of((int) number(at.get(2)), (int) number(at.get(3))));
         }
         settled(SHORT_QUIET, WHOLE_SETTLE);
         // Measured once settled: an image the pass started may have grown the page.
-        double tall = number(evaluate("Math.min(" + WHOLE_HEIGHT + ", document.documentElement.scrollHeight)"));
-        if (width.doubleValue() < 1 || tall < 1) return new byte[0];
+        double tall = height();
+        if (width < 1 || tall < 1) return new byte[0];
         return shot(new Page.ScreenshotOptions().setType(ScreenshotType.PNG).setFullPage(true)
-                .setClip(0, 0, width.doubleValue(), tall));
+                .setClip(0, 0, width, tall));
+    }
+
+    /** The page's height, at most {@link #WHOLE_HEIGHT}. */
+    private double height() {
+        return Math.min(WHOLE_HEIGHT, number(evaluate("document.documentElement.scrollHeight")));
+    }
+
+    private static void rest(Duration time) {
+        try {
+            Thread.sleep(time.toMillis());
+        } catch (InterruptedException stopped) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** The tallest {@link #whole} renders, in CSS pixels: Chromium's own limit on a texture. */
@@ -451,21 +473,9 @@ public final class WebPage implements AutoCloseable {
     /** The longest a shot waits for the page to render: Playwright waits for its webfonts, which may hang. */
     private static final Duration SHOT_TIMEOUT = Duration.ofSeconds(5);
 
-    /**
-     * Scrolls the page down a viewport at a time to its end or the cap, resting at each view, then back where it was;
-     * answers the viewport's width.
-     */
-    private static final String SCROLL_PASS = """
-            async ([rest, cap]) => {
-              const x = window.scrollX, y = window.scrollY, view = Math.max(100, window.innerHeight);
-              const tall = () => Math.min(cap, document.documentElement.scrollHeight);
-              for (let at = 0; at < tall(); at += view) {
-                window.scrollTo(0, at);
-                await new Promise(done => setTimeout(done, rest));
-              }
-              window.scrollTo(x, y);
-              return document.documentElement.clientWidth;
-            }""";
+    /** The viewport's width and height and the page's scroll, which {@link #whole} goes back to. */
+    private static final String VIEW = "[document.documentElement.clientWidth, window.innerHeight, window.scrollX, "
+            + "window.scrollY]";
 
     /** A screenshot by {@code options}, empty when the page went, the clip lay outside it or it timed out. */
     private byte[] shot(Page.ScreenshotOptions options) {
