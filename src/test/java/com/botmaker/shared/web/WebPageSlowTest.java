@@ -76,6 +76,27 @@ class WebPageSlowTest {
     }
 
     @Test
+    void marksAreOutlinedOutsideTheTreeAndTakePressesFromNothing() {
+        try (WebPage page = chromium.newPage()) {
+            assertTrue(page.open(site.url("/")).ok());
+            WebTree before = page.tree();
+            WebNode start = before.find(Role.BUTTON, "Get started").getFirst();
+            page.mark(before.interactive().stream().filter(WebNode::laidOut)
+                    .map(n -> new WebPage.Mark(n.box(), n.name(), n.backendId() == start.backendId())).toList());
+            String drawn = "document.getElementById('__botmaker_marks')?.childElementCount ?? 0";
+            assertTrue(page.session().call("Runtime.evaluate", Map.of("expression", drawn, "returnByValue", true))
+                    .path("result").path("value").asInt() > 1);
+            assertEquals(before.outline(), page.tree().outline(), "the marks are hidden from the tree");
+            page.click(start);
+            assertTrue(page.settled());
+            assertTrue(page.tree().nodes().stream().anyMatch(n -> n.name().equals("Started")), "a press goes through");
+            page.unmark();
+            assertEquals(0, page.session().call("Runtime.evaluate", Map.of("expression", drawn, "returnByValue", true))
+                    .path("result").path("value").asInt());
+        }
+    }
+
+    @Test
     void aFrameIsAJpegOfTheViewport() {
         try (WebPage page = chromium.newPage()) {
             page.open(site.url("/"));

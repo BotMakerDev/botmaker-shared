@@ -3,7 +3,9 @@
 
 package com.botmaker.shared.web;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -457,6 +459,79 @@ public final class WebPage implements AutoCloseable {
             return Optional.empty();
         }
     }
+
+    /** One part outlined for a person watching: its box in viewport CSS pixels, its label, whether it is pressed. */
+    public record Mark(Rectangle box, String label, boolean pressed) {}
+
+    /**
+     * Outlines {@code marks} over the page for a person watching the browser, in place of any outlined before: a layer
+     * hidden from the accessibility tree that takes no press, so only a read of the frame would see it. Take it off with
+     * {@link #unmark} before the page is read again.
+     */
+    public void mark(List<Mark> marks) {
+        List<Map<String, Object>> drawn = new ArrayList<>();
+        for (Mark mark : marks) {
+            Rectangle b = mark.box();
+            if (b == null || b.isEmpty()) continue;
+            drawn.add(Map.of("x", b.x, "y", b.y, "w", b.width, "h", b.height, "t", mark.label(),
+                    "c", mark.pressed() ? "#dc2626" : "#2563eb"));
+        }
+        try {
+            evaluate("(" + MARK + ")(" + JSON.writeValueAsString(drawn) + ")");
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("marks not written", e);
+        }
+    }
+
+    /** Takes off what {@link #mark} outlined; nothing when nothing is. */
+    public void unmark() {
+        evaluate("document.getElementById('" + MARKS_ID + "')?.remove()");
+    }
+
+    /** {@code node}'s box once scrolled into view, empty when it has no DOM node or is not laid out. */
+    public Optional<Rectangle> inView(WebNode node) {
+        if (node.backendId() == 0) return Optional.empty();
+        try {
+            session.call("DOM.scrollIntoViewIfNeeded", Map.of("backendNodeId", node.backendId()));
+            return Optional.ofNullable(orNull(session.send("DOM.getBoxModel", Map.of("backendNodeId",
+                    node.backendId())))).map(b -> rectangle(b.path("model").path("border"))).filter(b -> !b.isEmpty());
+        } catch (Cdp.CdpException goneOrDetached) {
+            return Optional.empty();
+        }
+    }
+
+    private void evaluate(String expression) {
+        try {
+            session.call("Runtime.evaluate", Map.of("expression", expression));
+        } catch (Cdp.CdpException gone) {
+            // A page navigating away takes its marks with it.
+        }
+    }
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String MARKS_ID = "__botmaker_marks";
+    /** Draws each mark as an outlined box with its label above, on one fixed layer over the whole viewport. */
+    private static final String MARK = """
+            marks => {
+              document.getElementById('%1$s')?.remove();
+              const layer = document.createElement('div');
+              layer.id = '%1$s';
+              layer.setAttribute('aria-hidden', 'true');
+              layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647';
+              for (const m of marks) {
+                const box = document.createElement('div');
+                box.style.cssText = `position:absolute;left:${m.x}px;top:${m.y}px;width:${m.w}px;height:${m.h}px;`
+                    + `outline:2px solid ${m.c};outline-offset:1px;border-radius:3px;background:${m.c}1f`;
+                const label = document.createElement('span');
+                label.textContent = m.t;
+                label.style.cssText = `position:absolute;left:-2px;bottom:100%%;margin-bottom:3px;`
+                    + `font:600 11px/15px system-ui,sans-serif;color:#fff;background:${m.c};padding:0 4px;`
+                    + `border-radius:3px;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis`;
+                box.appendChild(label);
+                layer.appendChild(box);
+              }
+              document.documentElement.appendChild(layer);
+            }""".formatted(MARKS_ID);
 
     /** The tab's own commands and events, for what this class does not say yet. */
     public Cdp.Session session() {

@@ -16,6 +16,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- `WebPage.mark`, `unmark` and `inView`: parts of a page outlined with their labels for a person watching the browser,
+  on a layer hidden from the accessibility tree that takes no press.
+
 - `Os.id()` and `Os.fromId(String)`: a stable id per system (`windows`, `linux`, `macos`, `unknown`), the same as
   the catalog's platform ids a bot's pom lists in `botmaker.platforms`, so the core can say whether a bot runs here.
 
