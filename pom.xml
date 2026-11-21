@@ -14,7 +14,7 @@
     -->
     <groupId>com.github.BotMakerDev</groupId>
     <artifactId>botmaker-shared</artifactId>
-    <version>0.10.0</version>
+    <version>0.10.1-SNAPSHOT</version>
     <licenses>
         <license>
             <name>PolyForm-Noncommercial-1.0.0</name>
@@ -31,7 +31,7 @@
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- The run log's format (botmaker-runlog): its writer, every format's reader. -->
-        <botmaker.runlog.version>v0.2.0</botmaker.runlog.version>
+        <botmaker.runlog.version>0.2.1-SNAPSHOT</botmaker.runlog.version>
         <!-- Tests tagged @Tag("slow") start a real browser (web/): left out by default, run by
              -Dgroups=slow -Dsurefire.excludedGroups= -->
         <surefire.excludedGroups>slow</surefire.excludedGroups>
