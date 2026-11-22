@@ -12,7 +12,7 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
-## [Unreleased]
+## [0.10.1] — 2026-11-22
 
 ### Added
 
