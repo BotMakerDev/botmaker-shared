@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import javax.imageio.ImageIO;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
@@ -130,6 +131,19 @@ class WebPageSlowTest {
             BufferedImage whole = ImageIO.read(new ByteArrayInputStream(page.whole()));
             // #low starts 60 px of header and 3000 px of margin down, 400 px tall, red once seen.
             int shown = whole.getRGB(100, 3060 + 200) & 0xFFFFFF;
+            assertTrue(shown != 0xFFFFFF, "the section shows, not the page's white: " + Integer.toHexString(shown));
+            assertEquals(0, ((Number) page.evaluate("window.scrollY")).intValue(), "back where it was");
+        }
+    }
+
+    /** An input's picture below the viewport is of its section shown: nunu.ai's crops were its background, 2026-11-22. */
+    @Test
+    void anInputsPictureBelowTheViewportShowsWhatFadesInThere() throws Exception {
+        try (WebPage page = chromium.newPage()) {
+            page.open(site.url("/reveal"));
+            BufferedImage picture = ImageIO.read(new ByteArrayInputStream(
+                    page.picture(new Rectangle(100, 3060 + 150, 40, 40))));
+            int shown = picture.getRGB(20, 20) & 0xFFFFFF;
             assertTrue(shown != 0xFFFFFF, "the section shows, not the page's white: " + Integer.toHexString(shown));
             assertEquals(0, ((Number) page.evaluate("window.scrollY")).intValue(), "back where it was");
         }

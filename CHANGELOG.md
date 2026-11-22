@@ -23,6 +23,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   (150 ms at each) and back where it was, then settled (1.5 s at most), so a section a site reveals once scrolled to
   shows, then shot whole by Playwright; a fixed or sticky bar is drawn once, at the top. A shot waits 5 s at most for
   the page to render; `frame()` throws when it gets none.
+- `WebPage.picture(box)` scrolls to a box not wholly in the viewport, waits there for what fades in, cuts it and
+  scrolls back: an input below the fold was cut as the section's blank background.
 
 - `Chromium.newPage(Path)` and `WebPage.video()`: a tab recorded at 1440×900, its `.webm` saved into the folder when
   the tab closes.

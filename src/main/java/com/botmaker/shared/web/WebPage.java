@@ -406,15 +406,30 @@ public final class WebPage implements AutoCloseable {
     /**
      * The page's part inside {@code box}, as PNG, rendered by Chromium even where the viewport does not reach: a
      * tree's box ({@link #tree}) is the viewport's, so the page's scroll is added to clip it from the whole page.
-     * Empty when the box lies outside the page.
+     * A box not wholly in the viewport is scrolled to first, rested at and settled as {@link #whole} does, then the
+     * page scrolled back: a section a site reveals once scrolled to (nunu.ai's fade in) rendered unseen was its
+     * background (2026-11-22). Empty when the box lies outside the page.
      */
     public byte[] picture(Rectangle box) {
-        if (!(evaluate("[window.scrollX, window.scrollY]") instanceof List<?> scroll) || scroll.size() != 2) {
-            return new byte[0];
+        if (!(evaluate(VIEW) instanceof List<?> at) || at.size() != 4) return new byte[0];
+        double view = number(at.get(1));
+        int scrollX = (int) number(at.get(2));
+        int scrollY = (int) number(at.get(3));
+        double top = box.y + scrollY;
+        boolean seen = box.y >= 0 && box.y + box.height <= view;
+        try {
+            if (!seen) {
+                // Its middle at the viewport's, as a reader scrolls to it; an int: Playwright passes no long.
+                evaluate("y => window.scrollTo(window.scrollX, y)", (int) Math.max(0, top - (view - box.height) / 2));
+                rest(VIEW_REST);
+                settled(SHORT_QUIET, WHOLE_SETTLE);
+            }
+            // Full page, so the clip is the page's wherever the page now is.
+            return shot(new Page.ScreenshotOptions().setType(ScreenshotType.PNG).setFullPage(true).setClip(
+                    box.x + scrollX, top, box.width, box.height));
+        } finally {
+            if (!seen) evaluate("([x, y]) => window.scrollTo(x, y)", List.of(scrollX, scrollY));
         }
-        // Full page, so the clip is the page's and reaches below the viewport.
-        return shot(new Page.ScreenshotOptions().setType(ScreenshotType.PNG).setFullPage(true).setClip(
-                box.x + number(scroll.get(0)), box.y + number(scroll.get(1)), box.width, box.height));
     }
 
     /**
