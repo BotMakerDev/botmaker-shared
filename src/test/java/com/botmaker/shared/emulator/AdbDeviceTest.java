@@ -87,6 +87,19 @@ class AdbDeviceTest {
         assertEquals(Optional.empty(), AdbDevice.parseFocusedPackage(null));
     }
 
+    /** A menu over the page has the focus, and the tree then holds only it (Waydroid's Settings search, 2026-11-25). */
+    @Test
+    void aWindowOverThePageIsOneThatNamesNoActivity() {
+        assertEquals(Optional.of("PopupWindow:3d4a864"), AdbDevice.parseWindowOverPage("""
+                  mCurrentFocus=Window{b7cecb2 u0 PopupWindow:3d4a864}
+                  mFocusedApp=ActivityRecord{66bd1d7 u0 com.android.settings.intelligence/.search.SearchActivity} t17}"""));
+        assertEquals(Optional.empty(), AdbDevice.parseWindowOverPage("""
+                  mCurrentFocus=Window{9f8e u0 com.foo.game/com.foo.game.MainActivity}
+                  mFocusedApp=ActivityRecord{3c4d u0 com.foo.game/.MainActivity t12}"""));
+        assertEquals(Optional.empty(), AdbDevice.parseWindowOverPage("  mCurrentFocus=null\n  mFocusedApp=null"));
+        assertEquals(Optional.empty(), AdbDevice.parseWindowOverPage(null));
+    }
+
     @Test
     void onlyAFocusThatNamesNothingFallsBackToTheResumedActivity() {
         assertTrue(AdbDevice.noFocus("  mCurrentFocus=null\n  mFocusedApp=null"), "BlueStacks after a cold boot");

@@ -804,6 +804,30 @@ public final class AdbDevice implements AutoCloseable {
     }
 
     /**
+     * The window in focus when it is not an activity's page: {@code PopupWindow:3d4a864} for a menu or a dropdown,
+     * {@code StatusBar}, a dialog's title; empty for a page, or when the shell fails. Android leaves the page under such
+     * a window out of the tree, since a tap outside it only closes it (Waydroid's Settings search, 2026-11-25).
+     */
+    public Optional<String> windowOverPage() {
+        try {
+            return parseWindowOverPage(shell(FOCUS));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    private static final Pattern FOCUS_WINDOW = Pattern.compile("mCurrentFocus=Window\\{\\S+ \\S+ ([^}]+)}");
+
+    /** {@link #windowOverPage}'s reading of {@link #FOCUS}'s lines: a focus window that names no component. */
+    static Optional<String> parseWindowOverPage(String dumpsys) {
+        if (dumpsys == null) return Optional.empty();
+        Matcher m = FOCUS_WINDOW.matcher(dumpsys);
+        if (!m.find()) return Optional.empty();
+        String name = m.group(1).strip();
+        return name.contains("/") ? Optional.empty() : Optional.of(name);
+    }
+
+    /**
      * Copies a local file to {@code remotePath} on the device, executable. Returns whether it landed.
      *
      * <p>Best-effort like the rest of this class: a device that refuses the write (a locked-down {@code

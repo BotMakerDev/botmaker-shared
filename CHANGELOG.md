@@ -12,6 +12,14 @@ whoever is debugging a capture, a launch or an OCR result, not for a bot author.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Added
+
+- `AdbDevice.windowOverPage()`: the window in focus when it is not an activity's page — a menu's
+  `PopupWindow:…`, a dialog — read from `dumpsys window`. Android leaves the page under such a window out of the
+  accessibility tree, so a reader of the tree learns from it that only the popup is there.
+
 ## [0.10.1] — 2026-11-22
 
 ### Added
