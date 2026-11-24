@@ -199,7 +199,8 @@ public record GameReadiness(State state, String reason) {
         if (instance.isEmpty()) return unknown();
         if (EmulatorReadiness.isReady(instance.get())) {
             try (AdbDevice device = AdbDevice.connect(instance.get().adb())) {
-                return emulatorApp(spec, instance.get().name(), device.installedApps(), true);
+                // Every package, system ones too: a bot may play the emulator's own Settings (2026-11-25).
+                return emulatorApp(spec, instance.get().name(), device.allPackages(), true);
             } catch (RuntimeException unreachable) {
                 // the cache, below
             }

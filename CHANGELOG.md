@@ -20,6 +20,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   `PopupWindow:…`, a dialog — read from `dumpsys window`. Android leaves the page under such a window out of the
   accessibility tree, so a reader of the tree learns from it that only the popup is there.
 
+### Fixed
+
+- An emulator app that is a system app (the emulator's own Settings) no longer reads as not installed when a
+  run launches it: the readiness check listed only third-party packages.
+
 ## [0.10.1] — 2026-11-22
 
 ### Added
