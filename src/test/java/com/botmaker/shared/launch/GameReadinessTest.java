@@ -3,6 +3,7 @@
 
 package com.botmaker.shared.launch;
 
+import com.botmaker.shared.emulator.AndroidPage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -116,5 +117,20 @@ class GameReadinessTest {
         assertEquals(Optional.empty(), GameReadiness.installLink(LaunchSpec.parse("heroic:Fortnite")));
         assertEquals(Optional.of("steam://open/main"), GameReadiness.signInLink(LaunchKind.STEAM));
         assertEquals(GameReadiness.State.UNKNOWN, GameReadiness.of(LaunchSpec.parse("exe:/a/b")).state());
+    }
+
+    @Test
+    void aStartPageIsReadyOnlyWhileItsIntentOpensSomething() {
+        LaunchSpec gms = LaunchSpec.parse("emu-app:com.google.android.gms@Waydroid#google-sign-in");
+
+        assertEquals("cmd package resolve-activity --brief -a android.settings.ADD_ACCOUNT_SETTINGS --esa "
+                + "account_types com.google", GameReadiness.resolveCommand(AndroidPage.parse("google-sign-in").orElseThrow()));
+        assertEquals(GameReadiness.State.READY, GameReadiness.page(gms, "Waydroid",
+                "priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false\n"
+                        + "com.google.android.gms/.auth.uiflows.addaccount.AccountIntroActivity\n").state());
+        GameReadiness gone = GameReadiness.page(gms, "Waydroid", "No activity found\n");
+        assertEquals(GameReadiness.State.PAGE_GONE, gone.state());
+        assertEquals("The page google-sign-in of com.google.android.gms doesn't open on Waydroid any more: pick where "
+                + "it starts again in the Game window.", gone.reason());
     }
 }

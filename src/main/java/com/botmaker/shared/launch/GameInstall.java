@@ -157,7 +157,7 @@ public sealed interface GameInstall permits AndroidInstall, HeroicInstall, GameI
             GameReadiness now = readiness();
             return switch (now.state()) {
                 case NOT_INSTALLED, UNKNOWN -> install(progress);
-                case SIGNED_OUT -> new Result(Outcome.FAILED, now.reason());
+                case SIGNED_OUT, PAGE_GONE -> new Result(Outcome.FAILED, now.reason());
                 // Steam's files say no update is pending; Steam itself finds a new one when it next checks.
                 case READY -> new Result(Outcome.UP_TO_DATE, "Steam has no update pending for " + spec.describe()
                         + ".");

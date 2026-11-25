@@ -5,6 +5,7 @@ package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.emulator.AdbDevice;
+import com.botmaker.shared.emulator.AndroidPage;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.shared.emulator.EmulatorLauncher;
@@ -73,6 +74,28 @@ public final class EmulatorAppLauncher {
      *                 called on the calling thread, so a UI toolkit consumer marshals it itself
      */
     public static Outcome start(String packageName, String instance, Consumer<String> progress) {
+        return start(packageName, instance, null, progress);
+    }
+
+    /**
+     * {@link #start(String, String, Consumer)} on {@code page} ({@link AndroidPage#id()}), or on the app's first
+     * screen when it is {@code null}. A page is opened by its intent over ADB on every product: Waydroid's own
+     * launcher knows only an app's icon.
+     */
+    public static Outcome start(String packageName, String instance, String page, Consumer<String> progress) {
+        if (page != null) {
+            Optional<AndroidPage> parsed = AndroidPage.parse(page);
+            if (parsed.isEmpty()) {
+                return Outcome.failed("This BotMaker doesn't know the page '" + page + "' of " + packageName
+                        + ". Pick its start page again in the Game window.");
+            }
+            return withReadyEmulator(instance, progress, (device, live) -> {
+                report(progress, "Opening " + page + " on " + live.name() + "…");
+                Diag.log("[Target] emu-app: opening " + page + " of " + packageName + " on " + instance);
+                QuietRun.calm(device);
+                return startPageOverAdb(AppDevice.of(device), packageName, parsed.get(), live.name());
+            });
+        }
         Optional<EmulatorInstance> match = find(instance);
         if (match.isPresent() && match.get().platformId() == PlatformId.WAYDROID) {
             return startWaydroid(packageName, match.get(), progress);
@@ -198,6 +221,31 @@ public final class EmulatorAppLauncher {
     }
 
     /**
+     * Opens {@code page} of {@code packageName} by its intent and waits for the package to have the focus. A page
+     * Android refuses (gone after an update, not exported any more) fails with what {@code am} said.
+     */
+    static Outcome startPageOverAdb(AppDevice device, String packageName, AndroidPage page, String instance) {
+        String pkg = packageName.trim();
+        if (Boolean.FALSE.equals(installed(device.shell("pm list packages"), pkg))) {
+            return Outcome.failed(pkg + " isn't installed on " + instance + ". Install it from the Game window, "
+                    + "then launch again.");
+        }
+        String answer = device.shell(page.startCommand());
+        if (refused(answer)) {
+            Diag.log("[Target] emu-app: am refused " + page.id() + ": " + answer.strip());
+            return Outcome.failed("Android couldn't open the page " + page.id() + " of " + pkg + " on " + instance
+                    + ": " + answer.strip().lines().filter(line -> line.contains("Error")).findFirst()
+                            .orElse(answer.strip()));
+        }
+        return awaitForeground(device, pkg, instance);
+    }
+
+    /** Whether {@code am start}'s answer says it opened nothing. */
+    static boolean refused(String amAnswer) {
+        return amAnswer == null || amAnswer.contains("Error") || amAnswer.contains("Exception");
+    }
+
+    /**
      * Whether {@code pm list packages} lists {@code pkg}, or {@code null} when the output lists nothing at all (no
      * answer is not evidence of absence).
      */
@@ -251,6 +299,15 @@ public final class EmulatorAppLauncher {
      * itself. Either way the restart is the one the run's {@code RestartCap} counted.
      */
     public static Outcome restart(String packageName, String instance) {
+        return restart(packageName, instance, null);
+    }
+
+    /**
+     * {@link #restart(String, String)}; on a {@code page} only the page is opened again, nothing force-stopped: a
+     * page's package is often a system one (Google services) that every other app needs.
+     */
+    public static Outcome restart(String packageName, String instance, String page) {
+        if (page != null) return start(packageName, instance, page, null);
         Optional<EmulatorInstance> desktop = find(instance).filter(match -> match.platformId() != PlatformId.WAYDROID);
         desktop.ifPresent(EmulatorAppLauncher::rebootIfHung);
         if (desktop.isEmpty()) {
@@ -331,6 +388,12 @@ public final class EmulatorAppLauncher {
      * @return whether the emulator itself was stopped to end the app, so whatever showed it is gone too
      */
     public static boolean stop(String packageName, String instance) {
+        return stop(packageName, instance, null);
+    }
+
+    /** {@link #stop(String, String)}; a {@code page} target is never force-stopped, as in {@link #restart}. */
+    public static boolean stop(String packageName, String instance, String page) {
+        if (page != null) return false;
         if (forceStop(packageName, instance, LEFTOVER_WAIT) != Leftover.STAYED) return false;
         if (find(instance).map(match -> match.platformId() != PlatformId.WAYDROID).orElse(true)) {
             Diag.log("[Target] emu-app: a process of " + packageName.trim() + " outlived the force-stop on " + instance);

@@ -4,6 +4,7 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.emulator.AdbDevice;
+import com.botmaker.shared.emulator.AndroidPage;
 import com.botmaker.shared.emulator.EmulatorAppCache;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
@@ -44,6 +45,8 @@ public record GameReadiness(State state, String reason) {
         UPDATING("updating"),
         SIGNED_OUT("signed out"),
         NOT_INSTALLED("not installed"),
+        /** Installed, but the page an emulator app starts on no longer opens (2026-11-25): pick it again. */
+        PAGE_GONE("page gone"),
         /** Nothing read for this kind: launch it as before. */
         UNKNOWN("unknown");
 
@@ -200,7 +203,10 @@ public record GameReadiness(State state, String reason) {
         if (EmulatorReadiness.isReady(instance.get())) {
             try (AdbDevice device = AdbDevice.connect(instance.get().adb())) {
                 // Every package, system ones too: a bot may play the emulator's own Settings (2026-11-25).
-                return emulatorApp(spec, instance.get().name(), device.allPackages(), true);
+                GameReadiness installed = emulatorApp(spec, instance.get().name(), device.allPackages(), true);
+                Optional<AndroidPage> page = AndroidPage.parse(spec.emulatorPage());
+                if (installed.state() != State.READY || page.isEmpty()) return installed;
+                return page(spec, instance.get().name(), device.shell(resolveCommand(page.get())));
             } catch (RuntimeException unreachable) {
                 // the cache, below
             }
@@ -219,6 +225,23 @@ public record GameReadiness(State state, String reason) {
         return asked && !apps.isEmpty()
                 ? new GameReadiness(State.NOT_INSTALLED, spec.describe() + " isn't installed on " + instance + ".")
                 : unknown();
+    }
+
+    /** The command that asks the package manager which activity {@code page}'s intent opens. */
+    static String resolveCommand(AndroidPage page) {
+        return "cmd package resolve-activity --brief " + String.join(" ", page.intentArgs());
+    }
+
+    /**
+     * {@link #emulatorApp(LaunchSpec)} for an installed app's start page, over {@code resolveAnswer}, what
+     * {@link #resolveCommand} printed: a component names the page that opens, anything else says none does. Pure.
+     */
+    static GameReadiness page(LaunchSpec spec, String instance, String resolveAnswer) {
+        boolean opens = resolveAnswer != null && resolveAnswer.lines().map(String::strip)
+                .anyMatch(line -> line.indexOf('/') > 0 && !line.contains(" "));
+        return opens ? ready() : new GameReadiness(State.PAGE_GONE, "The page " + spec.emulatorPage() + " of "
+                + spec.emulatorPackage() + " doesn't open on " + instance + " any more: pick where it starts again "
+                + "in the Game window.");
     }
 
     /**

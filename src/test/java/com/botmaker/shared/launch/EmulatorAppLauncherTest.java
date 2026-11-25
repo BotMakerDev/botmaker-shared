@@ -3,6 +3,8 @@
 
 package com.botmaker.shared.launch;
 
+import com.botmaker.shared.emulator.AndroidDoor;
+import com.botmaker.shared.emulator.AndroidPage;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -86,6 +88,35 @@ class EmulatorAppLauncherTest {
         assertTrue(outcome.message().startsWith("Android refused to start " + PKG + " on BlueStacks"),
                 outcome.message());
         assertTrue(device.asked().contains("cmd package resolve-activity --brief " + PKG));
+    }
+
+    @Test
+    void aPageIsOpenedByItsIntentAndSeenInFront() {
+        String gms = "com.google.android.gms";
+        Fake device = new Fake(command -> command.equals("pm list packages") ? "package:" + gms
+                : "Status: ok\nActivity: " + gms + "/.auth.uiflows.minutemaid.MinuteMaidActivity\n", gms);
+
+        EmulatorAppLauncher.Outcome outcome = EmulatorAppLauncher.startPageOverAdb(device, gms,
+                new AndroidPage.Door(AndroidDoor.GOOGLE_SIGN_IN), "Waydroid");
+
+        assertTrue(outcome.ok(), outcome.message());
+        assertEquals("am start -W -a android.settings.ADD_ACCOUNT_SETTINGS --esa account_types com.google",
+                device.asked().get(1));
+        assertFalse(device.asked().stream().anyMatch(command -> command.contains("force-stop")
+                || command.startsWith("monkey")));
+    }
+
+    @Test
+    void aPageAndroidRefusesIsSaid() {
+        Fake device = new Fake(command -> command.equals("pm list packages") ? "package:com.android.settings"
+                : "Error: Activity class {com.android.settings/.Gone} does not exist.", "");
+
+        EmulatorAppLauncher.Outcome outcome = EmulatorAppLauncher.startPageOverAdb(device, "com.android.settings",
+                new AndroidPage.Activity("com.android.settings/.Gone"), "Waydroid");
+
+        assertFalse(outcome.ok());
+        assertTrue(outcome.message().endsWith("Error: Activity class {com.android.settings/.Gone} does not exist."),
+                outcome.message());
     }
 
     @Test

@@ -16,6 +16,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **An emulator app can start on a page** (2026-11-25): `emu-app:<package>@<instance>#<page>`, where the page is a
+  door Android opens by a public intent (`AndroidDoor`: Google's sign-in page, Wi-Fi, Accounts, Date & time) or an
+  activity the app exports (`com.android.settings/.wifi.WifiSettings`). It opens with `am start -W` over ADB on
+  every product; a restart opens the page again and a stop force-stops nothing. `GameReadiness` says `PAGE_GONE`
+  when the page's intent no longer opens anything. A spec without `#` behaves as before.
+
 - `AdbDevice.windowOverPage()`: the window in focus when it is not an activity's page — a menu's
   `PopupWindow:…`, a dialog — read from `dumpsys window`. Android leaves the page under such a window out of the
   accessibility tree, so a reader of the tree learns from it that only the popup is there.

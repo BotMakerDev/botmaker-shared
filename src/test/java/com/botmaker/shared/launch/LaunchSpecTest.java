@@ -78,6 +78,22 @@ class LaunchSpecTest {
         assertNull(emu.runningToken(), "an app inside an emulator shows up nowhere on the host process table");
     }
 
+    @Test
+    void anEmulatorAppMayNameThePageItStartsOn() {
+        LaunchSpec door = LaunchSpec.parse("emu-app:com.google.android.gms@Waydroid#google-sign-in");
+        assertEquals("com.google.android.gms", door.emulatorPackage());
+        assertEquals("Waydroid", door.emulatorInstance());
+        assertEquals("google-sign-in", door.emulatorPage());
+
+        LaunchSpec activity = LaunchSpec.parse("emu-app:com.android.settings@My@Inst#com.android.settings/.wifi.WifiSettings");
+        assertEquals("com.android.settings@My", activity.emulatorPackage());
+        assertEquals("Inst", activity.emulatorInstance());
+        assertEquals("com.android.settings/.wifi.WifiSettings", activity.emulatorPage());
+
+        assertNull(LaunchSpec.parse("emu-app:com.foo@Waydroid").emulatorPage(), "no # starts on the first screen");
+        assertNull(LaunchSpec.parse("emu-app:com.foo@Waydroid#").emulatorPage());
+    }
+
     /**
      * Every emulator app is read and pressed over ADB, Waydroid included (2026-11-09): its session runs under a
      * headless gamescope, never on a display of ours.

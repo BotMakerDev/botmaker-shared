@@ -73,7 +73,8 @@ public final class Launcher {
                 // still report success, because it had no way to say otherwise. Every other kind here already
                 // propagates, and the callers are already written to show it.
                 EmulatorAppLauncher.Outcome outcome =
-                        EmulatorAppLauncher.start(spec.emulatorPackage(), spec.emulatorInstance(), progress);
+                        EmulatorAppLauncher.start(spec.emulatorPackage(), spec.emulatorInstance(), spec.emulatorPage(),
+                                progress);
                 if (!outcome.ok()) {
                     throw new RuntimeException(outcome.message());
                 }
@@ -139,7 +140,7 @@ public final class Launcher {
             }
             case EMULATOR_APP -> {
                 EmulatorAppLauncher.Outcome outcome =
-                        EmulatorAppLauncher.restart(spec.emulatorPackage(), spec.emulatorInstance());
+                        EmulatorAppLauncher.restart(spec.emulatorPackage(), spec.emulatorInstance(), spec.emulatorPage());
                 if (!outcome.ok()) {
                     throw new RuntimeException(outcome.message());
                 }
@@ -165,7 +166,7 @@ public final class Launcher {
                 return false;
             }
             case EMULATOR_APP -> {
-                return EmulatorAppLauncher.stop(spec.emulatorPackage(), spec.emulatorInstance());
+                return EmulatorAppLauncher.stop(spec.emulatorPackage(), spec.emulatorInstance(), spec.emulatorPage());
             }
             default -> {
                 return false;

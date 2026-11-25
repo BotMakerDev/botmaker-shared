@@ -121,7 +121,7 @@ public record LaunchSpec(LaunchKind kind, String token) {
     /** The {@code <instance>} half of an {@code emu-app:} token, or {@code null} for any other kind. */
     public String emulatorInstance() {
         int at = emulatorSplit();
-        return at < 0 ? null : token.substring(at + 1).trim();
+        return at < 0 ? null : emulatorTarget().substring(at + 1).trim();
     }
 
     /**
@@ -236,13 +236,32 @@ public record LaunchSpec(LaunchKind kind, String token) {
         };
     }
 
+    /**
+     * The page after {@code #} in an {@code emu-app:} token ({@code <package>@<instance>#<page>}, 2026-11-25), or
+     * {@code null} when it starts on its first screen or is another kind.
+     */
+    public String emulatorPage() {
+        if (kind != LaunchKind.EMULATOR_APP) return null;
+        int hash = token.indexOf('#');
+        if (hash < 0) return null;
+        String page = token.substring(hash + 1).trim();
+        return page.isEmpty() ? null : page;
+    }
+
+    /** The token without its {@code #<page>}. */
+    private String emulatorTarget() {
+        int hash = token.indexOf('#');
+        return hash < 0 ? token : token.substring(0, hash);
+    }
+
     /** Index of the {@code @} separating package from instance — the <em>last</em> one, so dots are kept. */
     private int emulatorSplit() {
         if (kind != LaunchKind.EMULATOR_APP) {
             return -1;
         }
-        int at = token.lastIndexOf('@');
-        return (at <= 0 || at == token.length() - 1) ? -1 : at;
+        String target = emulatorTarget();
+        int at = target.lastIndexOf('@');
+        return (at <= 0 || at == target.length() - 1) ? -1 : at;
     }
 
     private String firstWord() {
