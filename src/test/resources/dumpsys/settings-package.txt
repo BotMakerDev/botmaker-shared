@@ -1,0 +1,32 @@
+Activity Resolver Table:
+  Non-Data Actions:
+      android.intent.action.MAIN:
+        4b1a2c3 com.android.settings/.Settings filter 7d8e9f0
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.LAUNCHER"
+      android.settings.WIFI_SETTINGS:
+        5c6d7e8 com.android.settings/.Settings$WifiSettingsActivity filter 1a2b3c4
+          Action: "android.settings.WIFI_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+        6d7e8f9 com.android.settings/.wifi.WifiSettings filter 2b3c4d5
+          Action: "android.settings.WIFI_SETTINGS"
+      android.settings.DATE_SETTINGS:
+        7e8f9a0 com.android.settings/.Settings$DateTimeSettingsActivity filter 3c4d5e6
+          Action: "android.settings.DATE_SETTINGS"
+        8f9a0b1 com.android.other/.Elsewhere filter 4d5e6f7
+          Action: "android.settings.DATE_SETTINGS"
+
+Receiver Resolver Table:
+  Non-Data Actions:
+      android.intent.action.BOOT_COMPLETED:
+        9a0b1c2 com.android.settings/.BootReceiver filter 5e6f7a8
+          Action: "android.intent.action.BOOT_COMPLETED"
+
+Service Resolver Table:
+  Non-Data Actions:
+      android.settings.SOME_SERVICE:
+        a0b1c2d com.android.settings/.SomeService filter 6f7a8b9
+
+Packages:
+  Package [com.android.settings] (1234abc):
+    versionCode=34 minSdk=34 targetSdk=34

@@ -18,28 +18,48 @@ import java.util.List;
 public enum AndroidDoor {
     /** Google's sign-in page, the email field first; it adds no account by itself. */
     GOOGLE_SIGN_IN("google-sign-in", "Google's sign-in page", "android.settings.ADD_ACCOUNT_SETTINGS",
-            List.of("--esa", "account_types", "com.google"), "com.google.android.gms"),
+            List.of("--esa", "account_types", "com.google"), "com.google.android.gms", List.of("MinuteMaidActivity")),
     /** Settings' Wi-Fi page. */
-    WIFI("wifi", "Wi-Fi", "android.settings.WIFI_SETTINGS", List.of(), "com.android.settings"),
+    WIFI("wifi", "Wi-Fi", "android.settings.WIFI_SETTINGS", List.of(), "com.android.settings",
+            List.of("WifiSettingsActivity", "WifiSettings2Activity", "WifiPickerActivity")),
     /** Settings' list of the device's accounts. */
-    ACCOUNTS("accounts", "Accounts", "android.settings.SYNC_SETTINGS", List.of(), "com.android.settings"),
+    ACCOUNTS("accounts", "Accounts", "android.settings.SYNC_SETTINGS", List.of(), "com.android.settings",
+            List.of("AccountDashboardActivity", "AccountSyncSettingsActivity")),
     /** Settings' date and time page. */
-    DATE("date", "Date & time", "android.settings.DATE_SETTINGS", List.of(), "com.android.settings"),
+    DATE("date", "Date & time", "android.settings.DATE_SETTINGS", List.of(), "com.android.settings",
+            List.of("DateTimeSettingsActivity")),
     /** A door this build doesn't know, read from a newer bot. */
-    UNKNOWN("", "Unknown page", "", List.of(), "");
+    UNKNOWN("", "Unknown page", "", List.of(), "", List.of());
 
     private final String id;
     private final String displayName;
     private final String action;
     private final List<String> extras;
     private final String landsIn;
+    private final List<String> landings;
 
-    AndroidDoor(String id, String displayName, String action, List<String> extras, String landsIn) {
+    AndroidDoor(String id, String displayName, String action, List<String> extras, String landsIn,
+            List<String> landings) {
         this.id = id;
         this.displayName = displayName;
         this.action = action;
         this.extras = extras;
         this.landsIn = landsIn;
+        this.landings = landings;
+    }
+
+    /**
+     * Whether an activity of {@code packageName} named {@code activityClass} (full or short, {@code .X} or
+     * {@code a.b.X}) is the page this door opens: the class's own name, after its last {@code .} or {@code $}, is one
+     * the door is known to land on.
+     */
+    public boolean landsOn(String packageName, String activityClass) {
+        if (this == UNKNOWN || packageName == null || activityClass == null || !landsIn.equals(packageName)) {
+            return false;
+        }
+        String simple = activityClass.substring(Math.max(activityClass.lastIndexOf('.'),
+                activityClass.lastIndexOf('$')) + 1);
+        return landings.contains(simple);
     }
 
     /** The id a launch spec writes after {@code #}. */

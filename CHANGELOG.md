@@ -24,6 +24,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - **A page spec is built and moved whole** (2026-11-25): `LaunchSpec.emulatorApp(package, instance, page)` and
   `onInstance(instance)`, which keeps the page; `AdbDevice.bringToFront(package, page)` opens a page target's page
   again instead of the app's first screen.
+- **The pages an app starts on, and the page open now** (2026-11-25): `AppPages.pages(device, package)` lists the
+  doors that land in the app and the activities its `dumpsys package` Activity Resolver Table opens to an intent;
+  `AppPages.openNow(device)` reads the focus and answers `Reached(page)` when a door (by its landing activity,
+  `AndroidDoor.landsOn`) or one of those activities opens it, `Unreachable(name)` when none does, and `NoPage`
+  when no app's page has the focus.
 
 - `AdbDevice.windowOverPage()`: the window in focus when it is not an activity's page — a menu's
   `PopupWindow:…`, a dialog — read from `dumpsys window`. Android leaves the page under such a window out of the
