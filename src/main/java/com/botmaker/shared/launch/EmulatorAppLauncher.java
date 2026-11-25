@@ -231,18 +231,13 @@ public final class EmulatorAppLauncher {
                     + "then launch again.");
         }
         String answer = device.shell(page.startCommand());
-        if (refused(answer)) {
+        if (AndroidPage.refused(answer)) {
             Diag.log("[Target] emu-app: am refused " + page.id() + ": " + answer.strip());
             return Outcome.failed("Android couldn't open the page " + page.id() + " of " + pkg + " on " + instance
                     + ": " + answer.strip().lines().filter(line -> line.contains("Error")).findFirst()
                             .orElse(answer.strip()));
         }
         return awaitForeground(device, pkg, instance);
-    }
-
-    /** Whether {@code am start}'s answer says it opened nothing. */
-    static boolean refused(String amAnswer) {
-        return amAnswer == null || amAnswer.contains("Error") || amAnswer.contains("Exception");
     }
 
     /**

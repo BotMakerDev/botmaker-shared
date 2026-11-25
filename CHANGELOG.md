@@ -21,6 +21,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   activity the app exports (`com.android.settings/.wifi.WifiSettings`). It opens with `am start -W` over ADB on
   every product; a restart opens the page again and a stop force-stops nothing. `GameReadiness` says `PAGE_GONE`
   when the page's intent no longer opens anything. A spec without `#` behaves as before.
+- **A page spec is built and moved whole** (2026-11-25): `LaunchSpec.emulatorApp(package, instance, page)` and
+  `onInstance(instance)`, which keeps the page; `AdbDevice.bringToFront(package, page)` opens a page target's page
+  again instead of the app's first screen.
 
 - `AdbDevice.windowOverPage()`: the window in focus when it is not an activity's page — a menu's
   `PopupWindow:…`, a dialog — read from `dumpsys window`. Android leaves the page under such a window out of the

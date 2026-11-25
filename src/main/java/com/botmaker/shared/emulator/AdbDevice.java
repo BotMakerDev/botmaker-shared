@@ -385,6 +385,16 @@ public final class AdbDevice implements AutoCloseable {
         return component.isPresent();
     }
 
+    /**
+     * {@link #bringToFront(String)}, or, for an app that starts on {@code page} ({@link AndroidPage#id()}), that page
+     * opened again by its intent, the package's first screen being no way back to it (2026-11-25). Whether Android
+     * took it.
+     */
+    public boolean bringToFront(String packageName, String page) {
+        return AndroidPage.parse(page).map(found -> !AndroidPage.refused(shell(found.startCommand())))
+                .orElseGet(() -> bringToFront(packageName));
+    }
+
     /** What {@link #launcherComponent} reads, the package appended. */
     public static final String RESOLVE_LAUNCHER = "cmd package resolve-activity --brief ";
 

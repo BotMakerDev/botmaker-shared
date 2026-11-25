@@ -24,6 +24,11 @@ public sealed interface AndroidPage {
         return "am start -W " + String.join(" ", intentArgs());
     }
 
+    /** Whether {@code am start}'s answer says it opened nothing. */
+    static boolean refused(String amAnswer) {
+        return amAnswer == null || amAnswer.contains("Error") || amAnswer.contains("Exception");
+    }
+
     /** A door by its name. */
     record Door(AndroidDoor door) implements AndroidPage {
         @Override

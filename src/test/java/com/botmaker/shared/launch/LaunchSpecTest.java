@@ -94,6 +94,18 @@ class LaunchSpecTest {
         assertNull(LaunchSpec.parse("emu-app:com.foo@Waydroid#").emulatorPage());
     }
 
+    @Test
+    void anEmulatorAppMovesToAnotherInstanceWithItsPage() {
+        assertEquals("emu-app:com.google.android.gms@Waydroid#google-sign-in",
+                LaunchSpec.emulatorApp("com.google.android.gms", "Waydroid", "google-sign-in").spec());
+        assertEquals("emu-app:com.foo@Waydroid", LaunchSpec.emulatorApp("com.foo", "Waydroid", " ").spec());
+        assertEquals("emu-app:com.foo@LDPlayer-3#wifi",
+                LaunchSpec.parse("emu-app:com.foo@LDPlayer-1#wifi").onInstance("LDPlayer-3").spec());
+        assertEquals("emu-app:com.foo@LDPlayer-3",
+                LaunchSpec.parse("emu-app:com.foo@LDPlayer-1").onInstance("LDPlayer-3").spec());
+        assertEquals("steam:570", LaunchSpec.parse("steam:570").onInstance("LDPlayer-3").spec());
+    }
+
     /**
      * Every emulator app is read and pressed over ADB, Waydroid included (2026-11-09): its session runs under a
      * headless gamescope, never on a display of ours.

@@ -248,6 +248,22 @@ public record LaunchSpec(LaunchKind kind, String token) {
         return page.isEmpty() ? null : page;
     }
 
+    /**
+     * The spec of {@code packageName} on {@code instance}, starting on {@code page} ({@link #emulatorPage()}) unless
+     * it is blank.
+     */
+    public static LaunchSpec emulatorApp(String packageName, String instance, String page) {
+        String target = packageName.strip() + "@" + instance.strip();
+        return new LaunchSpec(LaunchKind.EMULATOR_APP, page == null || page.isBlank() ? target
+                : target + "#" + page.strip());
+    }
+
+    /** This emulator app's spec on {@code instance}, its page kept; this spec as it is for any other kind. */
+    public LaunchSpec onInstance(String instance) {
+        String pkg = emulatorPackage();
+        return pkg == null ? this : emulatorApp(pkg, instance, emulatorPage());
+    }
+
     /** The token without its {@code #<page>}. */
     private String emulatorTarget() {
         int hash = token.indexOf('#');

@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AndroidPageTest {
@@ -29,6 +30,14 @@ class AndroidPageTest {
 
         assertEquals(new AndroidPage.Activity("com.android.settings/.wifi.WifiSettings"), page);
         assertEquals(List.of("-n", "com.android.settings/.wifi.WifiSettings"), page.intentArgs());
+    }
+
+    @Test
+    void anAnswerNamingAnErrorOpenedNothing() {
+        assertTrue(AndroidPage.refused("Error: Activity class {a/.B} does not exist."));
+        assertTrue(AndroidPage.refused(null));
+        assertFalse(AndroidPage.refused("Status: ok\nActivity: com.google.android.gms/.SignIn"));
+        assertFalse(AndroidPage.refused("Warning: Activity not started, its current task has been brought to the front"));
     }
 
     @Test
