@@ -35,6 +35,12 @@ class AppPagesTest {
     }
 
     @Test
+    void aNameThatIsNoPackageNeverReachesTheShell() {
+        assertEquals(List.of(), AppPages.exported((AdbDevice) null, "x; reboot"));
+        assertEquals(List.of(), AppPages.exported((AdbDevice) null, null));
+    }
+
+    @Test
     void theSignInPageInFocusIsGooglesDoor() {
         String focus = "  mCurrentFocus=Window{1a2b u0 com.google.android.gms/"
                 + "com.google.android.gms.auth.uiflows.minutemaid.MinuteMaidActivity}\n"

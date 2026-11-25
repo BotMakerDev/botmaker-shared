@@ -41,8 +41,12 @@ public final class AppPages {
         return List.copyOf(pages);
     }
 
-    /** The activities of {@code packageName} an intent opens, on {@code device}; empty when it doesn't answer. */
+    /**
+     * The activities of {@code packageName} an intent opens, on {@code device}; empty when it doesn't answer, or when
+     * {@code packageName} is not a package name, which never reaches the shell.
+     */
     public static List<AndroidPage.Activity> exported(AdbDevice device, String packageName) {
+        if (packageName == null || !PlayStoreSearch.PACKAGE.matcher(packageName).matches()) return List.of();
         try {
             return exported(packageName, device.shell("dumpsys package " + packageName));
         } catch (RuntimeException e) {
