@@ -59,6 +59,14 @@ public final class RunningProbe {
             "steam", "steamwebhelper", "steamservice", "faugus-launcher", "faugus");
 
     /**
+     * The stores a {@link LaunchKind#URL} link opens, by their program: Ubisoft Connect ({@code upc}) and Battle.net.
+     * Apart from {@link #LAUNCHER_EXECUTABLES}, whose names are also looked for anywhere in a command line.
+     */
+    private static final Set<String> STORE_PROGRAMS = Set.of(
+            "upc", "ubisoftconnect", "ubisoftgamelauncher", "uplaywebcore",
+            "battle.net", "battle.net launcher", "battle.net helper");
+
+    /**
      * Launcher UIs are Electron apps, so the process name is often just {@code electron} (or the Flatpak
      * wrapper's) with the real identity only in argv. A process named one of these is excluded when its
      * command line also names one of {@link #LAUNCHER_EXECUTABLES}.
@@ -225,6 +233,16 @@ public final class RunningProbe {
             String commandLine = info.commandLine().orElse(info.command().orElse(""));
             return launcherReason(info, commandLine.toLowerCase(Locale.ROOT)) != null;
         }).orElse(false);
+    }
+
+    /**
+     * Whether a window of {@code windowClass} is a launcher's own UI: its class on Windows is its program
+     * ({@code EpicGamesLauncher.exe}), and under Wine too, where the process ({@link #launcherUi}) is Wine's. Not
+     * under Proton, which gives a store bundled with a Steam game the game's own class.
+     */
+    public static boolean launcherClass(String windowClass) {
+        String program = baseName(windowClass);
+        return program != null && (launcherNamed(program) != null || STORE_PROGRAMS.contains(program));
     }
 
     /**

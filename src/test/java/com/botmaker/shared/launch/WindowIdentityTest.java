@@ -61,6 +61,19 @@ class WindowIdentityTest {
         assertFalse(WindowIdentity.parse("wine|Game - 60 fps").matches(window("Other - 60 fps", "wine")));
     }
 
+    /** A launcher's window by its class alone; a game whose class starts like a launcher's name is none. */
+    @Test
+    void aLaunchersClassIsNoGames() {
+        for (String launcher : new String[]{"steam.exe", "steamwebhelper.exe", "EpicGamesLauncher.exe",
+                "EpicWebHelper.exe", "upc.exe", "Battle.net.exe", "steam", "heroic"}) {
+            assertTrue(RunningProbe.launcherClass(launcher), launcher);
+        }
+        for (String game : new String[]{"steam_app_440", "steam_proton", "SteamWorld.exe", "Balatro.exe",
+                "ApplicationFrameHost.exe", "", null}) {
+            assertFalse(RunningProbe.launcherClass(game), game);
+        }
+    }
+
     @Test
     void theSpecReadsBack() {
         assertEquals(new WindowIdentity("steam_app_0", "Firestone"), WindowIdentity.parse(" steam_app_0|Firestone "));

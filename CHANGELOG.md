@@ -47,6 +47,8 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   matches another Proton game open beside it. A window of a generic class titled blank or with its own class
   (Proton's placeholder before the game names it) names no window (`WindowIdentity.isPlaceholder`), and
   `WindowIdentity.sameGame` compares two picks with their titles' digits left out.
+- `RunningProbe.launcherClass` says whether a window's class is a launcher's own (Steam, Epic, Heroic, Faugus,
+  Ubisoft Connect, Battle.net): its program on Windows, and under Wine, where its process is Wine's (2026-11-25).
 - An emulator app that is a system app (the emulator's own Settings) no longer reads as not installed when a
   run launches it: the readiness check listed only third-party packages.
 
