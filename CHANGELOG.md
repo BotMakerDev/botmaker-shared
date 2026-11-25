@@ -43,6 +43,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- A Proton window's `steam_proton` class is generic (2026-11-25): a pick of it keeps its title, so it no longer
+  matches another Proton game open beside it. A window of a generic class titled blank or with its own class
+  (Proton's placeholder before the game names it) names no window (`WindowIdentity.isPlaceholder`), and
+  `WindowIdentity.sameGame` compares two picks with their titles' digits left out.
 - An emulator app that is a system app (the emulator's own Settings) no longer reads as not installed when a
   run launches it: the readiness check listed only third-party packages.
 
