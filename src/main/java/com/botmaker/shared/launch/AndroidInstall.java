@@ -94,7 +94,8 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
         if (device.problem() != null) return device.problem();
         long installed = device.facts().installedVersion();
         if (installed < 0) return obtainAndInstall(device, progress, Outcome.INSTALLED);
-        Optional<ApkLibrary.Entry> kept = library.newest(pkg()).filter(entry -> entry.newerThan(installed));
+        Optional<ApkLibrary.Entry> kept = library.newest(pkg(), device.facts().abis())
+                .filter(entry -> entry.newerThan(installed));
         if (kept.isPresent()) return install(device, kept.get().file(), progress, Outcome.UPDATED, Source.LIBRARY);
         // Asked before a download: a whole game is gigabytes, too much to learn it is the one installed.
         OptionalLong newest = PlayDownload.newestVersion(pkg(), device.facts().abis(), progress);
@@ -189,7 +190,7 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
             }
             report(progress, pressed.message());
         }
-        Optional<ApkLibrary.Entry> kept = library.newest(pkg());
+        Optional<ApkLibrary.Entry> kept = library.newest(pkg(), device.facts().abis());
         if (kept.isPresent()) return install(device, kept.get().file(), progress, outcome, Source.LIBRARY);
         ApkDownload.Result fromPlay = PlayDownload.fetch(pkg(), device.facts().abis(), library, progress);
         if (Thread.currentThread().isInterrupted()) return stopped();
@@ -265,8 +266,11 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
                 + "it, install it from the file.");
     }
 
+    /** Installs {@code file}, which the library keeps from being deleted meanwhile. */
     private Result install(Device device, Path file, Consumer<String> progress, Outcome outcome, Source source) {
-        return result(EmulatorInstall.fromFile(device.live(), file, progress), outcome, source);
+        try (ApkLibrary.Lease reading = ApkLibrary.installing(file)) {
+            return result(EmulatorInstall.fromFile(device.live(), file, progress), outcome, source);
+        }
     }
 
     /** The install's answer; one that worked ends with where the game came from. */

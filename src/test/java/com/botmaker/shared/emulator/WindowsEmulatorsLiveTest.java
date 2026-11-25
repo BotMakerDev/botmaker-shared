@@ -166,8 +166,8 @@ class WindowsEmulatorsLiveTest {
                     + "; abis " + facts.abis() + (facts.hasPlay() ? "; Play" : "; no Play"));
             ApkLibrary library = LIBRARY.isBlank() ? ApkLibrary.shared() : new ApkLibrary(Path.of(LIBRARY));
             String given = System.getProperty("botmaker.live.apk", "");
-            if (!given.isBlank() && library.newest(pkg).isEmpty()) library.add(Path.of(given));
-            if (APKPURE_FIRST && library.newest(pkg).isEmpty()) {
+            if (!given.isBlank() && library.newest(pkg, facts.abis()).isEmpty()) library.add(Path.of(given));
+            if (APKPURE_FIRST && library.newest(pkg, facts.abis()).isEmpty()) {
                 // APKPure's own way in, the ABI walk included, ahead of Play's files that would otherwise answer first.
                 ApkDownload.Result fetched = ApkDownload.fetch(pkg, facts.abis(), true, library,
                         WindowsEmulatorsLiveTest::say);

@@ -16,6 +16,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **The APK library keeps one file per processor** (2026-11-25): a file is named
+  `<versionCode>_<versionName>_<abi>.<ext>`, the ABI (`CpuAbi`) read from the app's own `lib/` folders; a file with
+  no native code, with several kinds, or kept before today is "any" and serves every device.
+  `newest(package, abis)` takes the newest version the device runs, its own kind first; `KEEP` (2) counts per kind,
+  so an `x86_64` and an `arm64-v8a` copy of one game both stay. `size()` and `Entry.size()` say what it takes.
+  `delete(Entry)` refuses, with a sentence, a file an install reads now (`ApkLibrary.installing`), and a prune
+  leaves it. `newest(package)` is gone. A version name's `_` is written `-`.
 - **An emulator app can start on a page** (2026-11-25): `emu-app:<package>@<instance>#<page>`, where the page is a
   door Android opens by a public intent (`AndroidDoor`: Google's sign-in page, Wi-Fi, Accounts, Date & time) or an
   activity the app exports (`com.android.settings/.wifi.WifiSettings`). It opens with `am start -W` over ADB on
