@@ -66,6 +66,16 @@ class EmulatorInstancesTest {
         assertEquals("Android: (any)", EmulatorInstances.captionFor(null));
     }
 
+    /** A target naming no instance plays on this computer's one instance, and on none when there are several. */
+    @Test
+    void anAppNamingNoInstancePlaysOnTheOnlyOne() {
+        EmulatorInstance ld = new EmulatorInstance(PlatformId.LDPLAYER, "LDPlayer", AdbEndpoint.loopback(5555));
+        EmulatorInstance mumu = new EmulatorInstance(PlatformId.MUMU, "MuMu", AdbEndpoint.loopback(7555));
+        assertEquals(Optional.of(ld), EmulatorInstances.only(List.of(ld)));
+        assertEquals(Optional.empty(), EmulatorInstances.only(List.of(ld, mumu)));
+        assertEquals(Optional.empty(), EmulatorInstances.only(List.of()));
+    }
+
     /** A resolved instance does know its product, so its caption names it. */
     @Test
     void aResolvedInstanceCaptionsWithItsBrand() {

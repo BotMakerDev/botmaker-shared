@@ -14,6 +14,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- **An `emu-app:` target may name no instance** (2026-11-27, run places phase 4b): `LaunchSpec.emulatorPackage()`
+  reads `emu-app:<package>[#<page>]`, `emulatorApp` with a blank instance writes none, and `withoutInstance()` drops
+  it. `EmulatorInstances.forApp(reference)` is the instance named, else this computer's only one; `Launcher`, the
+  readiness, version and install checks use it, so a target naming none launches there. A launch of one that still
+  names none, when this computer has none or several, is refused with what to pick.
+
 ### Added
 
 - **A phone in an instance configuration** (2026-11-26, spec `2026-11-26-phones-in-emulators-design.md`):

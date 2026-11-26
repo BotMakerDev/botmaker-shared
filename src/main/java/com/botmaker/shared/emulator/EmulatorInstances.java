@@ -41,6 +41,22 @@ public final class EmulatorInstances {
         return find(Platforms.discoverAll(), reference);
     }
 
+    /**
+     * The instance an emulator app plays on: the one {@code reference} names, else, when it names none (an
+     * {@code emu-app:} target written since 2026-11-27 names no instance), the one instance this computer has. Empty
+     * when the reference matches nothing, or none is named and this computer has none or several. Scans as
+     * {@link #find} does.
+     */
+    public static Optional<EmulatorInstance> forApp(String reference) {
+        if (reference != null && !reference.isBlank()) return find(reference);
+        return only(Platforms.discoverAll());
+    }
+
+    /** The one of {@code instances}, or empty when there are none or several. */
+    public static Optional<EmulatorInstance> only(List<EmulatorInstance> instances) {
+        return instances.size() == 1 ? Optional.of(instances.getFirst()) : Optional.empty();
+    }
+
     /** The first of {@code instances} whose {@link EmulatorInstance#reference()} is {@code reference}, else whose name is. */
     static Optional<EmulatorInstance> find(List<EmulatorInstance> instances, String reference) {
         if (reference == null || reference.isBlank()) {

@@ -24,8 +24,11 @@ import java.util.Optional;
  *   url:&lt;a launcher's link&gt;
  *   cli:&lt;command line&gt;
  *   exe:&lt;path&gt;
- *   emu-app:&lt;package&gt;@&lt;instanceName&gt;
+ *   emu-app:&lt;package&gt;[@&lt;instanceName&gt;][#&lt;page&gt;]
  * </pre>
+ *
+ * <p>An emulator app names no instance since 2026-11-27: the run plays where it was placed. The {@code @<instance>}
+ * an older bot wrote is still read, and a run's own launch spells it ({@link #onInstance}).
  *
  * <p>Parsing is <b>total</b> — the spec is user-editable text in a properties file, so a missing colon, an
  * empty token or an unknown kind yields {@code null} or a {@link LaunchKind#UNKNOWN} spec rather than an
@@ -112,16 +115,27 @@ public record LaunchSpec(LaunchKind kind, String token) {
         return fileNameOf(kind == LaunchKind.CLI ? firstWord() : token);
     }
 
-    /** The {@code <package>} half of an {@code emu-app:} token, or {@code null} for any other kind. */
+    /**
+     * The {@code <package>} of an {@code emu-app:} token, whether or not it names an instance; {@code null} for any
+     * other kind or a token with no package.
+     */
     public String emulatorPackage() {
+        if (kind != LaunchKind.EMULATOR_APP) return null;
+        String target = emulatorTarget();
         int at = emulatorSplit();
-        return at < 0 ? null : token.substring(0, at).trim();
+        String pkg = (at >= 0 ? target.substring(0, at) : target.endsWith("@") ? target.substring(0, target.length() - 1)
+                : target).trim();
+        return pkg.isEmpty() || pkg.startsWith("@") ? null : pkg;
     }
 
-    /** The {@code <instance>} half of an {@code emu-app:} token, or {@code null} for any other kind. */
+    /**
+     * The {@code <instance>} of an {@code emu-app:} token, or {@code null} when it names none (what is written since
+     * 2026-11-27) or is another kind.
+     */
     public String emulatorInstance() {
         int at = emulatorSplit();
-        return at < 0 ? null : emulatorTarget().substring(at + 1).trim();
+        String instance = at < 0 ? "" : emulatorTarget().substring(at + 1).trim();
+        return instance.isEmpty() ? null : instance;
     }
 
     /**
@@ -249,19 +263,27 @@ public record LaunchSpec(LaunchKind kind, String token) {
     }
 
     /**
-     * The spec of {@code packageName} on {@code instance}, starting on {@code page} ({@link #emulatorPage()}) unless
-     * it is blank.
+     * The spec of {@code packageName} on {@code instance}, or naming none when it is {@code null} or blank, starting
+     * on {@code page} ({@link #emulatorPage()}) unless it is blank.
      */
     public static LaunchSpec emulatorApp(String packageName, String instance, String page) {
-        String target = packageName.strip() + "@" + instance.strip();
+        String target = packageName.strip() + (instance == null || instance.isBlank() ? "" : "@" + instance.strip());
         return new LaunchSpec(LaunchKind.EMULATOR_APP, page == null || page.isBlank() ? target
                 : target + "#" + page.strip());
     }
 
-    /** This emulator app's spec on {@code instance}, its page kept; this spec as it is for any other kind. */
+    /**
+     * This emulator app's spec on {@code instance} (naming none when it is blank), its page kept; this spec as it is
+     * for any other kind.
+     */
     public LaunchSpec onInstance(String instance) {
         String pkg = emulatorPackage();
         return pkg == null ? this : emulatorApp(pkg, instance, emulatorPage());
+    }
+
+    /** This emulator app's spec naming no instance, as a bot writes it; this spec as it is for any other kind. */
+    public LaunchSpec withoutInstance() {
+        return onInstance(null);
     }
 
     /** The token without its {@code #<page>}. */

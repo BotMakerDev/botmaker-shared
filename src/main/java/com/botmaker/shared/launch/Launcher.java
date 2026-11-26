@@ -4,9 +4,12 @@
 package com.botmaker.shared.launch;
 
 import com.botmaker.shared.Diag;
+import com.botmaker.shared.emulator.EmulatorInstances;
+import com.botmaker.shared.emulator.Platforms;
 import com.botmaker.shared.game.LutrisLibraryScanner;
 import com.botmaker.shared.platform.Os;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -72,8 +75,9 @@ public final class Launcher {
                 // Thrown, not logged: this kind used to be the one that could fail in four different ways and
                 // still report success, because it had no way to say otherwise. Every other kind here already
                 // propagates, and the callers are already written to show it.
+                LaunchSpec on = launchable(spec);
                 EmulatorAppLauncher.Outcome outcome =
-                        EmulatorAppLauncher.start(spec.emulatorPackage(), spec.emulatorInstance(), spec.emulatorPage(),
+                        EmulatorAppLauncher.start(on.emulatorPackage(), on.emulatorInstance(), on.emulatorPage(),
                                 progress);
                 if (!outcome.ok()) {
                     throw new RuntimeException(outcome.message());
@@ -139,8 +143,9 @@ public final class Launcher {
                 start(spec);
             }
             case EMULATOR_APP -> {
+                LaunchSpec on = launchable(spec);
                 EmulatorAppLauncher.Outcome outcome =
-                        EmulatorAppLauncher.restart(spec.emulatorPackage(), spec.emulatorInstance(), spec.emulatorPage());
+                        EmulatorAppLauncher.restart(on.emulatorPackage(), on.emulatorInstance(), on.emulatorPage());
                 if (!outcome.ok()) {
                     throw new RuntimeException(outcome.message());
                 }
@@ -166,7 +171,8 @@ public final class Launcher {
                 return false;
             }
             case EMULATOR_APP -> {
-                return EmulatorAppLauncher.stop(spec.emulatorPackage(), spec.emulatorInstance(), spec.emulatorPage());
+                LaunchSpec on = placed(spec);
+                return EmulatorAppLauncher.stop(on.emulatorPackage(), on.emulatorInstance(), on.emulatorPage());
             }
             default -> {
                 return false;
@@ -215,7 +221,8 @@ public final class Launcher {
             return true;
         }
         if (spec.kind() == LaunchKind.EMULATOR_APP) {
-            return EmulatorAppLauncher.isRunning(spec.emulatorPackage(), spec.emulatorInstance());
+            LaunchSpec on = placed(spec);
+            return EmulatorAppLauncher.isRunning(on.emulatorPackage(), on.emulatorInstance());
         }
         if (RunningProbe.spawnedAlive(spec.spec())) {
             Diag.log("[Target] " + spec.spec() + ": the process we launched is still alive");
@@ -240,6 +247,27 @@ public final class Launcher {
             case GameWindows.None none -> { }
         }
         return false;
+    }
+
+    /**
+     * {@code spec} on the instance its emulator app plays on: as it is when it names one, else on this computer's one
+     * instance, from a scan at most half a minute old (running checks are polled); a run names its own before it
+     * launches. Any other kind as it is, and an app naming none when this computer has none or several.
+     */
+    static LaunchSpec placed(LaunchSpec spec) {
+        if (spec.kind() != LaunchKind.EMULATOR_APP || spec.emulatorInstance() != null) return spec;
+        return EmulatorInstances.only(Platforms.recent(Duration.ofSeconds(30)))
+                .map(instance -> spec.onInstance(instance.reference())).orElse(spec);
+    }
+
+    /** {@link #placed}, refused with what to do when it still names no instance: a launch needs one. */
+    static LaunchSpec launchable(LaunchSpec spec) {
+        LaunchSpec on = placed(spec);
+        if (on.kind() == LaunchKind.EMULATOR_APP && on.emulatorInstance() == null) {
+            throw new RuntimeException(on.emulatorPackage() + " names no emulator or phone, and this computer has none "
+                    + "or several: pick where it plays (the Place pill, or the game again in 🎮 Game).");
+        }
+        return on;
     }
 
     /**

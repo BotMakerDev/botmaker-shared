@@ -120,7 +120,7 @@ public final class GameVersion {
     }
 
     private static String android(LaunchSpec spec) {
-        Optional<EmulatorInstance> instance = EmulatorInstances.find(spec.emulatorInstance());
+        Optional<EmulatorInstance> instance = EmulatorInstances.forApp(spec.emulatorInstance());
         if (instance.isEmpty() || !EmulatorReadiness.isReady(instance.get())) return null;
         String pkg = spec.emulatorPackage() == null ? "" : spec.emulatorPackage().replaceAll("[^A-Za-z0-9._]", "");
         if (pkg.isEmpty()) return null;

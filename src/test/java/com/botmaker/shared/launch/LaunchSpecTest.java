@@ -106,6 +106,24 @@ class LaunchSpecTest {
         assertEquals("steam:570", LaunchSpec.parse("steam:570").onInstance("LDPlayer-3").spec());
     }
 
+    @Test
+    void anEmulatorAppNamesNoInstanceAndARunPutsItsOwnOn() {
+        LaunchSpec bare = LaunchSpec.parse("emu-app:com.foo#wifi");
+        assertEquals("com.foo", bare.emulatorPackage());
+        assertNull(bare.emulatorInstance());
+        assertEquals("wifi", bare.emulatorPage());
+        assertEquals("com.foo", LaunchSpec.parse("emu-app:com.foo@").emulatorPackage());
+        assertNull(LaunchSpec.parse("emu-app:com.foo@ ").emulatorInstance(), "a blank name names no instance");
+        assertNull(LaunchSpec.parse("emu-app:@Waydroid").emulatorPackage());
+        assertNull(LaunchSpec.parse("steam:570").emulatorPackage());
+
+        assertEquals("emu-app:com.foo", LaunchSpec.emulatorApp("com.foo", " ", null).spec());
+        assertEquals("emu-app:com.foo@LDPlayer-3#wifi", bare.onInstance("LDPlayer-3").spec());
+        assertEquals("emu-app:com.foo#wifi",
+                LaunchSpec.parse("emu-app:com.foo@LDPlayer-1#wifi").withoutInstance().spec());
+        assertEquals("steam:570", LaunchSpec.parse("steam:570").withoutInstance().spec());
+    }
+
     /**
      * Every emulator app is read and pressed over ADB, Waydroid included (2026-11-09): its session runs under a
      * headless gamescope, never on a display of ours.

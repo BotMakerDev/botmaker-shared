@@ -287,10 +287,11 @@ public record AndroidInstall(LaunchSpec spec, boolean apkPureAcknowledged, ApkLi
     private record Device(EmulatorInstance live, EmulatorInstall.DeviceFacts facts, Result problem) {}
 
     private Device device(Consumer<String> progress) {
-        Optional<EmulatorInstance> instance = EmulatorInstances.find(spec.emulatorInstance());
+        Optional<EmulatorInstance> instance = EmulatorInstances.forApp(spec.emulatorInstance());
         if (instance.isEmpty()) {
-            return new Device(null, null, new Result(Outcome.FAILED, "No emulator or phone named \""
-                    + spec.emulatorInstance() + "\" is on this computer."));
+            return new Device(null, null, new Result(Outcome.FAILED, spec.emulatorInstance() == null
+                    ? "Pick the emulator or phone to install it on: this computer has none, or several."
+                    : "No emulator or phone named \"" + spec.emulatorInstance() + "\" is on this computer."));
         }
         EmulatorInstall.DeviceFacts facts = EmulatorInstall.facts(instance.get(), pkg(), progress);
         if (!facts.ok()) return new Device(null, facts, new Result(Outcome.FAILED, facts.problem()));

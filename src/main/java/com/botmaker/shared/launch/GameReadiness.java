@@ -198,7 +198,7 @@ public record GameReadiness(State state, String reason) {
      * there, and a missing app must not block a run.
      */
     private static GameReadiness emulatorApp(LaunchSpec spec) {
-        Optional<EmulatorInstance> instance = EmulatorInstances.find(spec.emulatorInstance());
+        Optional<EmulatorInstance> instance = EmulatorInstances.forApp(spec.emulatorInstance());
         if (instance.isEmpty()) return unknown();
         if (EmulatorReadiness.isReady(instance.get())) {
             try (AdbDevice device = AdbDevice.connect(instance.get().adb())) {
