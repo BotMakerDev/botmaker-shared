@@ -16,6 +16,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **A phone in an instance configuration** (2026-11-26, spec `2026-11-26-phones-in-emulators-design.md`):
+  `EmulatorConfig.wanted` gives a `PHYSICAL` key no setting, whatever its layers name, so its diff holds accounts and
+  games only. `ApplyHost.live()` never starts or stops a phone: `start` answers "Connect <name> first: BotMaker
+  doesn't start a phone." and `stop` "BotMaker doesn't stop a phone.", so an Apply or a sign-in on a phone not
+  connected fails that item and goes on.
 - **`capture.WindowPointer`, the user points at a window** (2026-11-26, spec `2026-11-26-point-at-window-design.md`):
   `current()` picks the backend: `linux.KWinPointer` when `org.kde.KWin` owns its session bus name, which runs
   KWin's `queryWindowInfo` through `gdbus` and so shows KWin's crosshair; else `linux.X11Pointer` on an X11 desktop,

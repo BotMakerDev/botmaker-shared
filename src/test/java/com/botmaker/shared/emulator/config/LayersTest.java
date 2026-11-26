@@ -97,6 +97,20 @@ class LayersTest {
     }
 
     @Test
+    void aPhoneTakesNoSettingButItsAccounts() {
+        InstanceKey pixel = new InstanceKey(PlatformId.PHYSICAL, "4A1B2C3D");
+        EmulatorConfig config = EmulatorConfig.EMPTY
+                .withEmulator(PlatformId.PHYSICAL, Layer.EMPTY.with(ConfigField.SCREEN, PORTRAIT))
+                .withInstance(pixel, Layer.EMPTY.with(ConfigField.MEMORY, new ConfigValue.Megabytes(4096))
+                        .withAccount(PC));
+
+        Wanted wanted = config.wanted(pixel);
+
+        assertTrue(wanted.fields().isEmpty());
+        assertEquals(List.of(PC), wanted.accounts().stream().map(Sourced::value).toList());
+    }
+
+    @Test
     void accountKeysIgnoreCase() {
         Layer layer = Layer.EMPTY.withAccount(PC)
                 .withAccount(new AccountRecord(AccountRecord.Kind.GOOGLE, "PC@Example.com", "note"));

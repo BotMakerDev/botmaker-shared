@@ -10,6 +10,7 @@ import com.botmaker.shared.emulator.EmulatorLauncher;
 import com.botmaker.shared.emulator.EmulatorLiveness;
 import com.botmaker.shared.emulator.EmulatorReadiness;
 import com.botmaker.shared.emulator.EmulatorState;
+import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.checks.SettingsFiles;
 import com.botmaker.shared.emulator.checks.WindowsBackups;
 import com.botmaker.shared.emulator.checks.WindowsFixes;
@@ -74,11 +75,16 @@ public interface ApplyHost {
 
         @Override
         public String stop(EmulatorInstance instance) throws InterruptedException {
+            if (instance.platformId() == PlatformId.PHYSICAL) return "BotMaker doesn't stop a phone.";
             return WindowsFixes.stopToChange(instance);
         }
 
+        /** A phone is started by its owner: Apply on one not connected fails that item with this line. */
         @Override
         public String start(EmulatorInstance instance, Operation.Context context) throws InterruptedException {
+            if (instance.platformId() == PlatformId.PHYSICAL) {
+                return "Connect " + instance.name() + " first: BotMaker doesn't start a phone.";
+            }
             MemoryBudget budget = MemoryBudget.live();
             MemoryBudget.Hold room;
             try {

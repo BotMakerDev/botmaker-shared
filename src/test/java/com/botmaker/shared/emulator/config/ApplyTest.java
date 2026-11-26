@@ -3,6 +3,7 @@
 
 package com.botmaker.shared.emulator.config;
 
+import com.botmaker.shared.emulator.AdbEndpoint;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.QuietRun;
@@ -264,6 +265,15 @@ class ApplyTest {
             call("read");
             return last;
         }
+    }
+
+    @Test
+    void thisPcNeverStartsOrStopsAPhone() throws Exception {
+        EmulatorInstance pixel = new EmulatorInstance(PlatformId.PHYSICAL, "Pixel 10",
+                new AdbEndpoint.Server("4A1B2C3D"));
+        assertEquals("Connect Pixel 10 first: BotMaker doesn't start a phone.",
+                ApplyHost.live().start(pixel, new Steps()));
+        assertEquals("BotMaker doesn't stop a phone.", ApplyHost.live().stop(pixel));
     }
 
     private static final class Steps implements Operation.Context {

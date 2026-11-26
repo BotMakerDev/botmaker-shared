@@ -101,19 +101,23 @@ public record EmulatorConfig(Map<PlatformId, Layer> emulators, Map<InstanceKey, 
         return new EmulatorConfig(emulators, next);
     }
 
-    /** What the instance should be: its emulator's layer, then its own over it. */
+    /**
+     * What the instance should be: its emulator's layer, then its own over it. A phone takes no setting, whatever a
+     * layer names: BotMaker configures no phone, it only signs accounts in and installs games on one.
+     */
     public Wanted wanted(InstanceKey key) {
         Layer base = emulator(key.platform());
         Layer own = instance(key);
+        boolean settings = key.platform() != PlatformId.PHYSICAL;
 
         Map<ConfigField, Sourced<ConfigValue>> fields = new EnumMap<>(ConfigField.class);
         base.fields().forEach((field, value) -> {
-            if (!field.emulatorOnly()) {
+            if (settings && !field.emulatorOnly()) {
                 fields.put(field, new Sourced<>(value, Sourced.Source.EMULATOR));
             }
         });
         own.fields().forEach((field, value) -> {
-            if (!field.emulatorOnly()) {
+            if (settings && !field.emulatorOnly()) {
                 fields.put(field, new Sourced<>(value, Sourced.Source.INSTANCE));
             }
         });
