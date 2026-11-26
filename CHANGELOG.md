@@ -16,6 +16,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`launch.GameMarker`, what a launched game's process carries to name its game** (2026-11-26): `of(LaunchSpec)`
+  gives Steam's `SteamAppId=<appid>`, Faugus's `FAUGUSID=<game id>` or Lutris's `GAME_NAME=<name>`, and `marks(pid)`
+  reads it from `/proc/<pid>/environ` (Linux only). `windowClass(LaunchSpec)` names the window class Proton gives a
+  Steam game or, from Faugus's `games.json`, umu's id of a Faugus one (`steam_app_faugus<crc32>` by default). Its
+  `key()` is a `GameMarker.Key`. `GameMarker.launch()` is one launch's own `BOTMAKER_LAUNCH=<id>`, which `during(…)`
+  sets on every child `Spawn.detached` starts on that thread (`Spawn.withEnvironment`).
 - **The APK library keeps one file per processor** (2026-11-25): a file is named
   `<versionCode>_<versionName>_<abi>.<ext>`, the ABI (`CpuAbi`) read from the app's own `lib/` folders; a file with
   no native code, with several kinds, or kept before today is "any" and serves every device.

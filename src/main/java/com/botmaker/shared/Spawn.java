@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * The two safe ways to start a child process, because the unsafe one is invisible.
@@ -35,6 +36,8 @@ public final class Spawn {
 
     /** How long to let the drain finish after the child is already gone; EOF is imminent by then. */
     private static final long DRAIN_GRACE_MS = 2_000;
+    /** What {@link #withEnvironment} adds to a detached child's environment on this thread. */
+    private static final ThreadLocal<Map<String, String>> EXTRA = ThreadLocal.withInitial(Map::of);
 
     private Spawn() {}
 
@@ -52,10 +55,25 @@ public final class Spawn {
      * (a game, a store launcher, an emulator) where the handle — not the output — is the point.
      */
     public static Process detached(List<String> command) throws IOException {
-        return new ProcessBuilder(command)
+        ProcessBuilder builder = new ProcessBuilder(command)
                 .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                .redirectError(ProcessBuilder.Redirect.DISCARD)
-                .start();
+                .redirectError(ProcessBuilder.Redirect.DISCARD);
+        builder.environment().putAll(EXTRA.get());
+        return builder.start();
+    }
+
+    /**
+     * {@code start}'s answer, each child it starts {@linkplain #detached detached} on this thread getting {@code env}
+     * on top of ours: a launch's own marker, which its game inherits (2026-11-26).
+     */
+    public static <T> T withEnvironment(Map<String, String> env, Supplier<T> start) {
+        Map<String, String> was = EXTRA.get();
+        EXTRA.set(Map.copyOf(env));
+        try {
+            return start.get();
+        } finally {
+            EXTRA.set(was);
+        }
     }
 
     /** @see #detached(List) */

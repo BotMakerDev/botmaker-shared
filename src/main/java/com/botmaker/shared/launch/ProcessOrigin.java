@@ -186,7 +186,7 @@ public final class ProcessOrigin {
     }
 
     /** {@code /proc/<pid>/environ} split on its NUL separators, or empty when it can't be read. */
-    private static String[] environOf(long pid) {
+    static String[] environOf(long pid) {
         String raw = readProc(pid, "environ");
         return raw.isEmpty() ? new String[0] : raw.split("\0");
     }
