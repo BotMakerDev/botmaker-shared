@@ -7,6 +7,7 @@ import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.win32.W32APIOptions;
 import com.sun.jna.platform.win32.WinDef.*;
+import com.sun.jna.platform.win32.WinUser;
 import com.sun.jna.win32.StdCallLibrary;
 
 public interface User32 extends StdCallLibrary {
@@ -171,4 +172,37 @@ public interface User32 extends StdCallLibrary {
     int WM_CHAR    = 0x0102;
     int WM_SYSKEYDOWN = 0x0104;
     int WM_SYSKEYUP   = 0x0105;
+
+    /* ---------  low-level hooks (the window pointer)  --------- */
+
+    int WH_KEYBOARD_LL = 13;
+    int WH_MOUSE_LL    = 14;
+    int PM_REMOVE      = 1;
+    int VK_ESCAPE      = 0x1B;
+
+    WinUser.HHOOK SetWindowsHookEx(int idHook, WinUser.HOOKPROC lpfn, HINSTANCE hMod, int dwThreadId);
+    LRESULT CallNextHookEx(WinUser.HHOOK hhk, int nCode, WPARAM wParam, LPARAM lParam);
+    boolean UnhookWindowsHookEx(WinUser.HHOOK hhk);
+    /** A low-level hook's procedure runs while its thread retrieves messages; this is how it does without blocking. */
+    boolean PeekMessage(WinUser.MSG lpMsg, HWND hWnd, int wMsgFilterMin, int wMsgFilterMax, int wRemoveMsg);
+    /** Waits for input to the thread, or {@code dwMilliseconds}; a low-level hook's call wakes it. */
+    int MsgWaitForMultipleObjects(int nCount, Pointer pHandles, boolean fWaitAll, int dwMilliseconds, int dwWakeMask);
+    int QS_ALLINPUT    = 0x04FF;
+    /** The window class's name, such as {@code Progman}; the count of characters copied. */
+    int GetClassName(HWND hWnd, char[] lpClassName, int nMaxCount);
+    boolean DestroyCursor(Pointer hCursor);
+
+    /* ---------  the system cursor (the window pointer's crosshair)  --------- */
+
+    int IDC_CROSS      = 32515;
+    int OCR_NORMAL     = 32512;
+    /** {@code SystemParametersInfo} action that reloads every system cursor from the user's settings. */
+    int SPI_SETCURSORS = 0x0057;
+
+    /** {@code name} is {@code MAKEINTRESOURCE(id)}: a pointer whose value is the id. */
+    Pointer LoadCursor(HINSTANCE hInstance, Pointer name);
+    Pointer CopyIcon(Pointer hIcon);
+    /** Takes ownership of {@code hcur}, so it is given a copy. */
+    boolean SetSystemCursor(Pointer hcur, int id);
+    boolean SystemParametersInfo(int uiAction, int uiParam, Pointer pvParam, int fWinIni);
 }

@@ -1,0 +1,14 @@
+[
+  {"kCGWindowNumber": 31, "kCGWindowOwnerPID": 412, "kCGWindowOwnerName": "Window Server", "kCGWindowName": "Menubar",
+   "kCGWindowLayer": 25, "kCGWindowAlpha": 1, "kCGWindowBounds": {"X": 0, "Y": 0, "Width": 1512, "Height": 24}},
+  {"kCGWindowNumber": 57, "kCGWindowOwnerPID": 530, "kCGWindowOwnerName": "Dock", "kCGWindowName": "Dock",
+   "kCGWindowLayer": 20, "kCGWindowAlpha": 1, "kCGWindowBounds": {"X": 0, "Y": 850, "Width": 1512, "Height": 132}},
+  {"kCGWindowNumber": 88, "kCGWindowOwnerPID": 1201, "kCGWindowOwnerName": "BotMaker Studio", "kCGWindowName": "",
+   "kCGWindowLayer": 0, "kCGWindowAlpha": 0, "kCGWindowBounds": {"X": 100, "Y": 100, "Width": 900, "Height": 700}},
+  {"kCGWindowNumber": 92, "kCGWindowOwnerPID": 1201, "kCGWindowOwnerName": "BotMaker Studio", "kCGWindowName": "",
+   "kCGWindowLayer": 0, "kCGWindowAlpha": 1, "kCGWindowBounds": {"X": 600, "Y": 500, "Width": 1, "Height": 1}},
+  {"kCGWindowNumber": 140, "kCGWindowOwnerPID": 2333, "kCGWindowOwnerName": "Balatro", "kCGWindowName": "Balatro",
+   "kCGWindowLayer": 0, "kCGWindowAlpha": 1, "kCGWindowBounds": {"X": 200, "Y": 150, "Width": 1280, "Height": 720}},
+  {"kCGWindowNumber": 141, "kCGWindowOwnerPID": 2290, "kCGWindowOwnerName": "Steam", "kCGWindowName": "Steam",
+   "kCGWindowLayer": 0, "kCGWindowAlpha": 1, "kCGWindowBounds": {"X": 0, "Y": 24, "Width": 1200, "Height": 800}}
+]

@@ -10,9 +10,9 @@ import com.sun.jna.Pointer;
 
 /**
  * The CoreFoundation run loop an event tap delivers on, which jna-platform's {@code CoreFoundation} does not
- * bind. A C {@code Boolean} argument is {@code byte}.
+ * bind. A C {@code Boolean} argument is {@code byte}. Public for {@code capture.mac.MacPointer}'s tap.
  */
-interface RunLoops extends Library {
+public interface RunLoops extends Library {
 
     RunLoops INSTANCE = Native.load("CoreFoundation", RunLoops.class);
 

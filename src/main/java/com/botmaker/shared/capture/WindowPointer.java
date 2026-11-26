@@ -17,7 +17,8 @@ import java.util.Objects;
  * The user points at a window and BotMaker learns which one it is (spec
  * {@code 2026-11-26-point-at-window-design.md}): the system is asked which window was clicked, so the stacking is
  * the system's, native Wayland windows included. KDE asks KWin ({@link KWinPointer}), X11 grabs the pointer
- * ({@link X11Pointer}); elsewhere {@link #available()} is false.
+ * ({@link X11Pointer}), Windows hooks the mouse ({@code windows.WindowsPointer}), macOS taps its events
+ * ({@code mac.MacPointer}); on any other Linux desktop {@link #available()} is false.
  *
  * <p>The clicked window is resolved to one of {@link NativeController#getAllWindows()}, the windows BotMaker can
  * capture, so a pick is always something a run can read. The click never reaches the window clicked.
@@ -26,7 +27,10 @@ import java.util.Objects;
  */
 public interface WindowPointer {
 
-    /** False on a desktop this pointer cannot serve (GNOME Wayland, a Wayland session without KWin, no display). */
+    /**
+     * False on a Linux desktop no pointer serves (GNOME Wayland, a Wayland session without KWin, no display); true
+     * on Windows and macOS, where a missing permission is the pick's {@link Pointed.Unreadable} instead.
+     */
     boolean available();
 
     /**

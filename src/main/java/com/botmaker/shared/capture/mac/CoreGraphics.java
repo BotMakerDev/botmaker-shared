@@ -201,6 +201,8 @@ public interface CoreGraphics extends Library {
     int kCGHeadInsertEventTap = 0;
     /** Observes only: the tap can neither change nor swallow an event. */
     int kCGEventTapOptionListenOnly = 1;
+    /** An active tap: answering null swallows the event. Needs Accessibility. */
+    int kCGEventTapOptionDefault = 0;
     /** Pseudo-events a tap gets when macOS turned it off; it is turned back on. */
     int kCGEventTapDisabledByTimeout = 0xFFFFFFFE;
     int kCGEventTapDisabledByUserInput = 0xFFFFFFFF;

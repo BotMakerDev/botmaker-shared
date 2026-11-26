@@ -24,6 +24,11 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   since its crosshair outlives a caller that gives up) or `Unreadable(why)`. The X11 wheel is not a click. `resolve`
   matches the clicked window to one of `getAllWindows()`, by handle, then class (any case), then caption, then
   geometry; a native Wayland window matches none. The click never reaches the window clicked.
+- **Pointing on Windows and macOS** (2026-11-26): `windows.WindowsPointer` hooks the mouse and keyboard
+  (`WH_MOUSE_LL`, `WH_KEYBOARD_LL`) with the crosshair as the system cursor, and takes `WindowFromPoint`'s top-level
+  window; `mac.MacPointer` runs an active event tap (needs Accessibility, refused with its reason without it) and takes
+  the front-most visible window under the click, nothing when that is the menu bar or the Dock. Both match by native
+  handle; `PointClick` decides each hooked event. Unit tests only: neither was tried on a machine yet.
 - **`launch.GameMarker`, what a launched game's process carries to name its game** (2026-11-26): `of(LaunchSpec)`
   gives Steam's `SteamAppId=<appid>`, Faugus's `FAUGUSID=<game id>` or Lutris's `GAME_NAME=<name>`, and `marks(pid)`
   reads it from `/proc/<pid>/environ` (Linux only). `windowClass(LaunchSpec)` names the window class Proton gives a

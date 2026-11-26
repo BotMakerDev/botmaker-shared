@@ -33,6 +33,10 @@ Package map:
 - `capture/` — the cross-platform surface: `NativeController`, `NativeControllerFactory`, `GenericWindow`,
   plus full-desktop capture (`ScreenCapture`, `CaptureBackend`, `RobotCapture`, `ToolCapture`), and
   `IgnoredClickWatch`, which both background paths (Windows, macOS) run their first clicks through.
+  `WindowPointer` lets the user point at a window (`current()` picks the backend by desktop: `linux.KWinPointer`,
+  `linux.X11Pointer`, `windows.WindowsPointer`, `mac.MacPointer`) and resolves the click to one of
+  `getAllWindows()`; Windows and Mac decide each hooked event with `PointClick`. Only KWin and X11 were tried
+  live; Windows' and Mac's pointers have unit tests of their pure parts only, and their live check is owed.
 - `capture/windows/` — JNA Windows backend: `User32`/`GDI32`/`Dwmapi` bindings, `WindowsController`,
   `WindowFinder`, `WindowInfo`. Input: `PostedInput` (background messages, encoded by `WindowMessages`),
   `SendInputs` (take-over). Capture: `WindowCapture` (the ladder), `WindowFrames`, and

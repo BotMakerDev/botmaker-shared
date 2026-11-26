@@ -44,6 +44,11 @@ final class MacWindows {
         return copy(option, CoreGraphics.kCGNullWindowID).stream().filter(MacWindow::isOrdinary).toList();
     }
 
+    /** Every on-screen window, front to back, menus, panels and helpers included: what a click hit-tests against. */
+    static List<MacWindow> onScreenAll() {
+        return copy(CoreGraphics.kCGWindowListOptionOnScreenOnly, CoreGraphics.kCGNullWindowID);
+    }
+
     /** The window with this id, if it still exists; asks for that one window, not the whole list. */
     static Optional<MacWindow> byId(long id) {
         return copy(CoreGraphics.kCGWindowListOptionIncludingWindow, (int) id).stream()
