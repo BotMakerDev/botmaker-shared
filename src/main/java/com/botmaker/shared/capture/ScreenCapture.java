@@ -75,12 +75,37 @@ public class ScreenCapture {
      * path); returns {@code null} if the desktop grab failed.
      */
     public static BufferedImage captureMonitor(int index) {
+        return captureRegion(monitorBounds(index));
+    }
+
+    /**
+     * A rectangle of the desktop, in device pixels of the virtual desktop, cropped from the full-desktop grab: the
+     * same backend as {@link #captureDesktop()}, so on Wayland a screenshot program and never the Robot, whose grabs
+     * ask the screen-cast portal each time. {@code null} if the desktop grab failed.
+     */
+    public static BufferedImage captureRegion(Rectangle region) {
         BufferedImage desktop = captureDesktop();
-        if (desktop == null) {
-            return null;
-        }
-        Rectangle b = monitorBounds(index);
-        Rectangle v = getVirtualScreenBounds();
+        return desktop == null ? null : crop(desktop, region);
+    }
+
+    /**
+     * {@code region} of {@code desktop}, a full-desktop grab, in device pixels of the virtual desktop, clamped to the
+     * grab: the one desktop crop, for a caller that already holds a grab.
+     */
+    public static BufferedImage crop(BufferedImage desktop, Rectangle region) {
+        return crop(desktop, region, getVirtualScreenBounds());
+    }
+
+    /**
+     * Whether an AWT Robot may read the screen here: not where the desktop grab goes through a screenshot program
+     * (Wayland), since the Robot's own grab would ask the screen-cast portal.
+     */
+    public static boolean robotReadsScreen() {
+        return CaptureBackend.select() instanceof RobotCapture;
+    }
+
+    /** {@code b} of {@code desktop}, a grab of the virtual desktop {@code v}, clamped to the grab. */
+    static BufferedImage crop(BufferedImage desktop, Rectangle b, Rectangle v) {
         int x = clamp(b.x - v.x, 0, desktop.getWidth() - 1);
         int y = clamp(b.y - v.y, 0, desktop.getHeight() - 1);
         int w = clamp(b.width, 1, desktop.getWidth() - x);

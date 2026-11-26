@@ -11,7 +11,10 @@ Full-desktop capture is **not** on that interface but does live in this module, 
 under Wayland the first installed `ToolCapture` program — Spectacle, grim, gnome-screenshot — chosen by
 `CaptureBackend.select()`; the SDK's plugin kept its own grim/gnome-screenshot list until 2026-09-28, and a
 GNOME user got a working grab from one path and a black one from the other); `getVirtualScreenBounds()` is the one
-AWT all-monitor union. It used to live in the SDK under the rule "full-desktop capture belongs to each
+AWT all-monitor union. A `ToolCapture` grab never falls back to the Robot (2026-11-26): on Wayland the Robot reads
+through the screen-cast portal, which asks on every grab. Grabs go one at a time, since Spectacle hands a concurrent
+one to the running instance and writes nothing, and one that wrote nothing is tried once more, then `null`. A region
+is `captureRegion`, cropped from that grab; a caller holding its own Robot asks `robotReadsScreen()` first. It used to live in the SDK under the rule "full-desktop capture belongs to each
 consumer", which was wrong on its own terms: the platform knowledge is identical to per-window capture's, and
 Studio's picker wants the same grab. Adding a GNOME/sway portal+PipeWire path means one new `CaptureBackend`
 wired into `select()`, with no caller changes.

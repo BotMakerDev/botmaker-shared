@@ -62,6 +62,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- A Wayland desktop grab never asks the screen-cast portal (2026-11-26): `ToolCapture` no longer falls back to the
+  AWT Robot, whose grab on Wayland goes through the portal and asked on every grab, its "don't ask again" kept
+  nowhere. Spectacle is one instance per session and hands a grab started while another runs to that one, writing
+  nothing, so grabs go one at a time and one that wrote nothing is tried once more; then the grab is `null`. New
+  `ScreenCapture.captureRegion` crops the desktop grab (`captureMonitor` now uses it) and `robotReadsScreen` says
+  whether a caller's own Robot may read pixels here.
 - A Proton window's `steam_proton` class is generic (2026-11-25): a pick of it keeps its title, so it no longer
   matches another Proton game open beside it. A window of a generic class titled blank or with its own class
   (Proton's placeholder before the game names it) names no window (`WindowIdentity.isPlaceholder`), and
