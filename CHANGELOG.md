@@ -16,6 +16,14 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Added
 
+- **`capture.WindowPointer`, the user points at a window** (2026-11-26, spec `2026-11-26-point-at-window-design.md`):
+  `current()` picks the backend: `linux.KWinPointer` when `org.kde.KWin` owns its session bus name, which runs
+  KWin's `queryWindowInfo` through `gdbus` and so shows KWin's crosshair; else `linux.X11Pointer` on an X11 desktop,
+  which grabs the pointer with a crosshair cursor and the keyboard for Esc. Elsewhere `available()` is false.
+  `point(timeout)` answers `Pointed.Window`, `Cancelled` (Esc, the timeout; KWin's pick waits for KWin's own answer,
+  since its crosshair outlives a caller that gives up) or `Unreadable(why)`. The X11 wheel is not a click. `resolve`
+  matches the clicked window to one of `getAllWindows()`, by handle, then class (any case), then caption, then
+  geometry; a native Wayland window matches none. The click never reaches the window clicked.
 - **`launch.GameMarker`, what a launched game's process carries to name its game** (2026-11-26): `of(LaunchSpec)`
   gives Steam's `SteamAppId=<appid>`, Faugus's `FAUGUSID=<game id>` or Lutris's `GAME_NAME=<name>`, and `marks(pid)`
   reads it from `/proc/<pid>/environ` (Linux only). `windowClass(LaunchSpec)` names the window class Proton gives a

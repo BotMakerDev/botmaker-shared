@@ -106,6 +106,31 @@ public interface X11 extends Library {
      */
     int XFreeCursor(Pointer display, Pointer cursor);
 
+    /** {@code XC_crosshair} from {@code cursorfont.h}: the cursor shown while the user points at a window. */
+    int XC_crosshair = 34;
+
+    // Grabs (X.h): the async mode lets events flow; GrabSuccess is a grab that took.
+    int GrabModeAsync = 1;
+    int GrabSuccess = 0;
+
+    /** Every pointer event goes to {@code grabWindow}'s client until {@link #XUngrabPointer}; used to point at a window. */
+    int XGrabPointer(Pointer display, Pointer grabWindow, boolean ownerEvents, int eventMask, int pointerMode,
+                     int keyboardMode, Pointer confineTo, Pointer cursor, long time);
+
+    int XUngrabPointer(Pointer display, long time);
+
+    /** Every key event goes to this client until {@link #XUngrabKeyboard}: Esc cancels pointing. */
+    int XGrabKeyboard(Pointer display, Pointer grabWindow, boolean ownerEvents, int pointerMode, int keyboardMode,
+                      long time);
+
+    int XUngrabKeyboard(Pointer display, long time);
+
+    /** Events already received and not read, without blocking. */
+    int XPending(Pointer display);
+
+    /** The next event into {@code event}, a buffer of at least {@code sizeof(XEvent)} (192 bytes on 64-bit). */
+    int XNextEvent(Pointer display, Pointer event);
+
     // Window queries
     int XQueryTree(Pointer display, Pointer window,
                    PointerByReference rootReturn,
