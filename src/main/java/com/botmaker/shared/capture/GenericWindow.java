@@ -3,9 +3,20 @@
 
 package com.botmaker.shared.capture;
 
+import com.sun.jna.Pointer;
+import com.sun.jna.PointerType;
+
 import java.awt.Rectangle;
+import java.util.Optional;
 
 public class GenericWindow {
+
+    /** A native handle that says its window's id itself (macOS's window number). */
+    public interface Identified {
+        /** The window's id on its desktop, as {@link #id()} gives it. */
+        String windowId();
+    }
+
     /** The {@link #getPid()} of a window whose process is not known. */
     public static final long NO_PID = -1;
 
@@ -34,6 +45,22 @@ public class GenericWindow {
 
     public Object getNativeHandle() {
         return nativeHandle;
+    }
+
+    /**
+     * The window's id on its desktop, which stays while the window is open whatever its title or place: the X11 window
+     * id or the {@code HWND} in hex, macOS's window number. Empty for a handle that has none (a game VM's guest
+     * window). Two runs on one desktop tell their windows apart by it (spec {@code 2026-11-26-run-places-design.md}).
+     */
+    public Optional<String> id() {
+        return switch (nativeHandle) {
+            case Pointer pointer -> Optional.of(Long.toHexString(Pointer.nativeValue(pointer)));
+            case PointerType handle -> Optional.of(Long.toHexString(Pointer.nativeValue(handle.getPointer())));
+            case Identified identified -> Optional.of(identified.windowId());
+            case Long number -> Optional.of(Long.toHexString(number));
+            case Integer number -> Optional.of(Integer.toHexString(number));
+            case null, default -> Optional.empty();
+        };
     }
 
     public String getTitle() {

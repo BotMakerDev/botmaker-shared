@@ -86,6 +86,23 @@ class GameWindowsTest {
                 GameWindows.GamePids.NONE, TITLES)).orElseThrow());
     }
 
+    /** Two runs of one game on one desktop, each with its account's window (run places, 2026-11-27). */
+    @Test
+    void aWindowAnotherRunHoldsIsNeverProvenAndTheOtherIs() {
+        GenericWindow first = new GenericWindow(0x3a00007L, "Game - Account 1", new Rectangle(0, 0, 800, 600), 90,
+                "game.exe");
+        GenericWindow second = new GenericWindow(0x3c00004L, "Game - Account 2", new Rectangle(0, 0, 800, 600), 91,
+                "game.exe");
+        WindowIdentity game = WindowIdentity.parse("game.exe");
+
+        assertEquals(Optional.of("3a00007"), first.id());
+        assertSame(second, GameWindows.named(game, List.of(first, second), Set.of("3a00007")).orElseThrow());
+        assertSame(first, GameWindows.named(game, List.of(first, second), Set.of("3c00004")).orElseThrow());
+        assertEquals(Optional.empty(), GameWindows.named(game, List.of(first, second), Set.of("3a00007", "3c00004")),
+                "every window is another run's: none is this run's");
+        assertEquals(Optional.empty(), new GenericWindow(new Object(), "VM guest", new Rectangle(0, 0, 1, 1)).id());
+    }
+
     /** Every Flatpak sandbox numbers from 2: another sandboxed app's window with that id is not the game's. */
     @Test
     void aSandboxIdProvesOnlyAWindowTitledAfterTheGame() {

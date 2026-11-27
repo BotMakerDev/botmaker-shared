@@ -87,7 +87,7 @@ public final class GameWindows {
     /** The verdict for {@code spec} (null for none: no process, no title) over {@code windows}. */
     public static Verdict of(LaunchSpec spec, WindowIdentity game, List<GenericWindow> windows) {
         List<String> tokens = spec == null ? List.of() : Launcher.runningTokens(spec);
-        return judge(windows, game, spec == null ? GamePids.NONE : gamePids(spec, tokens), tokens);
+        return judge(windows, game, spec == null ? GamePids.NONE : gamePids(spec, tokens), tokens, Set.of());
     }
 
     /**
@@ -95,7 +95,15 @@ public final class GameWindows {
      * makes each time once it knows the game's window.
      */
     public static Optional<GenericWindow> named(WindowIdentity game, List<GenericWindow> windows) {
-        return proven(judge(windows, game, GamePids.NONE, List.of()));
+        return named(game, windows, Set.of());
+    }
+
+    /**
+     * {@link #named(WindowIdentity, List)} among the windows whose {@link GenericWindow#id() id} is not in
+     * {@code taken}: the windows other runs on this desktop play in, so two runs of one game never share a window.
+     */
+    public static Optional<GenericWindow> named(WindowIdentity game, List<GenericWindow> windows, Set<String> taken) {
+        return proven(judge(windows, game, GamePids.NONE, List.of(), taken));
     }
 
     private static Verdict scan(LaunchSpec spec, WindowIdentity game, boolean withProcesses) {
@@ -103,7 +111,7 @@ public final class GameWindows {
         try {
             List<GenericWindow> windows = NativeControllerFactory.get().getAllWindows();
             if (withProcesses) return of(spec, game, windows);
-            return judge(windows, game, GamePids.NONE, Launcher.runningTokens(spec));
+            return judge(windows, game, GamePids.NONE, Launcher.runningTokens(spec), Set.of());
         } catch (Exception e) {
             // Includes the UnsupportedOperationException macOS's absent backend throws.
             Diag.log("[Target] window scan for " + spec.spec() + " failed: " + e.getMessage());
@@ -118,11 +126,19 @@ public final class GameWindows {
      *
      * <p>Several proved windows — a splash and the game — are ranked by title, then by size. While the game runs,
      * a window whose process is known and is not the game's is no candidate; with no game process at all, every
-     * window titled after it is.
+     * window titled after it is. A window whose id is in {@code taken} is another run's, and never an answer.
      */
     static Verdict judge(List<GenericWindow> windows, WindowIdentity game, GamePids pids, List<String> titles) {
+        return judge(windows, game, pids, titles, Set.of());
+    }
+
+    /** {@link #judge(List, WindowIdentity, GamePids, List)} with no window of {@code taken}'s ids. */
+    static Verdict judge(List<GenericWindow> windows, WindowIdentity game, GamePids pids, List<String> titles,
+                         Set<String> taken) {
         List<GenericWindow> usable = windows == null ? List.of()
-                : windows.stream().filter(w -> w != null && area(w.getRect()) > 0 && !WindowMatch.isOwn(w)).toList();
+                : windows.stream().filter(w -> w != null && area(w.getRect()) > 0 && !WindowMatch.isOwn(w))
+                        .filter(w -> w.id().filter(taken::contains).isEmpty())
+                        .toList();
         List<GenericWindow> titled = byTitle(usable, titles);
 
         if (game != null) {

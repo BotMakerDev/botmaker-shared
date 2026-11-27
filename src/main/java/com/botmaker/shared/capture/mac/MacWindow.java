@@ -3,6 +3,8 @@
 
 package com.botmaker.shared.capture.mac;
 
+import com.botmaker.shared.capture.GenericWindow;
+
 import java.awt.geom.Rectangle2D;
 import java.util.List;
 import java.util.Optional;
@@ -44,6 +46,10 @@ record MacWindow(long id, int pid, String name, String owner, Rectangle2D bounds
         return new Ref(id, pid);
     }
 
-    record Ref(long id, int pid) {
+    record Ref(long id, int pid) implements GenericWindow.Identified {
+        @Override
+        public String windowId() {
+            return Long.toString(id);
+        }
     }
 }

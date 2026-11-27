@@ -16,6 +16,10 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- **A window says its id, and a game's window can leave out other runs'** (2026-11-27, run places phase 6):
+  `GenericWindow.id()` gives the X11 window id or the `HWND` in hex, or macOS's window number; empty for a game VM's
+  guest window. `GameWindows.named(game, windows, taken)` never answers a window whose id is in `taken`.
+
 - **An `emu-app:` target may name no instance** (2026-11-27, run places phase 4b): `LaunchSpec.emulatorPackage()`
   reads `emu-app:<package>[#<page>]`, `emulatorApp` with a blank instance writes none, and `withoutInstance()` drops
   it. `EmulatorInstances.forApp(reference)` is the instance named, else this computer's only one; `Launcher`, the
