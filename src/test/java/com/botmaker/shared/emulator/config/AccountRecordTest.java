@@ -9,9 +9,11 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** An account's addresses and the verification its sign-in follows (Google sign-in plan, phase 2). */
@@ -71,5 +73,56 @@ class AccountRecordTest {
                 Verification.BACKUP_CODE, Verification.ASK), Verification.methods());
         assertEquals(List.of(Verification.PHONE, Verification.CODE, Verification.BACKUP_CODE, Verification.ASK),
                 Verification.defaults());
+    }
+
+    @Test
+    void aLaunchTargetsAccountIsKeyedByItsTargetSoTwoGamesMayEachHaveAMain() {
+        AccountRecord one = AccountRecord.ofLaunchTarget(" emu-app:com.one ", "Main", "");
+        AccountRecord two = AccountRecord.ofLaunchTarget("steam:12345", "main", "");
+        assertEquals(new AccountRecord.Key(Kind.LAUNCH_TARGET, "emu-app:com.one", "main"), one.key());
+        assertFalse(one.key().equals(two.key()), "another launch target's main is another account");
+        assertEquals("launch-target", Kind.LAUNCH_TARGET.id());
+        assertEquals(Kind.LAUNCH_TARGET, Kind.fromId("launch-target"));
+        assertFalse(Kind.LAUNCH_TARGET.signedInByBotMaker());
+        assertEquals(new AccountRecord.Key(Kind.GOOGLE, "a@example.com"),
+                new AccountRecord.Key(Kind.GOOGLE, "emu-app:com.one", "A@example.com"), "only a launch target's key has one");
+        assertEquals(List.of(one.key(), new AccountRecord.Key(Kind.LAUNCH_TARGET, "emu-app:com.one", "alt")),
+                one.withAlias("Alt").keys(), "each address keyed under the target");
+    }
+
+    @Test
+    void aLaunchTargetsAccountKeepsItsLinksThroughEveryChange() {
+        AccountRecord.Key google = new AccountRecord.Key(Kind.GOOGLE, "Main@Gmail.com");
+        AccountRecord linked = AccountRecord.ofLaunchTarget("emu-app:com.one", "main", "")
+                .withSignsInWith(Optional.of(google)).withPlaysAt(" this-pc/android/MEmu_1 ");
+        AccountRecord changed = linked.withNote("farm").withVerify(Verification.CODE).withAlias("alt");
+        assertEquals(Optional.of(google), changed.signsInWith());
+        assertEquals("this-pc/android/MEmu_1", changed.playsAt());
+        assertEquals("emu-app:com.one", changed.target());
+        assertEquals("", changed.withPlaysAt("").playsAt(), "no place: any free place");
+    }
+
+    @Test
+    void onlyALaunchTargetsAccountHasLinksAndItNamesItsTarget() {
+        AccountRecord google = new AccountRecord(Kind.GOOGLE, "a@example.com", "", List.of(), Verification.DEFAULT,
+                "emu-app:com.one", Optional.of(new AccountRecord.Key(Kind.MAIL, "m")), "this-pc/desktop");
+        assertEquals("", google.target());
+        assertTrue(google.signsInWith().isEmpty());
+        assertEquals("", google.playsAt());
+        assertThrows(IllegalArgumentException.class, () -> AccountRecord.ofLaunchTarget(" ", "main", ""));
+        AccountRecord game = AccountRecord.ofLaunchTarget("emu-app:com.one", "main", "");
+        assertThrows(IllegalArgumentException.class, () -> game.withSignsInWith(Optional.of(game.key())),
+                "a game's account signs in with a Google, Facebook or mail one");
+    }
+
+    @Test
+    void aLinksKeyReadsBackFromTheTextTheBookWrites() {
+        AccountRecord.Key google = new AccountRecord.Key(Kind.GOOGLE, "Main@Gmail.com");
+        assertEquals("google:main@gmail.com", google.text());
+        assertEquals(Optional.of(google), AccountRecord.Key.parse(google.text()));
+        assertTrue(AccountRecord.Key.parse("google:").isEmpty());
+        assertTrue(AccountRecord.Key.parse("newer:x").isEmpty(), "a kind this build does not know");
+        assertTrue(AccountRecord.Key.parse("launch-target:x").isEmpty());
+        assertTrue(AccountRecord.Key.parse(null).isEmpty());
     }
 }

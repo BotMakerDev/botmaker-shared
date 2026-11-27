@@ -16,6 +16,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Changed
 
+- **An account kept for a launch target** (2026-11-27, run places phase 7b): `AccountRecord.Kind.LAUNCH_TARGET`
+  (`launch-target`, "Launch target", not signed in by BotMaker), and on such a record `target`, `signsInWith` (an
+  `AccountRecord.Key`) and `playsAt` (a place's key, `this-pc/android/MEmu_1`). A record gains those three components;
+  the five-part constructor keeps a Google, Facebook or mail account. `AccountRecord.Key` gains `target`, so two launch
+  targets may each have an account called `main`, and `text()`/`parse` for a link (`google:main@gmail.com`).
+  `AccountRecord.keys()` gives the key under each address, so no consumer rebuilds one without its target.
+
 - **A window says its id, and a game's window can leave out other runs'** (2026-11-27, run places phase 6):
   `GenericWindow.id()` gives the X11 window id or the `HWND` in hex, or macOS's window number; empty for a game VM's
   guest window. `GameWindows.named(game, windows, taken)` never answers a window whose id is in `taken`.
